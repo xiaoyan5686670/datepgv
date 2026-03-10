@@ -5,7 +5,8 @@ WORKDIR /app
 FROM base AS deps
 COPY package.json package-lock.json* ./
 # Use Taobao npm mirror for faster installs in China
-RUN npm ci --registry=https://registry.npmmirror.com
+# npm ci requires package-lock.json; fall back to npm install if missing
+RUN if [ -f package-lock.json ]; then npm ci --registry=https://registry.npmmirror.com; else npm install --registry=https://registry.npmmirror.com; fi
 
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
