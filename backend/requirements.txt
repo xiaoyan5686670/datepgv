@@ -1,0 +1,29 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+pgvector==0.3.6
+pydantic==2.10.3
+pydantic-settings==2.6.1
+python-dotenv==1.0.1
+python-multipart==0.0.20
+
+# LLM
+litellm==1.57.0
+
+# Embeddings (supports OpenAI, HuggingFace, etc.)
+openai==1.59.3
+
+# SQL parsing & validation
+sqlfluff==3.3.1
+sqlparse==0.5.3
+
+# CSV / Excel import
+openpyxl==3.1.5
+pandas==2.2.3
+
+# HTTP client
+httpx==0.28.1
+
+# DDL parsing
+sqlglot==26.0.0

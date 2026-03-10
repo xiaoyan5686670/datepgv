@@ -1,0 +1,40 @@
+version: "3.9"
+
+# PostgreSQL runs on the Mac host via Homebrew (see README for setup).
+# Only backend and frontend are containerized.
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: datepgv-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # host.docker.internal resolves to the Mac host from inside Docker
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-datepgv}:${POSTGRES_PASSWORD:-datepgv123}@host.docker.internal:5432/${POSTGRES_DB:-datepgv}
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: datepgv-frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
