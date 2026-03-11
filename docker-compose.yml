@@ -13,7 +13,8 @@ services:
     env_file: .env
     environment:
       # host.docker.internal resolves to the Mac host from inside Docker
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-datepgv}:${POSTGRES_PASSWORD:-datepgv123}@host.docker.internal:5432/${POSTGRES_DB:-datepgv}
+      # Use DATABASE_URL from .env file if available, otherwise construct from individual vars
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://${POSTGRES_USER:-datepgv}:${POSTGRES_PASSWORD:-datepgv123}@host.docker.internal:5432/${POSTGRES_DB:-datepgv}}
     ports:
       - "8000:8000"
     extra_hosts:
