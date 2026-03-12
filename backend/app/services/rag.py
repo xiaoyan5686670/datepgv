@@ -14,7 +14,7 @@ from app.core.config import settings
 from app.models.metadata import TableMetadata
 from app.services.embedding import EmbeddingService
 
-SQLType = Literal["hive", "postgresql"]
+SQLType = Literal["hive", "postgresql", "oracle"]
 
 HIVE_RULES = """
 Hive SQL 规范：
@@ -34,6 +34,16 @@ PostgreSQL 规范：
 - 日期函数：DATE_TRUNC / TO_CHAR / EXTRACT
 - 使用 LIMIT / OFFSET 分页
 - 窗口函数：ROW_NUMBER() / LAG() / LEAD() / SUM() OVER(...)
+      - 避免 SELECT *，明确列出字段
+""".strip()
+
+ORACLE_RULES = """
+Oracle SQL 规范：
+- 使用双引号区分大小写标识符，推荐统一使用大写不加引号
+- 日期时间类型通常为 DATE 或 TIMESTAMP，使用 TO_DATE / TO_TIMESTAMP / TO_CHAR 进行转换
+- 字符串拼接使用 || 运算符
+- 推荐使用 OFFSET ... ROWS FETCH NEXT ... ROWS ONLY 或 ROWNUM 进行分页
+- 支持丰富的窗口函数：ROW_NUMBER() / LAG() / LEAD() / RANK() 等
 - 避免 SELECT *，明确列出字段
 """.strip()
 
@@ -130,7 +140,13 @@ class RAGEngine:
         sql_type: SQLType,
     ) -> list[dict[str, str]]:
         """Construct the messages list for the LLM."""
-        rules = HIVE_RULES if sql_type == "hive" else POSTGRESQL_RULES
+        if sql_type == "hive":
+            rules = HIVE_RULES
+        elif sql_type == "postgresql":
+            rules = POSTGRESQL_RULES
+        else:
+            rules = ORACLE_RULES
+
         schemas = "\n\n".join(_format_table_schema(t) for t in tables)
 
         system_prompt = f"""你是一个专业的数据仓库工程师，只生成 {sql_type.upper()} SQL。

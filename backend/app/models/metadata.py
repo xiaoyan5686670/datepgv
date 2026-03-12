@@ -26,7 +26,7 @@ class TableMetadata(Base):
     db_type: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
-        comment="hive or postgresql",
+        comment="hive, postgresql, or oracle",
     )
     database_name: Mapped[str | None] = mapped_column(String(200))
     schema_name: Mapped[str | None] = mapped_column(String(200))
@@ -46,6 +46,8 @@ class TableMetadata(Base):
     )
 
     __table_args__ = (
-        CheckConstraint("db_type IN ('hive', 'postgresql')", name="db_type_check"),
+        CheckConstraint(
+            "db_type IN ('hive', 'postgresql', 'oracle')", name="db_type_check"
+        ),
         Index("table_metadata_name_idx", "db_type", "database_name", "table_name"),
     )

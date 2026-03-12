@@ -98,7 +98,7 @@ def _row_to_response(row: TableMetadata) -> TableMetadataResponse:
 
 @router.get("/", response_model=list[TableMetadataResponse])
 async def list_metadata(
-    db_type: Literal["hive", "postgresql", "all"] = Query("all"),
+    db_type: Literal["hive", "postgresql", "oracle", "all"] = Query("all"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -203,7 +203,7 @@ async def import_from_ddl(
 @router.post("/import/csv", response_model=list[TableMetadataResponse], status_code=201)
 async def import_from_csv(
     file: UploadFile = File(...),
-    db_type: Literal["hive", "postgresql"] = Form("hive"),
+    db_type: Literal["hive", "postgresql", "oracle"] = Form("hive"),
     database_name: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ) -> list[TableMetadataResponse]:

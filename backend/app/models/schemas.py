@@ -17,7 +17,7 @@ class ColumnInfo(BaseModel):
 # ── Table Metadata ────────────────────────────────────────────────────────────
 
 class TableMetadataCreate(BaseModel):
-    db_type: Literal["hive", "postgresql"]
+    db_type: Literal["hive", "postgresql", "oracle"]
     database_name: str | None = None
     schema_name: str | None = None
     table_name: str
@@ -69,7 +69,7 @@ class TableMetadataResponse(BaseModel):
 class ChatRequest(BaseModel):
     session_id: str | None = None
     query: str = Field(..., min_length=1, max_length=2000)
-    sql_type: Literal["hive", "postgresql"] = "hive"
+    sql_type: Literal["hive", "postgresql", "oracle"] = "hive"
     top_k: int = Field(default=5, ge=1, le=20)
 
 
@@ -91,7 +91,7 @@ class ChatSessionSummary(BaseModel):
 
 class DDLImportRequest(BaseModel):
     ddl: str = Field(..., min_length=10)
-    db_type: Literal["hive", "postgresql"] = "hive"
+    db_type: Literal["hive", "postgresql", "oracle"] = "hive"
     database_name: str | None = None
 
 
@@ -99,7 +99,7 @@ class DDLImportRequest(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str
-    db_type: Literal["hive", "postgresql", "all"] = "all"
+    db_type: Literal["hive", "postgresql", "oracle", "all"] = "all"
     top_k: int = Field(default=5, ge=1, le=50)
 
 

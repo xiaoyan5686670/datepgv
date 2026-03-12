@@ -31,6 +31,18 @@ const PG_EXAMPLE = `CREATE TABLE public.dim_product (
 );
 COMMENT ON TABLE public.dim_product IS '商品维度表';`;
 
+const ORACLE_EXAMPLE = `CREATE TABLE DW.FACT_SALES (
+  ORDER_ID    VARCHAR2(64)   NOT NULL,
+  PRODUCT_ID  VARCHAR2(64)   NOT NULL,
+  USER_ID     VARCHAR2(64)   NOT NULL,
+  AMOUNT      NUMBER(12,2)   NOT NULL,
+  SALE_DATE   DATE           NOT NULL,
+  CHANNEL     VARCHAR2(32),
+  REGION      VARCHAR2(64)
+);
+COMMENT ON TABLE DW.FACT_SALES IS '销售事实表';
+COMMENT ON COLUMN DW.FACT_SALES.AMOUNT IS '销售金额';`;
+
 export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
   const [dbType, setDbType] = useState<SqlType>("hive");
   const [databaseName, setDatabaseName] = useState("");
@@ -70,24 +82,32 @@ export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
             <div>
               <label className="block text-xs text-[#8892a4] mb-1.5">数据库类型</label>
               <div className="flex gap-2">
-                {(["hive", "postgresql"] as SqlType[]).map((t) => (
+                {(["hive", "postgresql", "oracle"] as SqlType[]).map((t) => (
                   <button
                     key={t}
                     type="button"
                     onClick={() => {
                       setDbType(t);
-                      setDdl(t === "hive" ? HIVE_EXAMPLE : PG_EXAMPLE);
+                      if (t === "hive") {
+                        setDdl(HIVE_EXAMPLE);
+                      } else if (t === "postgresql") {
+                        setDdl(PG_EXAMPLE);
+                      } else {
+                        setDdl(ORACLE_EXAMPLE);
+                      }
                     }}
                     className={cn(
                       "flex-1 py-1.5 rounded-lg text-sm border transition-all",
                       dbType === t
                         ? t === "hive"
                           ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
-                          : "bg-blue-500/20 text-blue-300 border-blue-500/40"
+                          : t === "postgresql"
+                          ? "bg-blue-500/20 text-blue-300 border-blue-500/40"
+                          : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
                         : "bg-[#12151f] text-[#8892a4] border-[#2a2d3d] hover:text-[#e2e8f0]"
                     )}
                   >
-                    {t === "hive" ? "Hive" : "PostgreSQL"}
+                    {t === "hive" ? "Hive" : t === "postgresql" ? "PostgreSQL" : "Oracle"}
                   </button>
                 ))}
               </div>
@@ -110,7 +130,15 @@ export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
               </label>
               <button
                 type="button"
-                onClick={() => setDdl(dbType === "hive" ? HIVE_EXAMPLE : PG_EXAMPLE)}
+                onClick={() =>
+                  setDdl(
+                    dbType === "hive"
+                      ? HIVE_EXAMPLE
+                      : dbType === "postgresql"
+                      ? PG_EXAMPLE
+                      : ORACLE_EXAMPLE
+                  )
+                }
                 className="text-xs text-[#0ea5e9] hover:text-[#38bdf8]"
               >
                 填入示例
