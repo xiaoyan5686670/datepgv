@@ -1,4 +1,4 @@
-import type { SqlType, TableMetadata } from "@/types";
+import type { ChatSessionSummary, SqlType, TableMetadata } from "@/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const API = `${BASE}/api/v1`;
@@ -74,6 +74,33 @@ export async function reembedAll(): Promise<{ reembedded: number }> {
 
 export function buildChatStreamUrl(): string {
   return `${API}/chat/stream`;
+}
+
+export async function fetchChatSessions(): Promise<ChatSessionSummary[]> {
+  const res = await fetch(`${API}/chat/sessions`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function fetchChatHistory(
+  sessionId: string
+): Promise<
+  {
+    id: number;
+    role: "user" | "assistant";
+    content: string;
+    sql_type: SqlType | null;
+    created_at: string;
+  }[]
+> {
+  const res = await fetch(`${API}/chat/sessions/${sessionId}/history`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function deleteChatSession(sessionId: string): Promise<void> {
+  const res = await fetch(`${API}/chat/sessions/${sessionId}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) throw new Error(await res.text());
 }
 
 // ── LLM Config ────────────────────────────────────────────────────────────────

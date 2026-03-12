@@ -65,6 +65,7 @@ class TableMetadataResponse(BaseModel):
 
 # ── Chat ──────────────────────────────────────────────────────────────────────
 
+
 class ChatRequest(BaseModel):
     session_id: str | None = None
     query: str = Field(..., min_length=1, max_length=2000)
@@ -78,6 +79,12 @@ class ChatResponse(BaseModel):
     sql_type: str
     referenced_tables: list[str]
     model_used: str
+
+
+class ChatSessionSummary(BaseModel):
+    session_id: str
+    created_at: datetime
+    last_message_at: datetime
 
 
 # ── DDL Import ────────────────────────────────────────────────────────────────

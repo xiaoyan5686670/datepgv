@@ -38,6 +38,12 @@ export interface ChatSession {
   messages: ChatMessage[];
 }
 
+export interface ChatSessionSummary {
+  session_id: string;
+  created_at: string;
+  last_message_at: string;
+}
+
 // ── LLM Config ────────────────────────────────────────────────────────────────
 
 export interface LLMConfig {

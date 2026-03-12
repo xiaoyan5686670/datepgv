@@ -1,6 +1,6 @@
 "use client";
 
-import { Database, Loader2, Send, Trash2 } from "lucide-react";
+import { Clock, Database, Loader2, Send, Trash2, XCircle } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -9,8 +9,21 @@ import {
 } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { cn } from "@/lib/utils";
-import { buildChatStreamUrl } from "@/lib/api";
-import type { ChatMessage, DoneEvent, MetaEvent, SqlType, SSEEvent, TokenEvent } from "@/types";
+import {
+  buildChatStreamUrl,
+  deleteChatSession,
+  fetchChatHistory,
+  fetchChatSessions,
+} from "@/lib/api";
+import type {
+  ChatMessage,
+  ChatSessionSummary,
+  DoneEvent,
+  MetaEvent,
+  SqlType,
+  SSEEvent,
+  TokenEvent,
+} from "@/types";
 import { SQLResult } from "./SQLResult";
 
 const SUGGESTED_QUERIES = [
@@ -28,7 +41,14 @@ export function ChatBox({ sqlType }: ChatBoxProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [sessionId, setSessionId] = useState<string>(() => uuidv4());
+  const [sessionId, setSessionId] = useState<string>(() => {
+    if (typeof window === "undefined") return uuidv4();
+    const key = `datepgv_chat_session_${sqlType}`;
+    const saved = window.localStorage.getItem(key);
+    return saved || uuidv4();
+  });
+  const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -36,10 +56,103 @@ export function ChatBox({ sqlType }: ChatBoxProps) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Persist session id per SQL type for refresh persistence
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const key = `datepgv_chat_session_${sqlType}`;
+    window.localStorage.setItem(key, sessionId);
+  }, [sessionId, sqlType]);
+
+  // Load existing sessions list
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fetchChatSessions();
+        if (!cancelled) setSessions(data);
+      } catch {
+        // ignore for now
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load history for current session on mount / session change
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoadingHistory(true);
+      try {
+        const history = await fetchChatHistory(sessionId);
+        if (cancelled) return;
+        if (!history.length) {
+          setMessages([]);
+          return;
+        }
+        const mapped: ChatMessage[] = history.map((h) => {
+          if (h.role === "user") {
+            return {
+              id: String(h.id),
+              role: "user",
+              content: h.content,
+            };
+          }
+          // assistant message: store SQL in sql field, use sql_type from history
+          return {
+            id: String(h.id),
+            role: "assistant",
+            content: "",
+            sql: h.content,
+            sql_type: (h.sql_type as SqlType) ?? sqlType,
+            referenced_tables: [],
+            isStreaming: false,
+          };
+        });
+        setMessages(mapped);
+      } catch {
+        // ignore history load error
+      } finally {
+        if (!cancelled) setLoadingHistory(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, sqlType]);
+
   const clearSession = useCallback(() => {
     setMessages([]);
-    setSessionId(uuidv4());
+    const nextId = uuidv4();
+    setSessionId(nextId);
   }, []);
+
+  const handleSelectSession = useCallback(
+    (sid: string) => {
+      if (sid === sessionId) return;
+      setSessionId(sid);
+    },
+    [sessionId]
+  );
+
+  const handleDeleteSession = useCallback(
+    async (sid: string) => {
+      if (!confirm("确定删除该会话及其所有历史记录？")) return;
+      try {
+        await deleteChatSession(sid);
+        setSessions((prev) => prev.filter((s) => s.session_id !== sid));
+        if (sid === sessionId) {
+          // If current session deleted, reset to a new empty session
+          clearSession();
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-alert
+        alert(`删除失败: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+    [clearSession, sessionId]
+  );
 
   const send = useCallback(
     async (query: string) => {
@@ -177,7 +290,50 @@ export function ChatBox({ sqlType }: ChatBoxProps) {
     <div className="flex flex-col h-full">
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
-        {messages.length === 0 && (
+        {/* Session list */}
+        {sessions.length > 0 && (
+          <div className="flex items-center justify-between mb-2 text-xs text-[#8892a4]">
+            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+              <span className="flex items-center gap-1">
+                <Clock size={12} />
+                最近会话:
+              </span>
+              {sessions.map((s) => (
+                <div
+                  key={s.session_id}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] whitespace-nowrap border-[#2a2d3d] hover:border-[#0ea5e9]/40"
+                >
+                  <button
+                    onClick={() => handleSelectSession(s.session_id)}
+                    className={cn(
+                      "flex-1 text-left",
+                      s.session_id === sessionId
+                        ? "text-[#e2e8f0]"
+                        : "text-[#8892a4] hover:text-[#e2e8f0]"
+                    )}
+                  >
+                    {s.session_id.slice(0, 8)}
+                  </button>
+                  <button
+                    onClick={() => handleDeleteSession(s.session_id)}
+                    className="ml-1 text-[#4a5568] hover:text-red-400"
+                    title="删除会话"
+                  >
+                    <XCircle size={11} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            {loadingHistory && (
+              <span className="flex items-center gap-1 text-[11px]">
+                <Loader2 size={11} className="animate-spin" />
+                加载历史...
+              </span>
+            )}
+          </div>
+        )}
+
+        {messages.length === 0 && !loadingHistory && (
           <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
             <div className="w-16 h-16 rounded-2xl bg-[#0ea5e9]/10 border border-[#0ea5e9]/20 flex items-center justify-center">
               <Database size={32} className="text-[#0ea5e9]" />

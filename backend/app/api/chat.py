@@ -8,14 +8,13 @@ import uuid
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.chat import ChatMessage, ChatSession
-from app.models.schemas import ChatRequest
+from app.models.schemas import ChatRequest, ChatSessionSummary
 from app.services.embedding import get_embedding_service
 from app.services.llm import get_llm_service
 from app.services.rag import RAGEngine
@@ -48,6 +47,43 @@ async def _load_history(
     )
     msgs = list(reversed(result.scalars().all()))
     return [{"role": m.role, "content": m.content} for m in msgs]
+
+
+async def _get_last_message_at(session: ChatSession, db: AsyncSession) -> datetime:
+    """
+    Return timestamp of the last message in the session, or created_at if none.
+    """
+    result = await db.execute(
+        select(ChatMessage)
+        .where(ChatMessage.session_id == session.session_id)
+        .order_by(ChatMessage.created_at.desc())
+        .limit(1)
+    )
+    last = result.scalar_one_or_none()
+    return last.created_at if last else session.created_at
+
+
+@router.get("/sessions", response_model=list[ChatSessionSummary])
+async def list_sessions(db: AsyncSession = Depends(get_db)) -> list[ChatSessionSummary]:
+    """
+    List chat sessions ordered by most recent activity.
+    """
+    result = await db.execute(select(ChatSession).order_by(ChatSession.created_at.desc()))
+    sessions = result.scalars().all()
+
+    summaries: list[ChatSessionSummary] = []
+    for s in sessions:
+        last_at = await _get_last_message_at(s, db)
+        summaries.append(
+            ChatSessionSummary(
+                session_id=s.session_id,
+                created_at=s.created_at,
+                last_message_at=last_at,
+            )
+        )
+    # Sort by last_message_at desc so most active sessions show first
+    summaries.sort(key=lambda x: x.last_message_at, reverse=True)
+    return summaries
 
 
 async def _save_messages(
