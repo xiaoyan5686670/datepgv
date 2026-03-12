@@ -35,9 +35,10 @@ class TableMetadata(Base):
     columns: Mapped[list[Any]] = mapped_column(JSON, nullable=False, default=list)
     sample_data: Mapped[list[Any] | None] = mapped_column(JSON)
     tags: Mapped[list[str] | None] = mapped_column(ARRAY(String))
-    embedding: Mapped[list[float] | None] = mapped_column(
-        Vector(settings.EMBEDDING_DIM)
-    )
+    # Let PostgreSQL/pgvector enforce the actual embedding dimension based on
+    # the column definition (e.g. vector(1536) / vector(3072) / vector(768)),
+    # instead of hard‑coding it in SQLAlchemy.
+    embedding: Mapped[list[float] | None] = mapped_column(Vector())
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
