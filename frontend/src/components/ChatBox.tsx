@@ -1,6 +1,7 @@
 "use client";
 
 import { Database, Loader2, Send, Trash2 } from "lucide-react";
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -9,7 +10,7 @@ import {
 } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { cn } from "@/lib/utils";
-import { buildChatStreamUrl } from "@/lib/api";
+import { buildChatStreamUrl, deleteChatSession, getChatHistory } from "@/lib/api";
 import type { ChatMessage, DoneEvent, MetaEvent, SqlType, SSEEvent, TokenEvent } from "@/types";
 import { SQLResult } from "./SQLResult";
 
@@ -28,7 +29,20 @@ export function ChatBox({ sqlType }: ChatBoxProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [sessionId, setSessionId] = useState<string>(() => uuidv4());
+  const [sessionId, setSessionId] = useState<string>(() => {
+    if (typeof window === "undefined") {
+      return uuidv4();
+    }
+    const existing = window.localStorage.getItem("datepgv_chat_session_id");
+    if (existing) {
+      return existing;
+    }
+    const next = uuidv4();
+    window.localStorage.setItem("datepgv_chat_session_id", next);
+    return next;
+  });
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -36,14 +50,50 @@ export function ChatBox({ sqlType }: ChatBoxProps) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const clearSession = useCallback(() => {
-    setMessages([]);
-    setSessionId(uuidv4());
-  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (typeof window === "undefined") return;
+      setIsLoadingHistory(true);
+      try {
+        const history = await getChatHistory(sessionId);
+        if (cancelled || history.length === 0) return;
+        setMessages(history);
+      } catch (err) {
+        console.error("加载聊天历史失败", err);
+      } finally {
+        if (!cancelled) {
+          setIsLoadingHistory(false);
+        }
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+
+  const clearSession = useCallback(async () => {
+    const currentId = sessionId;
+    setIsLoading(true);
+    try {
+      await deleteChatSession(currentId);
+    } catch (err) {
+      console.error("删除会话失败", err);
+    } finally {
+      const next = uuidv4();
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("datepgv_chat_session_id", next);
+      }
+      setSessionId(next);
+      setMessages([]);
+      setIsLoading(false);
+    }
+  }, [sessionId]);
 
   const send = useCallback(
     async (query: string) => {
-      if (!query.trim() || isLoading) return;
+      if (!query.trim() || isLoading || isLoadingHistory) return;
       setInput("");
 
       const userMsg: ChatMessage = {
@@ -63,6 +113,7 @@ export function ChatBox({ sqlType }: ChatBoxProps) {
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setIsLoading(true);
+      setLastError(null);
 
       try {
         const res = await fetch(buildChatStreamUrl(), {
@@ -133,12 +184,26 @@ export function ChatBox({ sqlType }: ChatBoxProps) {
                 )
               );
             } else if (event.type === "error") {
+              const errorMsg = (event as { type: "error"; message: string }).message;
+              const isEmbeddingError = errorMsg.includes("Embedding");
+              
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsgId
                     ? {
                         ...m,
-                        content: `错误: ${(event as { type: "error"; message: string }).message}`,
+                        content: isEmbeddingError ? (
+                          <div className="flex flex-col gap-3">
+                            <p className="text-amber-400 font-medium">⚠️ 缺少模型配置</p>
+                            <p>{errorMsg}</p>
+                            <Link 
+                              href="/settings" 
+                              className="inline-flex items-center justify-center px-4 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg transition-all text-xs w-fit"
+                            >
+                              前往设置页面添加配置
+                            </Link>
+                          </div>
+                        ) : `错误: ${errorMsg}`,
                         isStreaming: false,
                       }
                     : m
@@ -148,12 +213,14 @@ export function ChatBox({ sqlType }: ChatBoxProps) {
           }
         }
       } catch (err) {
+        const errorText = `请求失败: ${err instanceof Error ? err.message : "未知错误"}`;
+        setLastError(errorText);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsgId
               ? {
                   ...m,
-                  content: `请求失败: ${err instanceof Error ? err.message : "未知错误"}`,
+                  content: errorText,
                   isStreaming: false,
                 }
               : m
@@ -177,7 +244,7 @@ export function ChatBox({ sqlType }: ChatBoxProps) {
     <div className="flex flex-col h-full">
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
-        {messages.length === 0 && (
+        {messages.length === 0 && !isLoadingHistory && (
           <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
             <div className="w-16 h-16 rounded-2xl bg-[#0ea5e9]/10 border border-[#0ea5e9]/20 flex items-center justify-center">
               <Database size={32} className="text-[#0ea5e9]" />

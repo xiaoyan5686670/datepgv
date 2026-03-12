@@ -15,6 +15,9 @@ class ChatSession(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
+    # 预留 user 维度，未来可以通过外键关联到用户表
+    user_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
     messages: Mapped[list["ChatMessage"]] = relationship(
         "ChatMessage", back_populates="session", cascade="all, delete-orphan"
     )

@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS table_metadata (
     updated_at    TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- IVFFlat approximate vector index for fast cosine similarity search
+-- IVFFlat index for cosine search (max 2000 dimensions; for 3072-dim no index is created)
 CREATE INDEX IF NOT EXISTS table_metadata_embedding_idx
     ON table_metadata
     USING ivfflat (embedding vector_cosine_ops)
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS llm_configs (
     config_type  VARCHAR(20)  NOT NULL CHECK (config_type IN ('llm', 'embedding')),
     model        VARCHAR(200) NOT NULL,   -- LiteLLM model string, e.g. "gemini/gemini-2.0-flash"
     api_key      TEXT,                    -- stored as-is; masked in API responses
-    api_base     VARCHAR(500),            -- optional custom endpoint (Ollama, proxies, etc.)
+    api_base     VARCHAR(500),            -- optional custom endpoint (e.g. proxies)
     extra_params JSONB        NOT NULL DEFAULT '{}',  -- temperature, dim, max_tokens, etc.
     is_active    BOOLEAN      NOT NULL DEFAULT FALSE,
     created_at   TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -84,6 +84,14 @@ CREATE TRIGGER llm_configs_updated_at
     BEFORE UPDATE ON llm_configs
     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
+-- App-level settings (editable from Settings UI; no .env needed for embedding dim)
+CREATE TABLE IF NOT EXISTS app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+INSERT INTO app_settings (key, value) VALUES ('embedding_dim', '1536')
+ON CONFLICT (key) DO NOTHING;
+
 -- Built-in presets (no API keys; users fill them in via the Settings UI)
 INSERT INTO llm_configs (name, config_type, model, extra_params) VALUES
 ('GPT-4o (OpenAI)',          'llm',       'openai/gpt-4o',                   '{"temperature": 0.1}'),
@@ -92,11 +100,9 @@ INSERT INTO llm_configs (name, config_type, model, extra_params) VALUES
 ('Gemini 1.5 Pro',           'llm',       'gemini/gemini-1.5-pro',            '{"temperature": 0.1}'),
 ('DeepSeek Coder V2',        'llm',       'deepseek/deepseek-coder',          '{"temperature": 0.1}'),
 ('Claude 3.5 Sonnet',        'llm',       'anthropic/claude-3-5-sonnet-20241022', '{"temperature": 0.1}'),
-('Ollama (本地)',             'llm',       'ollama/qwen2.5-coder:32b',         '{"temperature": 0.1, "api_base": "http://localhost:11434"}'),
 ('text-embedding-3-small',   'embedding', 'openai/text-embedding-3-small',    '{"dim": 1536}'),
 ('text-embedding-3-large',   'embedding', 'openai/text-embedding-3-large',    '{"dim": 3072}'),
-('Gemini text-embedding-004','embedding', 'gemini/text-embedding-004',        '{"dim": 768}'),
-('Ollama nomic-embed-text',  'embedding', 'ollama/nomic-embed-text',          '{"dim": 768, "api_base": "http://localhost:11434"}');
+('Gemini text-embedding-004','embedding', 'gemini/text-embedding-004',        '{"dim": 768}');
 
 -- Seed: example tables for demonstration
 INSERT INTO table_metadata (db_type, database_name, schema_name, table_name, table_comment, columns, tags)
@@ -139,4 +145,17 @@ VALUES
         {"name": "avg_amount",   "type": "NUMERIC", "comment": "平均客单价",   "nullable": true,  "is_partition_key": false}
     ]',
     ARRAY['dws', 'sales', 'aggregation']
+),
+(
+    'hive', 'dw', NULL, 'fact_sales',
+    '销售事实表',
+    '[
+        {"name": "order_id",   "type": "STRING",  "comment": "订单ID",     "nullable": false, "is_partition_key": false},
+        {"name": "product_id", "type": "STRING",  "comment": "商品ID",     "nullable": false, "is_partition_key": false},
+        {"name": "user_id",    "type": "STRING",  "comment": "用户ID",     "nullable": false, "is_partition_key": false},
+        {"name": "amount",     "type": "DECIMAL", "comment": "销售金额",   "nullable": false, "is_partition_key": false},
+        {"name": "sale_date",  "type": "DATE",    "comment": "销售日期",   "nullable": false, "is_partition_key": false},
+        {"name": "dt",         "type": "STRING",  "comment": "分区日期",   "nullable": false, "is_partition_key": true}
+    ]',
+    ARRAY['fact', 'sales', 'dw']
 );

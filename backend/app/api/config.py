@@ -8,12 +8,13 @@ import time
 from typing import Literal
 
 import litellm
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.llm_config import LLMConfig
+from app.services.llm import _normalize_model_for_litellm
 from app.models.schemas import (
     LLMConfigCreate,
     LLMConfigResponse,
@@ -115,7 +116,7 @@ async def update_config(
 
 # ── Delete ────────────────────────────────────────────────────────────────────
 
-@router.delete("/{config_id}", status_code=204)
+@router.delete("/{config_id}", status_code=200)
 async def delete_config(
     config_id: int,
     db: AsyncSession = Depends(get_db),
@@ -130,6 +131,7 @@ async def delete_config(
         )
     await db.delete(row)
     await db.commit()
+    return {"detail": "deleted"}
 
 
 # ── Activate ──────────────────────────────────────────────────────────────────
@@ -183,7 +185,8 @@ async def test_config(
 
     start = time.monotonic()
     try:
-        kw: dict = {"model": row.model}
+        model = _normalize_model_for_litellm(row.model, row.api_key)
+        kw: dict = {"model": model}
         if row.api_key:
             kw["api_key"] = row.api_key
         # Prefer api_base from extra_params, fall back to the dedicated field
@@ -211,9 +214,12 @@ async def test_config(
         )
     except Exception as exc:
         latency_ms = int((time.monotonic() - start) * 1000)
+        msg = str(exc)
+        if "DefaultCredentialsError" in type(exc).__name__ or "default credentials" in msg.lower():
+            msg = "请使用带 gemini/ 前缀的模型名（如 gemini/gemini-2.0-flash）并在设置中填写 API Key，勿使用需 Google 云凭证的 Vertex 方式。"
         return LLMConfigTestResult(
             success=False,
-            message=str(exc),
+            message=msg,
             latency_ms=latency_ms,
         )
 

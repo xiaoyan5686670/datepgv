@@ -7,9 +7,9 @@ import json
 import uuid
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -178,7 +178,50 @@ async def get_history(
     ]
 
 
-@router.delete("/sessions/{session_id}", status_code=204)
+@router.get("/sessions")
+async def list_sessions(
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """List chat sessions with basic summary info."""
+    result = await db.execute(
+        select(
+            ChatSession.session_id,
+            func.min(ChatMessage.created_at).label("first_message_at"),
+            func.max(ChatMessage.created_at).label("last_message_at"),
+            func.coalesce(
+                func.min(
+                    func.nullif(ChatMessage.content, "")
+                ),
+                ""
+            ).label("title"),
+        )
+        .join(ChatMessage, ChatMessage.session_id == ChatSession.session_id)
+        .group_by(ChatSession.session_id)
+        .order_by(func.max(ChatMessage.created_at).desc())
+    )
+    rows = result.all()
+    sessions: list[dict] = []
+    for row in rows:
+        title = (row.title or "").strip()
+        if not title:
+            title = "新会话"
+        if len(title) > 40:
+            title = title[:40] + "..."
+        sessions.append(
+            {
+                "session_id": row.session_id,
+                "title": title,
+                "first_message_at": row.first_message_at.isoformat()
+                if row.first_message_at
+                else None,
+                "last_message_at": row.last_message_at.isoformat()
+                if row.last_message_at
+                else None,
+            }
+        )
+    return sessions
+
+@router.delete("/sessions/{session_id}", status_code=200)
 async def delete_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
@@ -192,3 +235,4 @@ async def delete_session(
         raise HTTPException(status_code=404, detail="Session not found")
     await db.delete(session)
     await db.commit()
+    return {"detail": "deleted"}

@@ -21,6 +21,8 @@ import {
   activateConfig,
   deleteConfig,
   fetchConfigs,
+  getEmbeddingDim,
+  setEmbeddingDim,
   testConfig,
 } from "@/lib/api";
 import type { LLMConfig, LLMConfigTestResult } from "@/types";
@@ -37,12 +39,18 @@ export default function SettingsPage() {
     Record<number, { result: LLMConfigTestResult; loading: boolean }>
   >({});
   const [activating, setActivating] = useState<number | null>(null);
+  const [embeddingDim, setEmbeddingDimState] = useState<number>(1536);
+  const [embeddingDimSaving, setEmbeddingDimSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchConfigs("all");
+      const [data, dimRes] = await Promise.all([
+        fetchConfigs("all"),
+        getEmbeddingDim().catch(() => ({ embedding_dim: 1536 })),
+      ]);
       setConfigs(data);
+      setEmbeddingDimState(dimRes.embedding_dim);
     } finally {
       setLoading(false);
     }
@@ -140,8 +148,45 @@ export default function SettingsPage() {
           在这里管理所有 LLM 和 Embedding 模型配置。
           <span className="text-[#e2e8f0]">将任意配置设为"活跃"</span>
           后，整个系统立即切换到该模型，无需重启服务。
-          支持 OpenAI、Gemini、DeepSeek、Anthropic、Ollama
-          等所有 LiteLLM 兼容的 Provider。
+          支持 OpenAI、Gemini、DeepSeek、Anthropic 等所有 LiteLLM 兼容的 Provider。
+        </div>
+
+        {/* Embedding 向量维度 */}
+        <div className="mb-6 bg-[#1a1d27] border border-[#2a2d3d] rounded-xl px-5 py-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm font-medium text-[#e2e8f0]">Embedding 向量维度</span>
+            <select
+              value={embeddingDim}
+              onChange={async (e) => {
+                const next = Number(e.target.value);
+                setEmbeddingDimState(next);
+                setEmbeddingDimSaving(true);
+                try {
+                  await setEmbeddingDim(next);
+                  alert(
+                    "已保存并完成数据库迁移。请重启后端服务使新维度生效，然后在「元数据管理」页执行「全部重新向量化」。"
+                  );
+                } catch (err) {
+                  alert(`保存失败: ${err instanceof Error ? err.message : err}`);
+                  load();
+                } finally {
+                  setEmbeddingDimSaving(false);
+                }
+              }}
+              disabled={embeddingDimSaving}
+              className="bg-[#0f1117] border border-[#2a2d3d] rounded-lg px-3 py-2 text-sm text-[#e2e8f0] focus:border-[#0ea5e9]/50 focus:outline-none disabled:opacity-50"
+            >
+              <option value={768}>768（如 Gemini text-embedding-004）</option>
+              <option value={1536}>1536（如 OpenAI text-embedding-3-small）</option>
+              <option value={3072}>3072（如 OpenAI text-embedding-3-large）</option>
+            </select>
+            {embeddingDimSaving && (
+              <Loader2 size={14} className="animate-spin text-[#0ea5e9]" />
+            )}
+          </div>
+          <p className="text-xs text-[#4a5568] mt-2">
+            须与当前激活的 Embedding 模型输出维度一致；修改后需重启后端并在元数据管理页执行「全部重新向量化」。
+          </p>
         </div>
 
         {/* Tabs */}
@@ -387,7 +432,6 @@ export default function SettingsPage() {
                   ["Gemini", "gemini/gemini-2.0-flash", "GEMINI_API_KEY"],
                   ["DeepSeek", "deepseek/deepseek-coder", "DEEPSEEK_API_KEY"],
                   ["Anthropic", "anthropic/claude-3-5-sonnet-20241022", "ANTHROPIC_API_KEY"],
-                  ["Ollama", "ollama/qwen2.5-coder:32b", "（填 API Base URL）"],
                   ["Azure OpenAI", "azure/gpt-4o", "AZURE_API_KEY"],
                   ["Cohere", "cohere/command-r-plus", "COHERE_API_KEY"],
                 ].map(([provider, model, key]) => (

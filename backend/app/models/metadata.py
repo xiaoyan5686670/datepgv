@@ -15,8 +15,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.core.config import settings
 from app.core.database import Base
+from app.core.embedding_dim import get_embedding_dim
 
 
 class TableMetadata(Base):
@@ -36,7 +36,7 @@ class TableMetadata(Base):
     sample_data: Mapped[list[Any] | None] = mapped_column(JSON)
     tags: Mapped[list[str] | None] = mapped_column(ARRAY(String))
     embedding: Mapped[list[float] | None] = mapped_column(
-        Vector(settings.EMBEDDING_DIM)
+        Vector(get_embedding_dim())
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

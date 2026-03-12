@@ -2,14 +2,18 @@ fastapi==0.115.6
 uvicorn[standard]==0.32.1
 sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
+psycopg2-binary>=2.9.0
 pgvector==0.3.6
 pydantic==2.10.3
 pydantic-settings==2.6.1
 python-dotenv==1.0.1
 python-multipart==0.0.20
 
-# LLM
-litellm==1.57.0
+# LLM (>=1.58+ supports httpx 0.28.x, required when using google-genai)
+litellm>=1.58.0
+
+# Google Gen AI (Gemini etc.)
+google-genai>=1.0.0
 
 # Embeddings (supports OpenAI, HuggingFace, etc.)
 openai==1.59.3
@@ -22,8 +26,8 @@ sqlparse==0.5.3
 openpyxl==3.1.5
 pandas==2.2.3
 
-# HTTP client (litellm 1.57.0 requires httpx<0.28.0)
-httpx>=0.23.0,<0.28.0
+# HTTP client (compatible with litellm and google-genai)
+httpx>=0.23.0
 
 # DDL parsing
 sqlglot==26.0.0

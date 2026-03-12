@@ -23,6 +23,7 @@ from app.models.schemas import (
 )
 from app.services.ddl_parser import parse_ddl
 from app.services.embedding import build_table_text, get_embedding_service
+from app.services.vector_store import get_vector_store
 
 router = APIRouter(prefix="/metadata", tags=["metadata"])
 
@@ -31,12 +32,13 @@ async def _upsert_with_embedding(
     db: AsyncSession,
     payload: TableMetadataCreate,
 ) -> TableMetadata:
-    """Create or update a table metadata row and generate its embedding."""
+    """Create or update a table metadata row and generate its embedding via the configured vector store."""
     emb_svc = get_embedding_service()
     text = build_table_text(payload.model_dump())
     embedding = await emb_svc.embed(text, db)
 
-    # Check for existing row
+    cols_json = [c.model_dump() for c in payload.columns]
+
     stmt = select(TableMetadata).where(
         TableMetadata.db_type == payload.db_type,
         TableMetadata.table_name == payload.table_name,
@@ -45,15 +47,14 @@ async def _upsert_with_embedding(
     result = await db.execute(stmt)
     existing = result.scalar_one_or_none()
 
-    cols_json = [c.model_dump() for c in payload.columns]
-
     if existing:
         existing.table_comment = payload.table_comment
         existing.columns = cols_json
         existing.sample_data = payload.sample_data
         existing.tags = payload.tags
         existing.schema_name = payload.schema_name
-        existing.embedding = embedding
+        store = get_vector_store()
+        await store.upsert_embedding(db, existing.id, embedding)
         await db.commit()
         await db.refresh(existing)
         return existing
@@ -67,9 +68,12 @@ async def _upsert_with_embedding(
         columns=cols_json,
         sample_data=payload.sample_data,
         tags=payload.tags,
-        embedding=embedding,
+        embedding=None,
     )
     db.add(row)
+    await db.flush()
+    store = get_vector_store()
+    await store.upsert_embedding(db, row.id, embedding)
     await db.commit()
     await db.refresh(row)
     return row
@@ -146,7 +150,6 @@ async def update_metadata(
     for field, value in update_data.items():
         setattr(row, field, value)
 
-    # Re-generate embedding after update
     emb_svc = get_embedding_service()
     row_dict = {
         "database_name": row.database_name,
@@ -156,13 +159,15 @@ async def update_metadata(
         "columns": row.columns,
         "tags": row.tags,
     }
-    row.embedding = await emb_svc.embed(build_table_text(row_dict), db)
+    embedding = await emb_svc.embed(build_table_text(row_dict), db)
+    store = get_vector_store()
+    await store.upsert_embedding(db, row.id, embedding)
     await db.commit()
     await db.refresh(row)
     return _row_to_response(row)
 
 
-@router.delete("/{metadata_id}", status_code=204)
+@router.delete("/{metadata_id}", status_code=200)
 async def delete_metadata(
     metadata_id: int,
     db: AsyncSession = Depends(get_db),
@@ -172,6 +177,7 @@ async def delete_metadata(
         raise HTTPException(status_code=404, detail="Not found")
     await db.delete(row)
     await db.commit()
+    return {"detail": "deleted"}
 
 
 # ── DDL Import ────────────────────────────────────────────────────────────────
@@ -352,8 +358,9 @@ async def search_metadata(
 
 @router.post("/reembed", status_code=202)
 async def reembed_all(db: AsyncSession = Depends(get_db)) -> dict:
-    """Re-generate embeddings for all table metadata rows."""
+    """Re-generate embeddings for all table metadata rows via the configured vector store."""
     emb_svc = get_embedding_service()
+    store = get_vector_store()
     result = await db.execute(select(TableMetadata))
     rows = result.scalars().all()
     count = 0
@@ -366,7 +373,8 @@ async def reembed_all(db: AsyncSession = Depends(get_db)) -> dict:
             "columns": row.columns,
             "tags": row.tags,
         }
-        row.embedding = await emb_svc.embed(build_table_text(row_dict), db)
+        embedding = await emb_svc.embed(build_table_text(row_dict), db)
+        await store.upsert_embedding(db, row.id, embedding)
         count += 1
     await db.commit()
     return {"reembedded": count}

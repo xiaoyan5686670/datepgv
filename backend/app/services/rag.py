@@ -1,5 +1,5 @@
 """
-RAG engine – retrieves relevant table schemas from pgvector,
+RAG engine – retrieves relevant table schemas via the configured vector store,
 then builds a structured prompt for the LLM.
 """
 from __future__ import annotations
@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.metadata import TableMetadata
 from app.services.embedding import EmbeddingService
+from app.services.vector_store import get_vector_store
 
 SQLType = Literal["hive", "postgresql"]
 
@@ -75,29 +76,13 @@ class RAGEngine:
         top_k: int | None = None,
     ) -> list[TableMetadata]:
         """
-        Embed the query and perform cosine similarity search in pgvector.
-        Falls back to keyword search when no embedding is available.
+        Embed the query and perform similarity search via the configured vector store.
+        Falls back to keyword search when few results are returned.
         """
         k = top_k or settings.RAG_TOP_K
         query_vec = await self.embedding_service.embed(query, self.db)
-
-        stmt = (
-            select(TableMetadata)
-            .order_by(
-                TableMetadata.embedding.cosine_distance(query_vec)
-            )
-            .limit(k)
-        )
-
-        # Optionally filter by db_type
-        if sql_type != "all":
-            stmt = stmt.where(TableMetadata.db_type == sql_type)
-
-        # Only rows that have embeddings
-        stmt = stmt.where(TableMetadata.embedding.is_not(None))
-
-        result = await self.db.execute(stmt)
-        rows = result.scalars().all()
+        store = get_vector_store()
+        rows = await store.search(self.db, query_vec, k, sql_type)
 
         # If few results, supplement with unembedded rows via keyword search
         if len(rows) < k:

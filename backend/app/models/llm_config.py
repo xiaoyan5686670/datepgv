@@ -15,11 +15,11 @@ class LLMConfig(Base):
     config_type: Mapped[str] = mapped_column(
         String(20), nullable=False, comment="'llm' or 'embedding'"
     )
-    # LiteLLM model string, e.g. "gemini/gemini-2.0-flash", "ollama/qwen2.5-coder:32b"
+    # LiteLLM model string, e.g. "gemini/gemini-2.0-flash"
     model: Mapped[str] = mapped_column(String(200), nullable=False)
     # Stored as plain text; masked to "****" in API responses
     api_key: Mapped[str | None] = mapped_column(Text)
-    # Optional custom API endpoint (Ollama, Azure, private proxies, etc.)
+    # Optional custom API endpoint (Azure, private proxies, etc.)
     api_base: Mapped[str | None] = mapped_column(String(500))
     # Flexible extra params: temperature, max_tokens, dim, etc.
     extra_params: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)

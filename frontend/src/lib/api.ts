@@ -1,4 +1,4 @@
-import type { SqlType, TableMetadata } from "@/types";
+import type { ChatMessage, SqlType, TableMetadata } from "@/types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const API = `${BASE}/api/v1`;
@@ -76,6 +76,55 @@ export function buildChatStreamUrl(): string {
   return `${API}/chat/stream`;
 }
 
+// ── Chat sessions ───────────────────────────────────────────────────────────────
+
+export interface ChatSessionSummary {
+  session_id: string;
+  title: string;
+  first_message_at: string | null;
+  last_message_at: string | null;
+}
+
+export async function getChatHistory(sessionId: string): Promise<ChatMessage[]> {
+  const res = await fetch(`${API}/chat/sessions/${sessionId}/history`);
+  if (!res.ok) {
+    // 404 表示还没有历史，会话可以视为空
+    if (res.status === 404) return [];
+    throw new Error(await res.text());
+  }
+  const data = (await res.json()) as {
+    id: number;
+    role: ChatMessage["role"];
+    content: string;
+    sql_type: SqlType | null;
+    created_at: string;
+  }[];
+
+  return data.map((m) => ({
+    id: String(m.id),
+    role: m.role,
+    content: m.content,
+    sql_type: m.sql_type ?? undefined,
+  }));
+}
+
+export async function deleteChatSession(sessionId: string): Promise<void> {
+  const res = await fetch(`${API}/chat/sessions/${sessionId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok && res.status !== 404) {
+    throw new Error(await res.text());
+  }
+}
+
+export async function listChatSessions(): Promise<ChatSessionSummary[]> {
+  const res = await fetch(`${API}/chat/sessions`);
+  if (!res.ok) {
+    throw new Error(await res.text());
+  }
+  return res.json();
+}
+
 // ── LLM Config ────────────────────────────────────────────────────────────────
 
 import type { LLMConfig, LLMConfigCreate, LLMConfigTestResult } from "@/types";
@@ -133,5 +182,23 @@ export async function getActiveConfig(
 ): Promise<LLMConfig | null> {
   const res = await fetch(`${API}/config/active/${configType}`);
   if (!res.ok) return null;
+  return res.json();
+}
+
+// ── App settings (embedding dimension) ────────────────────────────────────────
+
+export async function getEmbeddingDim(): Promise<{ embedding_dim: number }> {
+  const res = await fetch(`${API}/settings/embedding-dim`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export async function setEmbeddingDim(embedding_dim: number): Promise<{ embedding_dim: number }> {
+  const res = await fetch(`${API}/settings/embedding-dim`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ embedding_dim }),
+  });
+  if (!res.ok) throw new Error(await res.text());
   return res.json();
 }

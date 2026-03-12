@@ -5,9 +5,9 @@
 ## 架构
 
 ```
-用户 → Next.js Chatbot → FastAPI → RAG引擎(pgvector检索) → LiteLLM → OpenAI/DeepSeek/Ollama
-                                                           ↑
-                                              PostgreSQL + pgvector (表元数据库)
+用户 → Next.js Chatbot → FastAPI → RAG引擎(向量检索) → LiteLLM → OpenAI/Gemini/DeepSeek/...
+                                                       ↑
+                                          PostgreSQL + pgvector（表元数据与向量）
 ```
 
 ## 快速开始
@@ -16,57 +16,26 @@
 
 ```bash
 cp .env.example .env
-# 编辑 .env，填入你的 LLM API Key
 ```
 
-最小配置（使用 OpenAI）：
-```env
-LLM_PROVIDER=openai
-OPENAI_API_KEY=sk-...
-EMBEDDING_PROVIDER=openai
-EMBEDDING_MODEL=text-embedding-3-small
-```
-
-使用 Google Gemini（推荐）：
-```env
-LLM_PROVIDER=gemini
-GEMINI_API_KEY=AIza...
-GEMINI_MODEL=gemini-2.0-flash      # 或 gemini-1.5-pro
-
-# 如需同时用 Gemini 做 Embedding（需改向量维度为 768）：
-EMBEDDING_PROVIDER=gemini
-EMBEDDING_MODEL=text-embedding-004
-EMBEDDING_DIM=768
-```
-> ⚠️ 使用 Gemini Embedding 时，需同步修改 `init-db/01-init.sql` 中的 `vector(1536)` → `vector(768)`，并重建数据库（`docker compose down -v && docker compose up -d`）。
-
-使用 DeepSeek：
-```env
-LLM_PROVIDER=deepseek
-LLM_MODEL=deepseek-coder
-DEEPSEEK_API_KEY=sk-...
-```
-
-使用本地 Ollama：
-```env
-LLM_PROVIDER=ollama
-OLLAMA_MODEL=qwen2.5-coder:32b
-OLLAMA_API_BASE=http://host.docker.internal:11434
-EMBEDDING_PROVIDER=ollama
-EMBEDDING_MODEL=nomic-embed-text
-EMBEDDING_DIM=768
-```
-
-> ⚠️ 若更改 `EMBEDDING_DIM`，需同步修改 `init-db/01-init.sql` 中 `vector(1536)` 的维度并重建数据库。
+在 `.env` 中只需保证 **DATABASE_URL**、**NEXT_PUBLIC_API_URL** 正确。**大模型与 Embedding 均在应用内「设置」页配置**（见下方「启动服务」后访问 http://localhost:3000/settings），无需在 .env 中填写 API Key；若需用环境变量覆盖，可设置对应 `*_API_KEY`。
 
 ### 2. 启动服务
+
+**方式 A（Docker）**
 
 ```bash
 docker compose up -d
 ```
 
-服务地址：
+**方式 B（本地无 Docker）**
+
+完整步骤见 **[docs/LOCAL_DEV.md](docs/LOCAL_DEV.md)**。完成后可运行 `./scripts/dev-local.sh` 同时启动后端与前端（需先按 LOCAL_DEV 安装 PostgreSQL 并执行 init-db）。
+
+**服务地址**
+
 - 前端 Chatbot: http://localhost:3000
+- 设置页（配置 LLM / Embedding）: http://localhost:3000/settings
 - 后端 API 文档: http://localhost:8000/docs
 - PostgreSQL: localhost:5432
 
@@ -91,21 +60,7 @@ ods_orders,amount,DECIMAL,订单表,金额,false,false,
 
 ## 本地开发（不使用 Docker）
 
-```bash
-# 启动 PostgreSQL（仅 DB）
-docker compose up postgres -d
-
-# 后端
-cd backend
-pip install -r requirements.txt
-cp ../.env.example .env  # 配置 DATABASE_URL=postgresql+asyncpg://datepgv:datepgv123@localhost:5432/datepgv
-uvicorn app.main:app --reload
-
-# 前端
-cd frontend
-npm install
-npm run dev
-```
+无 Docker 的完整本地开发（本机 PostgreSQL + pgvector、Python、Node 直接运行）请参见 **[docs/LOCAL_DEV.md](docs/LOCAL_DEV.md)**；可选 `./scripts/dev-local.sh` 启动后端+前端。使用 Docker 时：`docker compose up -d` 启动后端与前端（数据库需在宿主机自行安装并运行）。
 
 ## API 文档
 

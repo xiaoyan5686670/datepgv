@@ -14,6 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.llm_config import LLMConfig
 
+# Optional: only used to give a clear error when Gemini is routed to Vertex by mistake
+try:
+    from google.auth.exceptions import DefaultCredentialsError
+except ImportError:
+    DefaultCredentialsError = type(None)  # noqa: F811
+
 litellm.set_verbose = settings.DEBUG
 
 # ── In-memory cache ───────────────────────────────────────────────────────────
@@ -54,12 +60,25 @@ async def _get_active_config(db: AsyncSession) -> LLMConfig:
     return cfg
 
 
+def _normalize_model_for_litellm(model: str, api_key: str | None) -> str:
+    """Use Gemini API (api_key) instead of Vertex (ADC) when model looks like Gemini and we have a key."""
+    if not api_key or not model:
+        return model
+    m = model.strip()
+    if m.startswith("vertex_ai/") or m.startswith("gemini/"):
+        return model
+    if m.lower().startswith("gemini-"):
+        return f"gemini/{m}"
+    return model
+
+
 def _build_kwargs(cfg: LLMConfig) -> dict:
     """Build the kwargs dict for litellm.acompletion from a config row."""
-    kw: dict = {"model": cfg.model}
+    model = _normalize_model_for_litellm(cfg.model, cfg.api_key)
+    kw: dict = {"model": model}
     if cfg.api_key:
         kw["api_key"] = cfg.api_key
-    # api_base can live in extra_params (e.g. Ollama) or the dedicated column
+    # api_base can live in extra_params (e.g. custom endpoint) or the dedicated column
     api_base = (cfg.extra_params or {}).get("api_base") or cfg.api_base
     if api_base:
         kw["api_base"] = api_base
@@ -76,11 +95,18 @@ class LLMService:
         """Non-streaming completion – returns the full response text."""
         cfg = await _get_active_config(db)
         temp = temperature if temperature is not None else (cfg.extra_params or {}).get("temperature", 0.1)
-        response = await litellm.acompletion(
-            messages=messages,
-            temperature=temp,
-            **_build_kwargs(cfg),
-        )
+        try:
+            response = await litellm.acompletion(
+                messages=messages,
+                temperature=temp,
+                **_build_kwargs(cfg),
+            )
+        except Exception as e:
+            if isinstance(e, DefaultCredentialsError):
+                raise RuntimeError(
+                    "当前使用了需要 Google 应用默认凭证(ADC) 的调用方式。若使用 API Key，请将模型名改为带 gemini/ 前缀（如 gemini/gemini-2.0-flash），并在设置中填写 API Key。详见：https://cloud.google.com/docs/authentication/external/set-up-adc"
+                ) from e
+            raise
         return response.choices[0].message.content or ""
 
     async def stream(
@@ -92,12 +118,19 @@ class LLMService:
         """Streaming completion – yields text chunks as they arrive."""
         cfg = await _get_active_config(db)
         temp = temperature if temperature is not None else (cfg.extra_params or {}).get("temperature", 0.1)
-        response = await litellm.acompletion(
-            messages=messages,
-            temperature=temp,
-            stream=True,
-            **_build_kwargs(cfg),
-        )
+        try:
+            response = await litellm.acompletion(
+                messages=messages,
+                temperature=temp,
+                stream=True,
+                **_build_kwargs(cfg),
+            )
+        except Exception as e:
+            if isinstance(e, DefaultCredentialsError):
+                raise RuntimeError(
+                    "当前使用了需要 Google 应用默认凭证(ADC) 的调用方式。若使用 API Key，请将模型名改为带 gemini/ 前缀（如 gemini/gemini-2.0-flash），并在设置中填写 API Key。详见：https://cloud.google.com/docs/authentication/external/set-up-adc"
+                ) from e
+            raise
         async for chunk in response:
             delta = chunk.choices[0].delta
             if delta and delta.content:

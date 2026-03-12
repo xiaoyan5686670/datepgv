@@ -20,7 +20,17 @@ const HIVE_EXAMPLE = `CREATE TABLE dw.fact_sales (
   dt         STRING    COMMENT '分区日期'
 )
 COMMENT '销售事实表'
-PARTITIONED BY (dt STRING);`;
+PARTITIONED BY (dt STRING);
+
+CREATE TABLE dw.dim_user (
+  user_id     STRING    COMMENT '用户唯一ID',
+  username    STRING    COMMENT '用户名',
+  department  STRING    COMMENT '所属部门',
+  city        STRING    COMMENT '城市',
+  register_dt DATE      COMMENT '注册日期',
+  is_active   BOOLEAN   COMMENT '是否活跃用户'
+)
+COMMENT '用户维度表，SCD Type 2';`;
 
 const PG_EXAMPLE = `CREATE TABLE public.dim_product (
   product_id   VARCHAR(64)  PRIMARY KEY,

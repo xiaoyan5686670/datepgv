@@ -12,7 +12,13 @@ import litellm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.embedding_dim import get_embedding_dim
 from app.models.llm_config import LLMConfig
+
+try:
+    from google.auth.exceptions import DefaultCredentialsError
+except ImportError:
+    DefaultCredentialsError = type(None)  # noqa: F811
 
 # ── In-memory cache ───────────────────────────────────────────────────────────
 
@@ -50,19 +56,47 @@ async def _get_active_config(db: AsyncSession) -> LLMConfig:
     return cfg
 
 
+def _normalize_embedding_model(model: str, api_key: str | None) -> str:
+    """Use Gemini API (api_key) instead of Vertex (ADC) when model looks like Gemini and we have a key."""
+    if not api_key or not model:
+        return model
+    m = model.strip()
+    if m.startswith("vertex_ai/") or m.startswith("gemini/"):
+        return model
+    if m.lower().startswith("gemini-"):
+        return f"gemini/{m}"
+    return model
+
+
 class EmbeddingService:
     async def embed(self, text: str, db: AsyncSession) -> list[float]:
         """Return an embedding vector for the given text."""
         cfg = await _get_active_config(db)
-        kw: dict = {"model": cfg.model, "input": [text.strip().replace("\n", " ")]}
+        model = _normalize_embedding_model(cfg.model, cfg.api_key)
+        kw: dict = {"model": model, "input": [text.strip().replace("\n", " ")]}
         if cfg.api_key:
             kw["api_key"] = cfg.api_key
         api_base = (cfg.extra_params or {}).get("api_base") or cfg.api_base
         if api_base:
             kw["api_base"] = api_base
 
-        response = await litellm.aembedding(**kw)
-        return response.data[0]["embedding"]
+        try:
+            response = await litellm.aembedding(**kw)
+        except Exception as e:
+            if isinstance(e, DefaultCredentialsError):
+                raise RuntimeError(
+                    "当前使用了需要 Google 应用默认凭证(ADC) 的调用方式。若使用 API Key，请将 Embedding 模型名改为带 gemini/ 前缀（如 gemini/embedding-001），并在设置中填写 API Key。详见：https://cloud.google.com/docs/authentication/external/set-up-adc"
+                ) from e
+            raise
+        vec = response.data[0]["embedding"]
+        dim = len(vec)
+        expected = get_embedding_dim()
+        if dim != expected:
+            raise RuntimeError(
+                f"Embedding 维度不一致：当前模型输出 {dim} 维，系统配置为 {expected} 维。"
+                f"请在 设置 → Embedding 向量维度 中选择 {dim} 维并保存（将自动迁移数据库），重启后端后在元数据管理页执行「全部重新向量化」。"
+            )
+        return vec
 
     async def embed_batch(self, texts: list[str], db: AsyncSession) -> list[list[float]]:
         """Embed multiple texts concurrently."""

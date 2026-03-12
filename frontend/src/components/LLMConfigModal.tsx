@@ -14,7 +14,6 @@ const LLM_PRESETS = [
   { label: "Gemini 1.5 Pro", value: "gemini/gemini-1.5-pro" },
   { label: "DeepSeek Coder V2", value: "deepseek/deepseek-coder" },
   { label: "Claude 3.5 Sonnet", value: "anthropic/claude-3-5-sonnet-20241022" },
-  { label: "Ollama (本地)", value: "ollama/qwen2.5-coder:32b" },
   { label: "自定义...", value: "__custom__" },
 ];
 
@@ -22,7 +21,6 @@ const EMBEDDING_PRESETS = [
   { label: "text-embedding-3-small (1536d)", value: "openai/text-embedding-3-small" },
   { label: "text-embedding-3-large (3072d)", value: "openai/text-embedding-3-large" },
   { label: "Gemini text-embedding-004 (768d)", value: "gemini/text-embedding-004" },
-  { label: "Ollama nomic-embed-text (768d)", value: "ollama/nomic-embed-text" },
   { label: "自定义...", value: "__custom__" },
 ];
 
@@ -186,12 +184,12 @@ export function LLMConfigModal({
           <div>
             <label className="block text-xs text-[#8892a4] mb-1.5">
               API Base URL
-              <span className="ml-2 text-[#4a5568]">（可选，Ollama / 私有代理时填写）</span>
+              <span className="ml-2 text-[#4a5568]">（可选，私有代理或自定义 endpoint 时填写）</span>
             </label>
             <input
               value={apiBase}
               onChange={(e) => setApiBase(e.target.value)}
-              placeholder="http://localhost:11434"
+              placeholder="https://api.example.com/v1"
               className="w-full bg-[#12151f] border border-[#2a2d3d] rounded-lg px-3 py-2 text-sm text-[#e2e8f0] font-mono placeholder-[#4a5568] outline-none focus:border-[#0ea5e9]/50"
             />
           </div>

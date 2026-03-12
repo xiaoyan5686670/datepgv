@@ -2,13 +2,41 @@
 
 import { Database, Settings, Table } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChatBox } from "@/components/ChatBox";
 import { cn } from "@/lib/utils";
 import type { SqlType } from "@/types";
+import { listChatSessions, type ChatSessionSummary } from "@/lib/api";
 
 export default function HomePage() {
   const [sqlType, setSqlType] = useState<SqlType>("hive");
+  const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadSessions = async () => {
+      setIsLoadingSessions(true);
+      try {
+        const data = await listChatSessions();
+        if (cancelled) return;
+        setSessions(data);
+        if (!activeSessionId && typeof window !== "undefined") {
+          const current = window.localStorage.getItem("datepgv_chat_session_id");
+          setActiveSessionId(current ?? data[0]?.session_id ?? null);
+        }
+      } catch (err) {
+        console.error("加载会话列表失败", err);
+      } finally {
+        if (!cancelled) setIsLoadingSessions(false);
+      }
+    };
+    loadSessions();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSessionId]);
 
   return (
     <div className="flex flex-col h-screen bg-[#0f1117]">
@@ -69,8 +97,52 @@ export default function HomePage() {
       </header>
 
       {/* Chat area */}
-      <main className="flex-1 overflow-hidden">
-        <ChatBox sqlType={sqlType} />
+      <main className="flex-1 overflow-hidden flex">
+        {/* Session list */}
+        <aside className="hidden md:flex w-64 border-r border-[#2a2d3d] bg-[#0b0d14] flex-col">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2d3d]">
+            <span className="text-xs font-medium text-[#a0aec0]">会话</span>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {isLoadingSessions ? (
+              <div className="flex items-center justify-center h-full text-xs text-[#4a5568]">
+                正在加载会话...
+              </div>
+            ) : sessions.length === 0 ? (
+              <div className="px-4 py-3 text-xs text-[#4a5568]">
+                暂无历史会话，开始提问以创建新会话。
+              </div>
+            ) : (
+              <ul className="py-2">
+                {sessions.map((s) => (
+                  <li key={s.session_id}>
+                    <button
+                      onClick={() => setActiveSessionId(s.session_id)}
+                      className={cn(
+                        "w-full text-left px-4 py-2 text-xs rounded-md transition-colors",
+                        activeSessionId === s.session_id
+                          ? "bg-[#1a1d27] text-[#e2e8f0]"
+                          : "text-[#a0aec0] hover:bg-[#111827]"
+                      )}
+                    >
+                      <div className="truncate">{s.title}</div>
+                      {s.last_message_at && (
+                        <div className="mt-0.5 text-[10px] text-[#4a5568]">
+                          {new Date(s.last_message_at).toLocaleString()}
+                        </div>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </aside>
+
+        {/* Chat box */}
+        <section className="flex-1 overflow-hidden">
+          <ChatBox sqlType={sqlType} />
+        </section>
       </main>
     </div>
   );
