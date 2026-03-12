@@ -188,7 +188,12 @@ export function ChatBox({ sqlType }: ChatBoxProps) {
               </h2>
               <p className="text-[#8892a4] text-sm">
                 描述你的数据需求，AI 自动生成{" "}
-                {sqlType === "hive" ? "Hive" : "PostgreSQL"} SQL
+                {sqlType === "hive"
+                  ? "Hive"
+                  : sqlType === "postgresql"
+                  ? "PostgreSQL"
+                  : "Oracle"}{" "}
+                SQL
               </p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-lg">
@@ -283,7 +288,13 @@ export function ChatBox({ sqlType }: ChatBoxProps) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={`描述你的查询需求，按 Enter 发送 (${sqlType === "hive" ? "Hive" : "PostgreSQL"} 模式)`}
+            placeholder={`描述你的查询需求，按 Enter 发送 (${
+              sqlType === "hive"
+                ? "Hive"
+                : sqlType === "postgresql"
+                ? "PostgreSQL"
+                : "Oracle"
+            } 模式)`}
             rows={1}
             className="flex-1 bg-transparent text-sm text-[#e2e8f0] placeholder-[#4a5568] resize-none outline-none max-h-40 overflow-y-auto"
             style={{ lineHeight: "1.6" }}

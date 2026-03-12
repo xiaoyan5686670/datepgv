@@ -83,6 +83,7 @@ export default function AdminPage() {
 
   const hiveCount = tables.filter((t) => t.db_type === "hive").length;
   const pgCount = tables.filter((t) => t.db_type === "postgresql").length;
+  const oracleCount = tables.filter((t) => t.db_type === "oracle").length;
   const withEmbedding = tables.filter((t) => t.has_embedding).length;
 
   return (
@@ -165,6 +166,7 @@ export default function AdminPage() {
             { label: "全部表", value: tables.length, color: "text-[#e2e8f0]" },
             { label: "Hive 表", value: hiveCount, color: "text-amber-300" },
             { label: "PostgreSQL 表", value: pgCount, color: "text-blue-300" },
+            { label: "Oracle 表", value: oracleCount, color: "text-emerald-300" },
             {
               label: "已生成向量",
               value: withEmbedding,
@@ -185,7 +187,7 @@ export default function AdminPage() {
 
         {/* Filter tabs */}
         <div className="flex items-center gap-2 mb-4">
-          {(["all", "hive", "postgresql"] as const).map((f) => (
+          {(["all", "hive", "postgresql", "oracle"] as const).map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -196,7 +198,13 @@ export default function AdminPage() {
                   : "text-[#8892a4] border-[#2a2d3d] hover:text-[#e2e8f0]"
               )}
             >
-              {f === "all" ? "全部" : f === "hive" ? "Hive" : "PostgreSQL"}
+              {f === "all"
+                ? "全部"
+                : f === "hive"
+                ? "Hive"
+                : f === "postgresql"
+                ? "PostgreSQL"
+                : "Oracle"}
             </button>
           ))}
           <button
@@ -241,7 +249,9 @@ export default function AdminPage() {
                       "text-xs px-2 py-0.5 rounded border flex-shrink-0",
                       table.db_type === "hive"
                         ? "bg-amber-500/10 text-amber-300 border-amber-500/20"
-                        : "bg-blue-500/10 text-blue-300 border-blue-500/20"
+                        : table.db_type === "postgresql"
+                        ? "bg-blue-500/10 text-blue-300 border-blue-500/20"
+                        : "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
                     )}
                   >
                     {table.db_type}

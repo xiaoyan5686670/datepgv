@@ -1,4 +1,4 @@
-export type SqlType = "hive" | "postgresql";
+export type SqlType = "hive" | "postgresql" | "oracle";
 
 export interface ColumnInfo {
   name: string;

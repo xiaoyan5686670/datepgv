@@ -49,6 +49,17 @@ export default function HomePage() {
             >
               PostgreSQL
             </button>
+            <button
+              onClick={() => setSqlType("oracle")}
+              className={cn(
+                "px-3 py-1 rounded-md text-xs font-medium transition-all",
+                sqlType === "oracle"
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                  : "text-[#8892a4] hover:text-[#e2e8f0]"
+              )}
+            >
+              Oracle
+            </button>
           </div>
 
           <Link
