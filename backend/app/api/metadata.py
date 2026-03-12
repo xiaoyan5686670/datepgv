@@ -7,7 +7,8 @@ import io
 from typing import Any, Literal
 
 import pandas as pd
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -162,16 +163,21 @@ async def update_metadata(
     return _row_to_response(row)
 
 
-@router.delete("/{metadata_id}", status_code=204)
+@router.delete(
+    "/{metadata_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def delete_metadata(
     metadata_id: int,
     db: AsyncSession = Depends(get_db),
-) -> None:
+) -> Response:
     row = await db.get(TableMetadata, metadata_id)
     if not row:
         raise HTTPException(status_code=404, detail="Not found")
     await db.delete(row)
     await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ── DDL Import ────────────────────────────────────────────────────────────────

@@ -7,7 +7,8 @@ import json
 import uuid
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -178,11 +179,15 @@ async def get_history(
     ]
 
 
-@router.delete("/sessions/{session_id}", status_code=204)
+@router.delete(
+    "/sessions/{session_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def delete_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
-) -> None:
+) -> Response:
     """Delete a chat session and all its messages."""
     result = await db.execute(
         select(ChatSession).where(ChatSession.session_id == session_id)
@@ -192,3 +197,4 @@ async def delete_session(
         raise HTTPException(status_code=404, detail="Session not found")
     await db.delete(session)
     await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

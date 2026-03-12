@@ -8,7 +8,8 @@ import time
 from typing import Literal
 
 import litellm
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -115,11 +116,15 @@ async def update_config(
 
 # ── Delete ────────────────────────────────────────────────────────────────────
 
-@router.delete("/{config_id}", status_code=204)
+@router.delete(
+    "/{config_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
 async def delete_config(
     config_id: int,
     db: AsyncSession = Depends(get_db),
-) -> None:
+) -> Response:
     row = await db.get(LLMConfig, config_id)
     if not row:
         raise HTTPException(status_code=404, detail="Config not found")
@@ -130,6 +135,7 @@ async def delete_config(
         )
     await db.delete(row)
     await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ── Activate ──────────────────────────────────────────────────────────────────
