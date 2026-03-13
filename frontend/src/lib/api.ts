@@ -3,6 +3,22 @@ import type { ChatSessionSummary, SqlType, TableMetadata } from "@/types";
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const API = `${BASE}/api/v1`;
 
+async function readErrorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const contentType = res.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      const payload = (await res.json()) as { detail?: string };
+      if (payload?.detail) return payload.detail;
+    } else {
+      const text = (await res.text()).trim();
+      if (text) return text;
+    }
+  } catch {
+    // ignore parse errors and return fallback
+  }
+  return fallback;
+}
+
 export async function fetchMetadata(
   dbType: "all" | SqlType = "all",
   skip = 0,
@@ -33,7 +49,28 @@ export async function importDDL(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ddl, db_type: dbType, database_name: databaseName }),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "DDL 导入失败"));
+  }
+  return res.json();
+}
+
+export async function importDDLFile(
+  file: File,
+  dbType: SqlType,
+  databaseName?: string
+): Promise<TableMetadata[]> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("db_type", dbType);
+  form.append("database_name", databaseName ?? "");
+  const res = await fetch(`${API}/metadata/import/ddl-file`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "DDL 文件导入失败"));
+  }
   return res.json();
 }
 

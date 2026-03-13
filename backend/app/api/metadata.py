@@ -27,6 +27,18 @@ from app.services.embedding import build_table_text, get_embedding_service
 
 router = APIRouter(prefix="/metadata", tags=["metadata"])
 
+_DDL_FILE_EXTENSIONS = (".sql", ".ddl", ".txt")
+
+
+def _decode_ddl_bytes(raw: bytes) -> str:
+    """Decode uploaded DDL file bytes with fallback encodings."""
+    for encoding in ("utf-8-sig", "utf-8", "gb18030"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise UnicodeDecodeError("ddl", raw, 0, 1, "unsupported encoding")
+
 
 async def _upsert_with_embedding(
     db: AsyncSession,
@@ -188,12 +200,65 @@ async def import_from_ddl(
     db: AsyncSession = Depends(get_db),
 ) -> list[TableMetadataResponse]:
     """Parse one or more CREATE TABLE statements and import them."""
-    tables = parse_ddl(payload.ddl, payload.db_type, payload.database_name)
+    ddl_text = payload.ddl.strip()
+    if not ddl_text:
+        raise HTTPException(status_code=400, detail="DDL 内容不能为空")
+    tables = parse_ddl(ddl_text, payload.db_type, payload.database_name)
     if not tables:
-        raise HTTPException(status_code=400, detail="No valid CREATE TABLE found in DDL")
+        raise HTTPException(
+            status_code=400,
+            detail="未找到可解析的 CREATE TABLE 语句，请确认方言类型与语法是否匹配",
+        )
     results = []
     for t in tables:
         row = await _upsert_with_embedding(db, t)
+        results.append(_row_to_response(row))
+    return results
+
+
+@router.post("/import/ddl-file", response_model=list[TableMetadataResponse], status_code=201)
+async def import_from_ddl_file(
+    file: UploadFile = File(...),
+    db_type: Literal["hive", "postgresql", "oracle"] = Form("hive"),
+    database_name: str = Form(""),
+    db: AsyncSession = Depends(get_db),
+) -> list[TableMetadataResponse]:
+    """Parse uploaded DDL file and import one or more CREATE TABLE statements."""
+    filename = (file.filename or "").strip()
+    if not filename:
+        raise HTTPException(status_code=400, detail="请上传 DDL 文件")
+    lowered = filename.lower()
+    if not lowered.endswith(_DDL_FILE_EXTENSIONS):
+        raise HTTPException(
+            status_code=400,
+            detail="仅支持 .sql/.ddl/.txt 文件",
+        )
+
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="文件为空，无法导入")
+
+    try:
+        ddl_text = _decode_ddl_bytes(raw).strip()
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=400,
+            detail="文件编码不受支持，请使用 UTF-8 或 GB18030 编码",
+        )
+
+    if not ddl_text:
+        raise HTTPException(status_code=400, detail="文件内容为空，无法导入")
+
+    tables = parse_ddl(ddl_text, db_type, database_name or None)
+    if not tables:
+        raise HTTPException(
+            status_code=400,
+            detail="未找到可解析的 CREATE TABLE 语句，请确认方言类型与语法是否匹配",
+        )
+
+    results = []
+    for table in tables:
+        row = await _upsert_with_embedding(db, table)
         results.append(_row_to_response(row))
     return results
 
