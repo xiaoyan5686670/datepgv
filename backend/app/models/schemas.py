@@ -83,6 +83,7 @@ class ChatResponse(BaseModel):
 
 class ChatSessionSummary(BaseModel):
     session_id: str
+    title: str = "新会话"
     created_at: datetime
     last_message_at: datetime
 

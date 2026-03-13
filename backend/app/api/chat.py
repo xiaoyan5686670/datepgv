@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response, StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -49,41 +50,61 @@ async def _load_history(
     return [{"role": m.role, "content": m.content} for m in msgs]
 
 
-async def _get_last_message_at(session: ChatSession, db: AsyncSession) -> datetime:
-    """
-    Return timestamp of the last message in the session, or created_at if none.
-    """
-    result = await db.execute(
-        select(ChatMessage)
-        .where(ChatMessage.session_id == session.session_id)
-        .order_by(ChatMessage.created_at.desc())
-        .limit(1)
-    )
-    last = result.scalar_one_or_none()
-    return last.created_at if last else session.created_at
-
-
 @router.get("/sessions", response_model=list[ChatSessionSummary])
 async def list_sessions(db: AsyncSession = Depends(get_db)) -> list[ChatSessionSummary]:
     """
     List chat sessions ordered by most recent activity.
+    Uses a single aggregate query to fetch title and last_message_at.
     """
-    result = await db.execute(select(ChatSession).order_by(ChatSession.created_at.desc()))
-    sessions = result.scalars().all()
-
-    summaries: list[ChatSessionSummary] = []
-    for s in sessions:
-        last_at = await _get_last_message_at(s, db)
-        summaries.append(
-            ChatSessionSummary(
-                session_id=s.session_id,
-                created_at=s.created_at,
-                last_message_at=last_at,
-            )
+    # Subquery: first user message per session (used as title)
+    first_user_msg = (
+        select(
+            ChatMessage.session_id,
+            func.min(ChatMessage.id).label("first_id"),
         )
-    # Sort by last_message_at desc so most active sessions show first
-    summaries.sort(key=lambda x: x.last_message_at, reverse=True)
-    return summaries
+        .where(ChatMessage.role == "user")
+        .group_by(ChatMessage.session_id)
+        .subquery("first_user_msg")
+    )
+
+    title_msg = (
+        select(ChatMessage.session_id, ChatMessage.content.label("title"))
+        .join(
+            first_user_msg,
+            (ChatMessage.session_id == first_user_msg.c.session_id)
+            & (ChatMessage.id == first_user_msg.c.first_id),
+        )
+        .subquery("title_msg")
+    )
+
+    # Main query: join sessions with aggregates
+    stmt = (
+        select(
+            ChatSession.session_id,
+            ChatSession.created_at,
+            func.coalesce(
+                func.max(ChatMessage.created_at), ChatSession.created_at
+            ).label("last_message_at"),
+            func.coalesce(title_msg.c.title, "新会话").label("title"),
+        )
+        .outerjoin(ChatMessage, ChatMessage.session_id == ChatSession.session_id)
+        .outerjoin(title_msg, title_msg.c.session_id == ChatSession.session_id)
+        .group_by(ChatSession.session_id, ChatSession.created_at, title_msg.c.title)
+        .order_by(func.coalesce(func.max(ChatMessage.created_at), ChatSession.created_at).desc())
+    )
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    return [
+        ChatSessionSummary(
+            session_id=row.session_id,
+            title=row.title[:40] + "..." if len(row.title) > 40 else row.title,
+            created_at=row.created_at,
+            last_message_at=row.last_message_at,
+        )
+        for row in rows
+    ]
 
 
 async def _save_messages(

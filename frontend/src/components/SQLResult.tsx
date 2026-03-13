@@ -28,11 +28,18 @@ export function SQLResult({
     setTimeout(() => setCopied(false), 2000);
   }, [sql]);
 
-  const lang = sqlType === "postgresql" ? "sql" : "sql";
-  const label = sqlType === "hive" ? "Hive SQL" : "PostgreSQL";
+  const lang = "sql";
+  const label =
+    sqlType === "hive"
+      ? "Hive SQL"
+      : sqlType === "oracle"
+      ? "Oracle SQL"
+      : "PostgreSQL";
   const labelColor =
     sqlType === "hive"
       ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
+      : sqlType === "oracle"
+      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
       : "bg-blue-500/20 text-blue-300 border-blue-500/30";
 
   return (
