@@ -158,6 +158,12 @@ export default function HomePage() {
             <Settings size={13} />
             模型配置
           </Link>
+          <Link
+            href="/docs"
+            className="flex items-center gap-1.5 text-xs text-[#8892a4] hover:text-[#e2e8f0] px-3 py-1.5 rounded-lg border border-[#2a2d3d] hover:border-[#0ea5e9]/50 transition-all"
+          >
+            文档
+          </Link>
         </div>
       </header>
 
