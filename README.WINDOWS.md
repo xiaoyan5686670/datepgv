@@ -119,11 +119,7 @@ npm run build
 npm run start
 ```
 
-如果前端需要通过环境变量配置后端地址，可在 `frontend\.env.local` 中设置，例如：
-
-```env
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
+前端默认通过 Next 的 `/api/backend` 转发到本机 `http://127.0.0.1:8000`，一般**不必**再配 `NEXT_PUBLIC_API_URL`。若后端跑在非本机或非常规端口，可改 `frontend/next.config.js` 里的代理目标，或为 Next 进程设置 `BACKEND_URL`。
 
 ### 6. 一键启动所有服务（可选）
 
@@ -163,7 +159,7 @@ docker compose up -d
 
 ### 8. 常见问题
 
-- **端口占用**: 如 3000 或 8000 端口被占用，可在启动命令中修改端口，并同步更新前端 `NEXT_PUBLIC_API_URL`。
+- **端口占用**: 若改了 FastAPI 端口，请同步修改 `frontend/next.config.js` 中的代理地址或设置环境变量 `BACKEND_URL`。
 - **虚拟环境激活失败**: 检查是否使用了 PowerShell（可能需要执行策略设置 `Set-ExecutionPolicy RemoteSigned`），或改用 `cmd` 运行批处理。
 - **无法连接数据库**: 核对 `.env` 中的 `DATABASE_URL` 是否与 PostgreSQL 实际配置一致，确认 `pgvector` 已启用。
 

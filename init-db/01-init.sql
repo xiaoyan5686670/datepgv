@@ -4,7 +4,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 -- Table metadata registry for RAG-based SQL generation
 CREATE TABLE IF NOT EXISTS table_metadata (
     id            SERIAL PRIMARY KEY,
-    db_type       VARCHAR(20) NOT NULL CHECK (db_type IN ('hive', 'postgresql')),
+    db_type       VARCHAR(20) NOT NULL CHECK (db_type IN ('hive', 'postgresql', 'oracle', 'mysql')),
     database_name VARCHAR(200),
     schema_name   VARCHAR(200),
     table_name    VARCHAR(200) NOT NULL,

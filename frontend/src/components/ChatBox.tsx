@@ -22,6 +22,7 @@ import type {
   SSEEvent,
   TokenEvent,
 } from "@/types";
+import { QueryResultPreview } from "./QueryResultPreview";
 import { SQLResult } from "./SQLResult";
 
 const SUGGESTED_QUERIES = [
@@ -46,6 +47,8 @@ export function ChatBox({
 }: ChatBoxProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  /** 是否在生成 SQL 后由服务端执行（PostgreSQL / MySQL） */
+  const [executeQuery, setExecuteQuery] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -72,6 +75,21 @@ export function ChatBox({
           if (h.role === "user") {
             return { id: String(h.id), role: "user", content: h.content };
           }
+          const savedSql = h.generated_sql ?? null;
+          if (savedSql) {
+            return {
+              id: String(h.id),
+              role: "assistant",
+              content: h.content,
+              sql: savedSql,
+              sql_type: (h.sql_type as SqlType) ?? sqlType,
+              referenced_tables: [],
+              isStreaming: false,
+              executed: h.executed ?? undefined,
+              exec_error: h.exec_error ?? undefined,
+              result_preview: h.result_preview ?? undefined,
+            };
+          }
           return {
             id: String(h.id),
             role: "assistant",
@@ -80,6 +98,9 @@ export function ChatBox({
             sql_type: (h.sql_type as SqlType) ?? sqlType,
             referenced_tables: [],
             isStreaming: false,
+            executed: h.executed ?? undefined,
+            exec_error: h.exec_error ?? undefined,
+            result_preview: h.result_preview ?? undefined,
           };
         });
         setMessages(mapped);
@@ -143,12 +164,18 @@ export function ChatBox({
             query,
             sql_type: sqlType,
             top_k: 5,
+            execute: executeQuery,
           }),
           signal: controller.signal,
         });
 
         if (!res.ok || !res.body) {
-          throw new Error(`HTTP ${res.status}`);
+          let msg = `HTTP ${res.status}`;
+          try {
+            const errData = await res.json();
+            if (errData.detail) msg = errData.detail;
+          } catch {}
+          throw new Error(msg);
         }
 
         const reader = res.body.getReader();
@@ -199,7 +226,15 @@ export function ChatBox({
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsgId
-                    ? { ...m, sql: doneEvt.sql, isStreaming: false }
+                    ? {
+                        ...m,
+                        sql: doneEvt.sql,
+                        content: doneEvt.answer ?? "",
+                        isStreaming: false,
+                        executed: doneEvt.executed,
+                        exec_error: doneEvt.exec_error ?? undefined,
+                        result_preview: doneEvt.result_preview ?? undefined,
+                      }
                     : m
                 )
               );
@@ -246,7 +281,7 @@ export function ChatBox({
         abortRef.current = null;
       }
     },
-    [isLoading, sessionId, sqlType, onMessageSent]
+    [isLoading, sessionId, sqlType, executeQuery, onMessageSent]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -270,13 +305,7 @@ export function ChatBox({
                 自然语言转 SQL
               </h2>
               <p className="text-[#8892a4] text-sm">
-                描述你的数据需求，AI 自动生成{" "}
-                {sqlType === "hive"
-                  ? "Hive"
-                  : sqlType === "postgresql"
-                  ? "PostgreSQL"
-                  : "Oracle"}{" "}
-                SQL
+                描述你的数据需求，AI 生成 SQL；PostgreSQL / MySQL 模式下还可执行查询并生成中文结论
               </p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-lg">
@@ -326,30 +355,41 @@ export function ChatBox({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {msg.sql ? (
-                    <SQLResult
-                      sql={msg.sql}
-                      sqlType={msg.sql_type ?? sqlType}
-                      referencedTables={msg.referenced_tables}
-                      isStreaming={msg.isStreaming}
-                    />
-                  ) : msg.content ? (
-                    <div className="text-sm text-[#8892a4] bg-[#1a1d27] rounded-xl px-4 py-3 border border-[#2a2d3d]">
-                      {msg.isStreaming ? (
-                        <span className="flex items-center gap-2">
-                          <Loader2 size={14} className="animate-spin" />
-                          正在检索相关表结构...
-                        </span>
-                      ) : (
-                        msg.content
-                      )}
+                  {msg.content ? (
+                    <div className="text-sm text-[#e2e8f0] bg-[#1a1d27] rounded-xl px-4 py-3 border border-[#2a2d3d] whitespace-pre-wrap leading-relaxed">
+                      {msg.content}
                     </div>
-                  ) : (
+                  ) : null}
+                  {msg.sql ? (
+                    <>
+                      <SQLResult
+                        sql={msg.sql}
+                        sqlType={msg.sql_type ?? sqlType}
+                        referencedTables={msg.referenced_tables}
+                        isStreaming={msg.isStreaming}
+                      />
+                      {!msg.isStreaming ? (
+                        <QueryResultPreview
+                          sqlType={msg.sql_type ?? sqlType}
+                          executed={msg.executed}
+                          execError={msg.exec_error}
+                          resultPreview={msg.result_preview}
+                        />
+                      ) : null}
+                      {msg.isStreaming ? (
+                        <p className="text-xs text-[#8892a4] flex items-center gap-2">
+                          <Loader2 size={12} className="animate-spin" />
+                          正在完成查询或生成回答…
+                        </p>
+                      ) : null}
+                    </>
+                  ) : null}
+                  {!msg.sql && !msg.content && msg.isStreaming ? (
                     <div className="text-sm text-[#8892a4] flex items-center gap-2">
                       <Loader2 size={14} className="animate-spin" />
-                      正在生成 SQL...
+                      正在生成 SQL…
                     </div>
-                  )}
+                  ) : null}
                 </div>
               )}
             </div>
@@ -361,6 +401,16 @@ export function ChatBox({
 
       {/* Input area */}
       <div className="border-t border-[#2a2d3d] bg-[#0f1117] p-4">
+        <label className="flex items-center gap-2 mb-2 px-1 text-xs text-[#8892a4] cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={executeQuery}
+            onChange={(e) => setExecuteQuery(e.target.checked)}
+            disabled={isLoading}
+            className="rounded border-[#2a2d3d] bg-[#12151f] text-[#0ea5e9] focus:ring-[#0ea5e9]/40"
+          />
+          生成后执行查询并展示结果（仅 PostgreSQL / MySQL；Hive / Oracle 仍以生成 SQL 为主）
+        </label>
         {messages.length > 0 && (
           <div className="flex justify-end mb-2 gap-3">
             {isLoading && (
@@ -392,6 +442,8 @@ export function ChatBox({
                 ? "Hive"
                 : sqlType === "postgresql"
                 ? "PostgreSQL"
+                : sqlType === "mysql"
+                ? "MySQL"
                 : "Oracle"
             } 模式)`}
             rows={1}

@@ -13,12 +13,13 @@ import sqlparse
 
 from app.models.schemas import ColumnInfo, TableMetadataCreate
 
-SQLType = Literal["hive", "postgresql", "oracle"]
+SQLType = Literal["hive", "postgresql", "oracle", "mysql"]
 
 DIALECT_MAP: dict[SQLType, str] = {
     "hive": "hive",
     "postgresql": "postgres",
     "oracle": "oracle",
+    "mysql": "mysql",
 }
 
 _LEADING_COMMENTS_RE = re.compile(r"^\s*(?:--[^\n]*\n|/\*[\s\S]*?\*/\s*)*", re.IGNORECASE)

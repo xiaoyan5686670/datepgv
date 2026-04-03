@@ -87,7 +87,11 @@ ods_orders,amount,DECIMAL,订单表,金额,false,false,
 
 ### 4. 开始对话
 
-访问 http://localhost:3000，选择 SQL 类型（Hive / PostgreSQL），输入自然语言查询。
+访问 http://localhost:3000，选择 SQL 类型（Hive / PostgreSQL / MySQL），输入自然语言查询。
+
+**分析库连接（推荐）**：打开 http://localhost:3000/settings → **数据连接**，配置 MySQL / PostgreSQL 执行 URL（用于运行模型生成的 SQL），无需再改 `.env` 中的 `ANALYTICS_MYSQL_URL` 等；环境变量仍可作为回落。  
+若应用库是较早部署的，请在 PostgreSQL 上执行一次 [`init-db/05-analytics_db_settings.sql`](init-db/05-analytics_db_settings.sql) 以创建配置表。  
+导入 **MySQL / Oracle** 元数据若报 `table_metadata_db_type_check`，请执行 [`init-db/06-table_metadata_db_type_mysql_oracle.sql`](init-db/06-table_metadata_db_type_mysql_oracle.sql)。
 
 ## 本地开发（不使用 Docker）
 

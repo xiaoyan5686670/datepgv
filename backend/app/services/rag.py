@@ -5,16 +5,20 @@ then builds a structured prompt for the LLM.
 from __future__ import annotations
 
 import json
+from itertools import combinations
 from typing import Any, Literal
 
-from sqlalchemy import select, text
+import networkx as nx
+from sqlalchemy import or_, select, text
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models.metadata import TableMetadata
+from app.models.metadata import TableMetadata, TableMetadataEdge
 from app.services.embedding import EmbeddingService
 
-SQLType = Literal["hive", "postgresql", "oracle"]
+SQLType = Literal["hive", "postgresql", "oracle", "mysql"]
+RetrieveSQLType = Literal["hive", "postgresql", "oracle", "mysql", "all"]
 
 HIVE_RULES = """
 Hive SQL 规范：
@@ -48,6 +52,17 @@ Oracle SQL 规范：
 """.strip()
 
 
+MYSQL_RULES = """
+MySQL 5.x 规范：
+- 标识符必要时使用反引号 `，避免与保留字冲突
+- 日期/时间：DATE_FORMAT、STR_TO_DATE、YEAR/MONTH/DAY、CURDATE()
+- 分组与时间截断：DATE_FORMAT(dt, '%Y-%m') 等（避免依赖 MySQL 8 专属函数）
+- 使用 LIMIT / OFFSET 分页
+- 窗口函数在 MySQL 8+ 可用；在 MySQL 5.7 及以下请用变量或子查询替代 ROW_NUMBER
+- NULL 处理：IFNULL / COALESCE；避免 SELECT *
+""".strip()
+
+
 def _format_table_schema(row: TableMetadata) -> str:
     """Convert a TableMetadata row to a human-readable schema block."""
     full_name = ".".join(
@@ -73,6 +88,48 @@ def _format_table_schema(row: TableMetadata) -> str:
     return "\n".join(lines)
 
 
+def _schemas_joined_length(tables: list[TableMetadata]) -> int:
+    if not tables:
+        return 0
+    sep = 2  # matches "\n\n".join in build_prompt
+    return sum(len(_format_table_schema(t)) for t in tables) + (len(tables) - 1) * sep
+
+
+def _trim_tables_to_schema_budget(
+    seeds: list[TableMetadata],
+    extras: list[TableMetadata],
+    max_chars: int,
+) -> list[TableMetadata]:
+    """Keep all seeds that fit, then extras in order, capped by approximate schema chars."""
+    if max_chars <= 0:
+        return seeds[:1] if seeds else []
+
+    def trim_head(tables: list[TableMetadata]) -> list[TableMetadata]:
+        out: list[TableMetadata] = []
+        acc = 0
+        for t in tables:
+            piece = len(_format_table_schema(t)) + (2 if out else 0)
+            if acc + piece > max_chars:
+                break
+            out.append(t)
+            acc += piece
+        return out
+
+    seed_len = _schemas_joined_length(seeds)
+    if seed_len > max_chars:
+        return trim_head(seeds)
+
+    acc = seed_len
+    kept_extras: list[TableMetadata] = []
+    for t in extras:
+        piece = len(_format_table_schema(t)) + 2
+        if acc + piece > max_chars:
+            break
+        kept_extras.append(t)
+        acc += piece
+    return seeds + kept_extras
+
+
 class RAGEngine:
     def __init__(self, db: AsyncSession, embedding_service: EmbeddingService) -> None:
         self.db = db
@@ -81,12 +138,16 @@ class RAGEngine:
     async def retrieve(
         self,
         query: str,
-        sql_type: SQLType,
+        sql_type: RetrieveSQLType,
         top_k: int | None = None,
-    ) -> list[TableMetadata]:
+        *,
+        expand_graph: bool | None = None,
+    ) -> tuple[list[TableMetadata], list[dict]]:
         """
         Embed the query and perform cosine similarity search in pgvector.
         Falls back to keyword search when no embedding is available.
+        Optionally expands along table_metadata_edges using NetworkX shortest paths.
+        Returns: (tables, join_paths)
         """
         k = top_k or settings.RAG_TOP_K
         query_vec = await self.embedding_service.embed(query, self.db)
@@ -113,7 +174,130 @@ class RAGEngine:
         if len(rows) < k:
             rows = await self._keyword_fallback(query, sql_type, k, rows)
 
-        return list(rows)
+        out = list(rows)
+        join_paths = []
+        use_expand = (
+            settings.RAG_GRAPH_EXPAND_ENABLED if expand_graph is None else expand_graph
+        )
+        if use_expand and out:
+            try:
+                out, join_paths = await self._expand_graph_context(out, sql_type)
+            except ProgrammingError:
+                # e.g. table_metadata_edges not migrated yet — keep vector hits only
+                await self.db.rollback()
+        return out, join_paths
+
+    async def _build_nx_graph(self, sql_type: RetrieveSQLType) -> nx.Graph:
+        """Load edges from database and build a NetworkX in-memory graph."""
+        G = nx.Graph()
+        stmt = select(TableMetadataEdge)
+        result = await self.db.execute(stmt)
+        edges = result.scalars().all()
+        for e in edges:
+            G.add_edge(
+                e.from_metadata_id,
+                e.to_metadata_id,
+                relation_type=e.relation_type,
+                from_column=e.from_column,
+                to_column=e.to_column,
+                note=e.note,
+            )
+        return G
+
+    def _format_join_paths(
+        self, join_paths: list[dict], loaded_map: dict[int, TableMetadata]
+    ) -> list[str]:
+        formatted = []
+        for path in join_paths:
+            u = path["from"]
+            v = path["to"]
+            cond = path["condition"]
+            u_table = loaded_map.get(u)
+            v_table = loaded_map.get(v)
+            if not u_table or not v_table:
+                continue
+            u_name = u_table.table_name
+            v_name = v_table.table_name
+            u_col = cond.get("from_column") or "id"
+            v_col = cond.get("to_column") or "id"
+            note = cond.get("note") or ""
+            note_str = f" (业务含义: {note})" if note else ""
+            formatted.append(f"{u_name} JOIN {v_name} ON {u_name}.{u_col} = {v_name}.{v_col}{note_str}")
+        return formatted
+
+    async def _load_metadata_map(
+        self, ids: list[int], sql_type: RetrieveSQLType
+    ) -> dict[int, TableMetadata]:
+        if not ids:
+            return {}
+        stmt = select(TableMetadata).where(TableMetadata.id.in_(ids))
+        if sql_type != "all":
+            stmt = stmt.where(TableMetadata.db_type == sql_type)
+        result = await self.db.execute(stmt)
+        return {r.id: r for r in result.scalars().all()}
+
+    async def _expand_graph_context(
+        self,
+        seeds: list[TableMetadata],
+        sql_type: RetrieveSQLType,
+    ) -> tuple[list[TableMetadata], list[str]]:
+        """
+        Use NetworkX to calculate shortest paths between seed tables,
+        recall intermediate tables, and extract join conditions.
+        Returns: (tables, formatted_join_paths)
+        """
+        max_tables = max(1, settings.RAG_GRAPH_MAX_TABLES)
+        max_chars = max(0, settings.RAG_GRAPH_MAX_SCHEMA_CHARS)
+
+        trimmed_seeds = seeds[:max_tables]
+        if not trimmed_seeds:
+            return [], []
+
+        G = await self._build_nx_graph(sql_type)
+        seed_ids = [t.id for t in trimmed_seeds]
+        
+        nodes_to_fetch = set(seed_ids)
+        join_paths = []
+
+        if len(seed_ids) >= 2:
+            for source, target in combinations(seed_ids, 2):
+                if nx.has_path(G, source, target):
+                    path = nx.shortest_path(G, source=source, target=target)
+                    nodes_to_fetch.update(path)
+                    for i in range(len(path) - 1):
+                        u, v = path[i], path[i+1]
+                        edge_data = G.get_edge_data(u, v)
+                        join_paths.append({
+                            "from": u,
+                            "to": v,
+                            "condition": edge_data
+                        })
+        else:
+            source = seed_ids[0]
+            if source in G:
+                neighbors = list(G.neighbors(source))[:3]
+                nodes_to_fetch.update(neighbors)
+                for n in neighbors:
+                    join_paths.append({
+                        "from": source,
+                        "to": n,
+                        "condition": G.get_edge_data(source, n)
+                    })
+
+        loaded_map = await self._load_metadata_map(list(nodes_to_fetch), sql_type)
+        
+        final_tables = [loaded_map[sid] for sid in seed_ids if sid in loaded_map]
+        extras_ordered = []
+        for nid in nodes_to_fetch:
+            if nid not in seed_ids and nid in loaded_map:
+                extras_ordered.append(loaded_map[nid])
+                
+        formatted_paths = self._format_join_paths(join_paths, loaded_map)
+        
+        # Ensure we respect schema budget
+        final_tables = _trim_tables_to_schema_budget(final_tables, extras_ordered, max_chars)
+
+        return final_tables, formatted_paths
 
     async def _keyword_fallback(
         self,
@@ -138,16 +322,23 @@ class RAGEngine:
         query: str,
         tables: list[TableMetadata],
         sql_type: SQLType,
+        join_paths: list[str] | None = None,
     ) -> list[dict[str, str]]:
         """Construct the messages list for the LLM."""
         if sql_type == "hive":
             rules = HIVE_RULES
         elif sql_type == "postgresql":
             rules = POSTGRESQL_RULES
+        elif sql_type == "mysql":
+            rules = MYSQL_RULES
         else:
             rules = ORACLE_RULES
 
         schemas = "\n\n".join(_format_table_schema(t) for t in tables)
+        
+        path_str = ""
+        if join_paths:
+            path_str = "\n\n已知表之间的关联路径参考：\n" + "\n".join(f"- {p}" for p in join_paths)
 
         system_prompt = f"""你是一个专业的数据仓库工程师，只生成 {sql_type.upper()} SQL。
 
@@ -158,7 +349,7 @@ class RAGEngine:
 
         user_prompt = f"""可用的表结构：
 
-{schemas}
+{schemas}{path_str}
 
 ---
 用户需求：{query}

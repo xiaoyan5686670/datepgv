@@ -84,22 +84,32 @@ export function MetadataForm({ onSuccess, onClose }: MetadataFormProps) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-[#8892a4] mb-1.5">数据库类型</label>
-              <div className="flex gap-2">
-                {(["hive", "postgresql"] as SqlType[]).map((t) => (
+              <div className="flex flex-wrap gap-2">
+                {(["hive", "postgresql", "mysql", "oracle"] as SqlType[]).map((t) => (
                   <button
                     key={t}
                     type="button"
                     onClick={() => setDbType(t)}
                     className={cn(
-                      "flex-1 py-2 rounded-lg text-sm font-medium border transition-all",
+                      "flex-1 min-w-[4.5rem] py-2 rounded-lg text-sm font-medium border transition-all",
                       dbType === t
                         ? t === "hive"
                           ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
-                          : "bg-blue-500/20 text-blue-300 border-blue-500/40"
+                          : t === "postgresql"
+                          ? "bg-blue-500/20 text-blue-300 border-blue-500/40"
+                          : t === "mysql"
+                          ? "bg-orange-500/20 text-orange-300 border-orange-500/40"
+                          : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
                         : "bg-[#12151f] text-[#8892a4] border-[#2a2d3d] hover:text-[#e2e8f0]"
                     )}
                   >
-                    {t === "hive" ? "Hive" : "PostgreSQL"}
+                    {t === "hive"
+                      ? "Hive"
+                      : t === "postgresql"
+                      ? "PostgreSQL"
+                      : t === "mysql"
+                      ? "MySQL"
+                      : "Oracle"}
                   </button>
                 ))}
               </div>

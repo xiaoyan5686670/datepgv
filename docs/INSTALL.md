@@ -99,8 +99,10 @@ docker compose up -d
 PostgreSQL 会在容器首次启动时自动执行 `init-db` 目录下的 SQL：
 
 - `01-init.sql`：创建元数据表、chat 历史表、llm 配置表等
-- `02-...`：embedding 维度相关初始化（如有）
-- `03-...`：示例业务表 / fact 表（如 `fact_sales`）
+- `02-...`：表关系 / graph 边
+- `03-...`：MySQL NL 回答等（视版本）
+- `05-analytics_db_settings.sql`：「设置 → 数据连接」用的分析库 URL 存储表（旧库可单独执行此文件补齐）
+- `06-table_metadata_db_type_mysql_oracle.sql`：放宽 `table_metadata.db_type` 校验，允许 `mysql` / `oracle`（仅跑过早期 `01-init` 的旧库需执行）
 
 如需在本机 PostgreSQL 中手动初始化，可参考：
 

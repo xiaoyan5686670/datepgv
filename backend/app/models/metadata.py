@@ -7,15 +7,16 @@ from sqlalchemy import (
     JSON,
     CheckConstraint,
     DateTime,
+    ForeignKey,
     Index,
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.config import settings
 from app.core.database import Base
 
 
@@ -26,7 +27,7 @@ class TableMetadata(Base):
     db_type: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
-        comment="hive, postgresql, or oracle",
+        comment="hive, postgresql, oracle, or mysql",
     )
     database_name: Mapped[str | None] = mapped_column(String(200))
     schema_name: Mapped[str | None] = mapped_column(String(200))
@@ -46,9 +47,93 @@ class TableMetadata(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
+    edges_from: Mapped[list["TableMetadataEdge"]] = relationship(
+        "TableMetadataEdge",
+        foreign_keys="TableMetadataEdge.from_metadata_id",
+        back_populates="from_table",
+    )
+    edges_to: Mapped[list["TableMetadataEdge"]] = relationship(
+        "TableMetadataEdge",
+        foreign_keys="TableMetadataEdge.to_metadata_id",
+        back_populates="to_table",
+    )
+
     __table_args__ = (
         CheckConstraint(
-            "db_type IN ('hive', 'postgresql', 'oracle')", name="db_type_check"
+            "db_type IN ('hive', 'postgresql', 'oracle', 'mysql')", name="db_type_check"
         ),
         Index("table_metadata_name_idx", "db_type", "database_name", "table_name"),
+    )
+
+
+class TableMetadataEdge(Base):
+    """
+    Directed edge between two catalog rows (TableMetadata).
+
+    relation_type:
+      - foreign_key: physical or declared FK-style link (optional from_column / to_column).
+      - logical: same subject area, naming convention, or inferred join path.
+      - coquery: curated "often queried together" hint.
+
+    Retrieval treats edges as undirected: expansion walks neighbors on either side.
+    """
+
+    __tablename__ = "table_metadata_edges"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    from_metadata_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("table_metadata.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    to_metadata_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("table_metadata.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    relation_type: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        comment="foreign_key | logical | coquery",
+    )
+    from_column: Mapped[str | None] = mapped_column(String(200))
+    to_column: Mapped[str | None] = mapped_column(String(200))
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    from_table: Mapped["TableMetadata"] = relationship(
+        "TableMetadata",
+        foreign_keys=[from_metadata_id],
+        back_populates="edges_from",
+    )
+    to_table: Mapped["TableMetadata"] = relationship(
+        "TableMetadata",
+        foreign_keys=[to_metadata_id],
+        back_populates="edges_to",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "relation_type IN ('foreign_key', 'logical', 'coquery')",
+            name="table_metadata_edges_type_check",
+        ),
+        CheckConstraint(
+            "from_metadata_id <> to_metadata_id",
+            name="table_metadata_edges_no_self_loop",
+        ),
+        UniqueConstraint(
+            "from_metadata_id",
+            "to_metadata_id",
+            "relation_type",
+            name="table_metadata_edges_unique_triple",
+        ),
+        Index(
+            "table_metadata_edges_endpoints_idx",
+            "from_metadata_id",
+            "to_metadata_id",
+        ),
     )

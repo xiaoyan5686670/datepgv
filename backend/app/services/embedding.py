@@ -13,6 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.llm_config import LLMConfig
+from app.services.litellm_kwargs import build_embedding_kwargs
+from app.services.litellm_retry import async_retry_litellm
 
 # ── In-memory cache ───────────────────────────────────────────────────────────
 
@@ -54,14 +56,13 @@ class EmbeddingService:
     async def embed(self, text: str, db: AsyncSession) -> list[float]:
         """Return an embedding vector for the given text."""
         cfg = await _get_active_config(db)
-        kw: dict = {"model": cfg.model, "input": [text.strip().replace("\n", " ")]}
-        if cfg.api_key:
-            kw["api_key"] = cfg.api_key
-        api_base = (cfg.extra_params or {}).get("api_base") or cfg.api_base
-        if api_base:
-            kw["api_base"] = api_base
+        kw = build_embedding_kwargs(cfg)
+        kw["input"] = [text.strip().replace("\n", " ")]
 
-        response = await litellm.aembedding(**kw)
+        response = await async_retry_litellm(
+            lambda: litellm.aembedding(**kw),
+            operation="embedding.aembedding",
+        )
         return response.data[0]["embedding"]
 
     async def embed_batch(self, texts: list[str], db: AsyncSession) -> list[list[float]]:

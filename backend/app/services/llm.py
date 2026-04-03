@@ -8,11 +8,14 @@ import time
 from typing import AsyncGenerator
 
 import litellm
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.llm_config import LLMConfig
+from app.services.litellm_kwargs import build_completion_kwargs
+from app.services.litellm_retry import async_retry_litellm
 
 litellm.set_verbose = settings.DEBUG
 
@@ -45,25 +48,14 @@ async def _get_active_config(db: AsyncSession) -> LLMConfig:
     )
     cfg = result.scalar_one_or_none()
     if cfg is None:
-        raise RuntimeError(
-            "没有活跃的 LLM 配置。请前往 设置 → 模型配置，激活一个 LLM 模型。"
+        raise HTTPException(
+            status_code=400,
+            detail="没有活跃的 LLM 配置。请前往 设置 → 模型配置，激活一个 LLM 模型。"
         )
 
     _cached_config = cfg
     _cache_ts = now
     return cfg
-
-
-def _build_kwargs(cfg: LLMConfig) -> dict:
-    """Build the kwargs dict for litellm.acompletion from a config row."""
-    kw: dict = {"model": cfg.model}
-    if cfg.api_key:
-        kw["api_key"] = cfg.api_key
-    # api_base can live in extra_params (e.g. Ollama) or the dedicated column
-    api_base = (cfg.extra_params or {}).get("api_base") or cfg.api_base
-    if api_base:
-        kw["api_base"] = api_base
-    return kw
 
 
 class LLMService:
@@ -76,10 +68,13 @@ class LLMService:
         """Non-streaming completion – returns the full response text."""
         cfg = await _get_active_config(db)
         temp = temperature if temperature is not None else (cfg.extra_params or {}).get("temperature", 0.1)
-        response = await litellm.acompletion(
-            messages=messages,
-            temperature=temp,
-            **_build_kwargs(cfg),
+        response = await async_retry_litellm(
+            lambda: litellm.acompletion(
+                messages=messages,
+                temperature=temp,
+                **build_completion_kwargs(cfg),
+            ),
+            operation="llm.acompletion",
         )
         return response.choices[0].message.content or ""
 
@@ -92,16 +87,25 @@ class LLMService:
         """Streaming completion – yields text chunks as they arrive."""
         cfg = await _get_active_config(db)
         temp = temperature if temperature is not None else (cfg.extra_params or {}).get("temperature", 0.1)
-        response = await litellm.acompletion(
-            messages=messages,
-            temperature=temp,
-            stream=True,
-            **_build_kwargs(cfg),
+        response = await async_retry_litellm(
+            lambda: litellm.acompletion(
+                messages=messages,
+                temperature=temp,
+                stream=True,
+                **build_completion_kwargs(cfg),
+            ),
+            operation="llm.acompletion_stream",
         )
         async for chunk in response:
-            delta = chunk.choices[0].delta
-            if delta and delta.content:
-                yield delta.content
+            choices = getattr(chunk, "choices", None) or []
+            if not choices:
+                continue
+            delta = getattr(choices[0], "delta", None)
+            if not delta:
+                continue
+            content = getattr(delta, "content", None)
+            if content:
+                yield content
 
     async def model_name(self, db: AsyncSession) -> str:
         cfg = await _get_active_config(db)

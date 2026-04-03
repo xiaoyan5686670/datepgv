@@ -1,4 +1,4 @@
-export type SqlType = "hive" | "postgresql" | "oracle";
+export type SqlType = "hive" | "postgresql" | "oracle" | "mysql";
 
 export interface ColumnInfo {
   name: string;
@@ -6,6 +6,23 @@ export interface ColumnInfo {
   comment: string;
   nullable: boolean;
   is_partition_key: boolean;
+}
+
+export type TableRelationType = "foreign_key" | "logical" | "coquery";
+
+export interface TableMetadataEdge {
+  id: number;
+  from_metadata_id: number;
+  to_metadata_id: number;
+  from_label: string;
+  to_label: string;
+  from_db_type: string;
+  to_db_type: string;
+  relation_type: TableRelationType;
+  from_column: string | null;
+  to_column: string | null;
+  note: string | null;
+  created_at: string;
 }
 
 export interface TableMetadata {
@@ -23,6 +40,13 @@ export interface TableMetadata {
   updated_at: string;
 }
 
+/** 查询结果摘要（与 SSE done / 历史接口一致） */
+export interface ResultPreview {
+  columns: string[];
+  rows: Record<string, unknown>[];
+  truncated?: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -31,6 +55,10 @@ export interface ChatMessage {
   sql_type?: SqlType;
   referenced_tables?: string[];
   isStreaming?: boolean;
+  /** 服务端是否已执行 SQL（PostgreSQL / MySQL） */
+  executed?: boolean;
+  exec_error?: string | null;
+  result_preview?: ResultPreview | null;
 }
 
 export interface ChatSession {
@@ -76,6 +104,24 @@ export interface LLMConfigTestResult {
   model_used?: string;
 }
 
+// ── Analytics execute DB (NL→SQL) ─────────────────────────────────────────────
+
+export interface AnalyticsDbSettings {
+  postgres_url_masked: string | null;
+  mysql_url_masked: string | null;
+  postgres_stored: boolean;
+  mysql_stored: boolean;
+  postgres_effective_configured: boolean;
+  mysql_effective_configured: boolean;
+}
+
+export interface AnalyticsDbSettingsWrite {
+  postgres_url?: string | null;
+  mysql_url?: string | null;
+  clear_postgres?: boolean;
+  clear_mysql?: boolean;
+}
+
 // ── SSE Events ────────────────────────────────────────────────────────────────
 
 export interface MetaEvent {
@@ -94,6 +140,10 @@ export interface TokenEvent {
 export interface DoneEvent {
   type: "done";
   sql: string;
+  answer?: string;
+  executed?: boolean;
+  exec_error?: string | null;
+  result_preview?: ResultPreview | null;
 }
 
 export interface ErrorEvent {

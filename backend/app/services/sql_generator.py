@@ -13,7 +13,7 @@ def extract_sql(raw: str) -> str:
     Falls back to the raw text if no fences are found.
     """
     # Match ```sql ... ``` or ``` ... ```
-    pattern = r"```(?:sql|hive|postgresql|postgres)?\s*\n?([\s\S]*?)```"
+    pattern = r"```(?:sql|hive|postgresql|postgres|mysql)?\s*\n?([\s\S]*?)```"
     match = re.search(pattern, raw, re.IGNORECASE)
     if match:
         return match.group(1).strip()
@@ -53,6 +53,8 @@ def format_sql(sql: str, dialect: str = "ansi") -> str:
 DIALECT_MAP = {
     "hive": "hive",
     "postgresql": "postgres",
+    "mysql": "mysql",
+    "oracle": "oracle",
 }
 
 

@@ -43,6 +43,14 @@ const ORACLE_EXAMPLE = `CREATE TABLE DW.FACT_SALES (
 COMMENT ON TABLE DW.FACT_SALES IS '销售事实表';
 COMMENT ON COLUMN DW.FACT_SALES.AMOUNT IS '销售金额';`;
 
+const MYSQL_EXAMPLE = `CREATE TABLE sales_summary (
+  summary_date DATE NOT NULL,
+  department VARCHAR(100) NOT NULL,
+  total_amount DECIMAL(14,2) NOT NULL,
+  order_count INT NOT NULL,
+  PRIMARY KEY (summary_date, department)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='销售汇总';`;
+
 export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
   const [mode, setMode] = useState<"text" | "file">("text");
   const [dbType, setDbType] = useState<SqlType>("hive");
@@ -86,7 +94,7 @@ export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
       const tables =
         mode === "text"
           ? await importDDL(ddl, dbType, databaseName || undefined)
-          : await importDDLFile(ddlFile, dbType, databaseName || undefined);
+          : await importDDLFile(ddlFile!, dbType, databaseName || undefined);
       onSuccess(tables);
     } catch (err) {
       const raw = err instanceof Error ? err.message : "导入失败";
@@ -153,8 +161,8 @@ export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-[#8892a4] mb-1.5">数据库类型</label>
-              <div className="flex gap-2">
-                {(["hive", "postgresql", "oracle"] as SqlType[]).map((t) => (
+              <div className="flex flex-wrap gap-2">
+                {(["hive", "postgresql", "mysql", "oracle"] as SqlType[]).map((t) => (
                   <button
                     key={t}
                     type="button"
@@ -164,22 +172,32 @@ export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
                         setDdl(HIVE_EXAMPLE);
                       } else if (t === "postgresql") {
                         setDdl(PG_EXAMPLE);
+                      } else if (t === "mysql") {
+                        setDdl(MYSQL_EXAMPLE);
                       } else {
                         setDdl(ORACLE_EXAMPLE);
                       }
                     }}
                     className={cn(
-                      "flex-1 py-1.5 rounded-lg text-sm border transition-all",
+                      "flex-1 min-w-[5rem] py-1.5 rounded-lg text-sm border transition-all",
                       dbType === t
                         ? t === "hive"
                           ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
                           : t === "postgresql"
                           ? "bg-blue-500/20 text-blue-300 border-blue-500/40"
+                          : t === "mysql"
+                          ? "bg-orange-500/20 text-orange-300 border-orange-500/40"
                           : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
                         : "bg-[#12151f] text-[#8892a4] border-[#2a2d3d] hover:text-[#e2e8f0]"
                     )}
                   >
-                    {t === "hive" ? "Hive" : t === "postgresql" ? "PostgreSQL" : "Oracle"}
+                    {t === "hive"
+                      ? "Hive"
+                      : t === "postgresql"
+                      ? "PostgreSQL"
+                      : t === "mysql"
+                      ? "MySQL"
+                      : "Oracle"}
                   </button>
                 ))}
               </div>
@@ -209,6 +227,8 @@ export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
                         ? HIVE_EXAMPLE
                         : dbType === "postgresql"
                         ? PG_EXAMPLE
+                        : dbType === "mysql"
+                        ? MYSQL_EXAMPLE
                         : ORACLE_EXAMPLE
                     )
                   }

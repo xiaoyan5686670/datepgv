@@ -17,7 +17,7 @@ class ColumnInfo(BaseModel):
 # ── Table Metadata ────────────────────────────────────────────────────────────
 
 class TableMetadataCreate(BaseModel):
-    db_type: Literal["hive", "postgresql", "oracle"]
+    db_type: Literal["hive", "postgresql", "oracle", "mysql"]
     database_name: str | None = None
     schema_name: str | None = None
     table_name: str
@@ -32,6 +32,34 @@ class TableMetadataUpdate(BaseModel):
     columns: list[ColumnInfo] | None = None
     sample_data: list[dict[str, Any]] | None = None
     tags: list[str] | None = None
+
+
+class TableMetadataEdgeCreate(BaseModel):
+    """User-drawn link between two catalog tables (for RAG graph expansion)."""
+
+    from_metadata_id: int = Field(..., ge=1)
+    to_metadata_id: int = Field(..., ge=1)
+    relation_type: Literal["foreign_key", "logical", "coquery"]
+    from_column: str | None = None
+    to_column: str | None = None
+    note: str | None = None
+
+
+class TableMetadataEdgeResponse(BaseModel):
+    id: int
+    from_metadata_id: int
+    to_metadata_id: int
+    from_label: str
+    to_label: str
+    from_db_type: str
+    to_db_type: str
+    relation_type: str
+    from_column: str | None
+    to_column: str | None
+    note: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 class TableMetadataResponse(BaseModel):
@@ -69,8 +97,9 @@ class TableMetadataResponse(BaseModel):
 class ChatRequest(BaseModel):
     session_id: str | None = None
     query: str = Field(..., min_length=1, max_length=2000)
-    sql_type: Literal["hive", "postgresql", "oracle"] = "hive"
+    sql_type: Literal["hive", "postgresql", "oracle", "mysql"] = "mysql"
     top_k: int = Field(default=5, ge=1, le=20)
+    execute: bool = True
 
 
 class ChatResponse(BaseModel):
@@ -92,7 +121,7 @@ class ChatSessionSummary(BaseModel):
 
 class DDLImportRequest(BaseModel):
     ddl: str = Field(..., min_length=10)
-    db_type: Literal["hive", "postgresql", "oracle"] = "hive"
+    db_type: Literal["hive", "postgresql", "oracle", "mysql"] = "hive"
     database_name: str | None = None
 
 
@@ -100,7 +129,7 @@ class DDLImportRequest(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str
-    db_type: Literal["hive", "postgresql", "oracle", "all"] = "all"
+    db_type: Literal["hive", "postgresql", "oracle", "mysql", "all"] = "all"
     top_k: int = Field(default=5, ge=1, le=50)
 
 
@@ -145,3 +174,29 @@ class LLMConfigTestResult(BaseModel):
     message: str
     latency_ms: int | None = None
     model_used: str | None = None
+
+
+class AnalyticsDbSettingsResponse(BaseModel):
+    """Masked stored URLs only; effective flags include env fallback."""
+
+    postgres_url_masked: str | None
+    mysql_url_masked: str | None
+    postgres_stored: bool
+    mysql_stored: bool
+    postgres_effective_configured: bool
+    mysql_effective_configured: bool
+
+
+class AnalyticsDbSettingsWrite(BaseModel):
+    postgres_url: str | None = None
+    mysql_url: str | None = None
+    clear_postgres: bool = False
+    clear_mysql: bool = False
+
+
+class AnalyticsDbTestRequest(BaseModel):
+    engine: Literal["postgresql", "mysql"]
+    url: str | None = Field(
+        default=None,
+        description="Explicit URL to test; if omitted, uses saved + env effective URL",
+    )

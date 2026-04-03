@@ -33,7 +33,7 @@ function persistSessionId(id: string) {
 }
 
 export default function HomePage() {
-  const [sqlType, setSqlType] = useState<SqlType>("hive");
+  const [sqlType, setSqlType] = useState<SqlType>("mysql");
   const [activeSessionId, setActiveSessionId] = useState<string>(getOrCreateSessionId);
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -108,6 +108,7 @@ export default function HomePage() {
 
         <div className="flex items-center gap-3">
           {/* SQL type toggle */}
+          <div className="flex flex-col items-end gap-1">
           <div className="flex items-center bg-[#1a1d27] border border-[#2a2d3d] rounded-lg p-0.5">
             <button
               onClick={() => setSqlType("hive")}
@@ -132,6 +133,17 @@ export default function HomePage() {
               PostgreSQL
             </button>
             <button
+              onClick={() => setSqlType("mysql")}
+              className={cn(
+                "px-3 py-1 rounded-md text-xs font-medium transition-all",
+                sqlType === "mysql"
+                  ? "bg-orange-500/20 text-orange-300 border border-orange-500/30"
+                  : "text-[#8892a4] hover:text-[#e2e8f0]"
+              )}
+            >
+              MySQL
+            </button>
+            <button
               onClick={() => setSqlType("oracle")}
               className={cn(
                 "px-3 py-1 rounded-md text-xs font-medium transition-all",
@@ -142,6 +154,10 @@ export default function HomePage() {
             >
               Oracle
             </button>
+          </div>
+          <span className="text-[10px] text-[#4a5568] max-w-[280px] text-right leading-snug hidden lg:block">
+            PostgreSQL / MySQL：可生成并在服务端执行 SQL；Hive / Oracle：仅生成 SQL
+          </span>
           </div>
 
           <Link

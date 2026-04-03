@@ -34,12 +34,16 @@ export function SQLResult({
       ? "Hive SQL"
       : sqlType === "oracle"
       ? "Oracle SQL"
+      : sqlType === "mysql"
+      ? "MySQL"
       : "PostgreSQL";
   const labelColor =
     sqlType === "hive"
       ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
       : sqlType === "oracle"
       ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+      : sqlType === "mysql"
+      ? "bg-orange-500/20 text-orange-300 border-orange-500/30"
       : "bg-blue-500/20 text-blue-300 border-blue-500/30";
 
   return (

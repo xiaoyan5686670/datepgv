@@ -1,7 +1,21 @@
-import type { ChatSessionSummary, SqlType, TableMetadata } from "@/types";
+import type {
+  ChatSessionSummary,
+  SqlType,
+  TableMetadata,
+  TableMetadataEdge,
+  TableRelationType,
+} from "@/types";
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-const API = `${BASE}/api/v1`;
+/**
+ * FastAPI is reached via Next.js rewrite `/api/backend/*` → backend `/api/v1/*`
+ * (see next.config.js). No frontend .env needed for the API base URL.
+ */
+function apiV1Prefix(): string {
+  if (typeof window !== "undefined") {
+    return "/api/backend";
+  }
+  return `${(process.env.BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "")}/api/v1`;
+}
 
 async function readErrorMessage(res: Response, fallback: string): Promise<string> {
   try {
@@ -19,6 +33,40 @@ async function readErrorMessage(res: Response, fallback: string): Promise<string
   return fallback;
 }
 
+export async function fetchTableEdges(): Promise<TableMetadataEdge[]> {
+  const res = await fetch(`${apiV1Prefix()}/metadata/edges`);
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "加载表关系失败"));
+  }
+  return res.json();
+}
+
+export async function createTableEdge(payload: {
+  from_metadata_id: number;
+  to_metadata_id: number;
+  relation_type: TableRelationType;
+  from_column?: string | null;
+  to_column?: string | null;
+  note?: string | null;
+}): Promise<TableMetadataEdge> {
+  const res = await fetch(`${apiV1Prefix()}/metadata/edges`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "添加表关系失败"));
+  }
+  return res.json();
+}
+
+export async function deleteTableEdge(id: number): Promise<void> {
+  const res = await fetch(`${apiV1Prefix()}/metadata/edges/${id}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) {
+    throw new Error(await readErrorMessage(res, "删除失败"));
+  }
+}
+
 export async function fetchMetadata(
   dbType: "all" | SqlType = "all",
   skip = 0,
@@ -29,13 +77,13 @@ export async function fetchMetadata(
     skip: String(skip),
     limit: String(limit),
   });
-  const res = await fetch(`${API}/metadata/?${params}`);
+  const res = await fetch(`${apiV1Prefix()}/metadata/?${params}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
 export async function deleteMetadata(id: number): Promise<void> {
-  const res = await fetch(`${API}/metadata/${id}`, { method: "DELETE" });
+  const res = await fetch(`${apiV1Prefix()}/metadata/${id}`, { method: "DELETE" });
   if (!res.ok && res.status !== 204) throw new Error(await res.text());
 }
 
@@ -44,7 +92,7 @@ export async function importDDL(
   dbType: SqlType,
   databaseName?: string
 ): Promise<TableMetadata[]> {
-  const res = await fetch(`${API}/metadata/import/ddl`, {
+  const res = await fetch(`${apiV1Prefix()}/metadata/import/ddl`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ddl, db_type: dbType, database_name: databaseName }),
@@ -64,7 +112,7 @@ export async function importDDLFile(
   form.append("file", file);
   form.append("db_type", dbType);
   form.append("database_name", databaseName ?? "");
-  const res = await fetch(`${API}/metadata/import/ddl-file`, {
+  const res = await fetch(`${apiV1Prefix()}/metadata/import/ddl-file`, {
     method: "POST",
     body: form,
   });
@@ -83,7 +131,7 @@ export async function importCSV(
   form.append("file", file);
   form.append("db_type", dbType);
   form.append("database_name", databaseName);
-  const res = await fetch(`${API}/metadata/import/csv`, {
+  const res = await fetch(`${apiV1Prefix()}/metadata/import/csv`, {
     method: "POST",
     body: form,
   });
@@ -94,7 +142,7 @@ export async function importCSV(
 export async function createMetadata(
   payload: Omit<TableMetadata, "id" | "has_embedding" | "created_at" | "updated_at">
 ): Promise<TableMetadata> {
-  const res = await fetch(`${API}/metadata/`, {
+  const res = await fetch(`${apiV1Prefix()}/metadata/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -104,17 +152,17 @@ export async function createMetadata(
 }
 
 export async function reembedAll(): Promise<{ reembedded: number }> {
-  const res = await fetch(`${API}/metadata/reembed`, { method: "POST" });
+  const res = await fetch(`${apiV1Prefix()}/metadata/reembed`, { method: "POST" });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
 export function buildChatStreamUrl(): string {
-  return `${API}/chat/stream`;
+  return `${apiV1Prefix()}/chat/stream`;
 }
 
 export async function fetchChatSessions(): Promise<ChatSessionSummary[]> {
-  const res = await fetch(`${API}/chat/sessions`);
+  const res = await fetch(`${apiV1Prefix()}/chat/sessions`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -127,33 +175,47 @@ export async function fetchChatHistory(
     role: "user" | "assistant";
     content: string;
     sql_type: SqlType | null;
+    generated_sql?: string | null;
+    executed?: boolean | null;
+    exec_error?: string | null;
+    result_preview?: {
+      columns: string[];
+      rows: Record<string, unknown>[];
+      truncated?: boolean;
+    } | null;
     created_at: string;
   }[]
 > {
-  const res = await fetch(`${API}/chat/sessions/${sessionId}/history`);
+  const res = await fetch(`${apiV1Prefix()}/chat/sessions/${sessionId}/history`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
 export async function deleteChatSession(sessionId: string): Promise<void> {
-  const res = await fetch(`${API}/chat/sessions/${sessionId}`, { method: "DELETE" });
+  const res = await fetch(`${apiV1Prefix()}/chat/sessions/${sessionId}`, { method: "DELETE" });
   if (!res.ok && res.status !== 204) throw new Error(await res.text());
 }
 
 // ── LLM Config ────────────────────────────────────────────────────────────────
 
-import type { LLMConfig, LLMConfigCreate, LLMConfigTestResult } from "@/types";
+import type {
+  AnalyticsDbSettings,
+  AnalyticsDbSettingsWrite,
+  LLMConfig,
+  LLMConfigCreate,
+  LLMConfigTestResult,
+} from "@/types";
 
 export async function fetchConfigs(
   configType: "llm" | "embedding" | "all" = "all"
 ): Promise<LLMConfig[]> {
-  const res = await fetch(`${API}/config/?config_type=${configType}`);
+  const res = await fetch(`${apiV1Prefix()}/config/?config_type=${configType}`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
 export async function createConfig(payload: LLMConfigCreate): Promise<LLMConfig> {
-  const res = await fetch(`${API}/config/`, {
+  const res = await fetch(`${apiV1Prefix()}/config/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -166,7 +228,7 @@ export async function updateConfig(
   id: number,
   payload: Partial<LLMConfigCreate>
 ): Promise<LLMConfig> {
-  const res = await fetch(`${API}/config/${id}`, {
+  const res = await fetch(`${apiV1Prefix()}/config/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -176,18 +238,18 @@ export async function updateConfig(
 }
 
 export async function deleteConfig(id: number): Promise<void> {
-  const res = await fetch(`${API}/config/${id}`, { method: "DELETE" });
+  const res = await fetch(`${apiV1Prefix()}/config/${id}`, { method: "DELETE" });
   if (!res.ok && res.status !== 204) throw new Error(await res.text());
 }
 
 export async function activateConfig(id: number): Promise<LLMConfig> {
-  const res = await fetch(`${API}/config/${id}/activate`, { method: "POST" });
+  const res = await fetch(`${apiV1Prefix()}/config/${id}/activate`, { method: "POST" });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
 
 export async function testConfig(id: number): Promise<LLMConfigTestResult> {
-  const res = await fetch(`${API}/config/${id}/test`, { method: "POST" });
+  const res = await fetch(`${apiV1Prefix()}/config/${id}/test`, { method: "POST" });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
@@ -195,7 +257,59 @@ export async function testConfig(id: number): Promise<LLMConfigTestResult> {
 export async function getActiveConfig(
   configType: "llm" | "embedding"
 ): Promise<LLMConfig | null> {
-  const res = await fetch(`${API}/config/active/${configType}`);
+  const res = await fetch(`${apiV1Prefix()}/config/active/${configType}`);
   if (!res.ok) return null;
   return res.json();
+}
+
+/** List model names from a running Ollama instance (via backend proxy). */
+// ── Analytics DB (execute targets) ────────────────────────────────────────────
+
+export async function fetchAnalyticsDbSettings(): Promise<AnalyticsDbSettings> {
+  const res = await fetch(`${apiV1Prefix()}/config/analytics-db`);
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "加载数据连接配置失败"));
+  }
+  return res.json();
+}
+
+export async function updateAnalyticsDbSettings(
+  payload: AnalyticsDbSettingsWrite
+): Promise<AnalyticsDbSettings> {
+  const res = await fetch(`${apiV1Prefix()}/config/analytics-db`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "保存失败"));
+  }
+  return res.json();
+}
+
+export async function testAnalyticsDbConnection(
+  engine: "postgresql" | "mysql",
+  url?: string | null
+): Promise<LLMConfigTestResult> {
+  const res = await fetch(`${apiV1Prefix()}/config/analytics-db/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ engine, url: url?.trim() || null }),
+  });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "测试请求失败"));
+  }
+  return res.json();
+}
+
+export async function fetchOllamaModels(apiBase: string): Promise<string[]> {
+  const params = new URLSearchParams({
+    api_base: apiBase.trim() || "http://127.0.0.1:11434",
+  });
+  const res = await fetch(`${apiV1Prefix()}/config/ollama/models?${params}`);
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "获取 Ollama 模型列表失败"));
+  }
+  const data = (await res.json()) as { models?: string[] };
+  return data.models ?? [];
 }

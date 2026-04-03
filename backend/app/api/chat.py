@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Chat endpoint with Server-Sent Events (SSE) streaming.
 """
@@ -5,7 +6,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime
 from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -17,11 +17,53 @@ from app.core.database import get_db
 from app.models.chat import ChatMessage, ChatSession
 from app.models.schemas import ChatRequest, ChatSessionSummary
 from app.services.embedding import get_embedding_service
-from app.services.llm import get_llm_service
+from app.services.llm import LLMService, get_llm_service
+from app.services.analytics_db_settings_service import (
+    effective_mysql_execute_url,
+    effective_postgres_execute_url,
+)
+from app.services.query_executor import QueryExecutorError, QueryResult, run_analytics_query
 from app.services.rag import RAGEngine
 from app.services.sql_generator import process_llm_output
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+_SUMMARY_SYSTEM = """你是数据分析助手。用户提出了一个问题，系统已执行查询并得到下列 JSON 结果（可能仅包含部分行）。
+请严格根据给定数据用简体中文直接回答用户问题；不得编造数据中不存在的数字、日期或事实。
+若结果为空数组，说明可能无匹配数据，请简要说明。
+若用户消息中注明「结果已截断」，请在回答中说明结论基于返回数据的前若干行。"""
+
+
+def _history_turn_text(m: ChatMessage) -> str:
+    """Build one turn's text for multi-turn LLM context."""
+    if m.role == "user":
+        return m.content
+    if m.generated_sql:
+        return m.content
+    return m.content
+
+
+async def _summarize_query_result(
+    llm: LLMService,
+    db: AsyncSession,
+    user_query: str,
+    qres: QueryResult,
+) -> str:
+    trunc_note = (
+        "\n（查询结果已按行数上限截断，请仅基于以上数据分析。）" if qres.truncated else ""
+    )
+    payload = {
+        "columns": qres.columns,
+        "rows": qres.rows,
+    }
+    user_msg = f"""用户问题：{user_query}
+
+查询返回（JSON）：{json.dumps(payload, ensure_ascii=False, default=str)}{trunc_note}"""
+    messages = [
+        {"role": "system", "content": _SUMMARY_SYSTEM},
+        {"role": "user", "content": user_msg},
+    ]
+    return await llm.chat(messages, db)
 
 
 async def _ensure_session(session_id: str | None, db: AsyncSession) -> str:
@@ -47,7 +89,7 @@ async def _load_history(
         .limit(10)
     )
     msgs = list(reversed(result.scalars().all()))
-    return [{"role": m.role, "content": m.content} for m in msgs]
+    return [{"role": m.role, "content": _history_turn_text(m)} for m in msgs]
 
 
 @router.get("/sessions", response_model=list[ChatSessionSummary])
@@ -110,17 +152,26 @@ async def list_sessions(db: AsyncSession = Depends(get_db)) -> list[ChatSessionS
 async def _save_messages(
     session_id: str,
     user_query: str,
-    assistant_reply: str,
+    assistant_text: str,
     sql_type: str,
     db: AsyncSession,
+    generated_sql: str | None = None,
+    *,
+    executed: bool | None = None,
+    exec_error: str | None = None,
+    result_preview: dict | None = None,
 ) -> None:
     db.add(ChatMessage(session_id=session_id, role="user", content=user_query))
     db.add(
         ChatMessage(
             session_id=session_id,
             role="assistant",
-            content=assistant_reply,
+            content=assistant_text,
             sql_type=sql_type,
+            generated_sql=generated_sql,
+            executed=executed,
+            exec_error=exec_error,
+            result_preview=result_preview,
         )
     )
     await db.commit()
@@ -133,11 +184,11 @@ async def chat_stream(
 ) -> StreamingResponse:
     """
     SSE streaming chat endpoint.
-    
+
     Stream format:
     - `data: {"type": "meta", ...}`      – session/tables info (first event)
     - `data: {"type": "token", "text": "..."}` – SQL token stream
-    - `data: {"type": "done", "sql": "..."}` – final processed SQL
+    - `data: {"type": "done", ...}`      – sql, answer, executed, exec_error, result_preview
     - `data: {"type": "error", "message": "..."}` – on error
     """
     session_id = await _ensure_session(request.session_id, db)
@@ -147,18 +198,18 @@ async def chat_stream(
     llm = get_llm_service()
 
     # Retrieve relevant tables
-    tables = await rag.retrieve(request.query, request.sql_type, request.top_k)
+    tables, join_paths = await rag.retrieve(request.query, request.sql_type, request.top_k)
     if not tables:
         raise HTTPException(
-            status_code=404,
-            detail="No relevant tables found. Please import table metadata first.",
+            status_code=400,
+            detail=f"未找到与 {request.sql_type.upper()} 相关的表结构。请先在「元数据管理」中导入该类型的表。",
         )
 
     # Load conversation history for multi-turn context
     history = await _load_history(session_id, db)
 
     # Build RAG prompt
-    messages = rag.build_prompt(request.query, tables, request.sql_type)
+    messages = rag.build_prompt(request.query, tables, request.sql_type, join_paths)
 
     # Inject conversation history before the final user message
     if history:
@@ -191,15 +242,78 @@ async def chat_stream(
             yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n".encode()
             return
 
-        # Post-process and send final SQL
         clean_sql = process_llm_output(full_response, request.sql_type)
-        done = {"type": "done", "sql": clean_sql}
-        yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n".encode()
 
-        # Persist to DB (fire and forget via separate session would be cleaner,
-        # but acceptable here since it's after stream completes)
+        answer = ""
+        executed = False
+        exec_error: str | None = None
+        result_preview: dict | None = None
+
+        if not request.execute:
+            answer = "已按设置跳过数据库执行，仅生成 SQL。"
+        elif request.sql_type not in ("postgresql", "mysql"):
+            answer = (
+                f"当前为 {request.sql_type.upper()} 方言模式，系统未连接业务库执行查询，"
+                "请在目标环境中自行运行下方 SQL。"
+            )
+        elif request.sql_type == "postgresql" and not await effective_postgres_execute_url(
+            db
+        ):
+            exec_error = (
+                "未配置可用的 PostgreSQL 执行连接：请在「设置 → 数据连接」填写，"
+                "或设置 DATABASE_URL / ANALYTICS_POSTGRES_URL。"
+            )
+            answer = exec_error
+        elif request.sql_type == "mysql" and not await effective_mysql_execute_url(db):
+            exec_error = (
+                "未配置 MySQL 执行连接：请在「设置 → 数据连接」填写，或设置 ANALYTICS_MYSQL_URL。"
+            )
+            answer = exec_error
+        else:
+            try:
+                qres = await run_analytics_query(request.sql_type, clean_sql, db)
+                executed = True
+                result_preview = {
+                    "columns": qres.columns,
+                    "rows": qres.rows,
+                    "truncated": qres.truncated,
+                }
+                try:
+                    answer = await _summarize_query_result(
+                        llm, db, request.query, qres
+                    )
+                except Exception as sum_err:
+                    answer = (
+                        "查询已成功执行，但生成自然语言总结时出现错误："
+                        f"{sum_err}\n请查看下方返回的数据摘要。"
+                    )
+            except QueryExecutorError as e:
+                exec_error = str(e)
+                answer = f"查询未能执行：{exec_error}"
+            except Exception as e:
+                exec_error = str(e)
+                answer = f"执行过程出错：{exec_error}"
+
+        done = {
+            "type": "done",
+            "sql": clean_sql,
+            "answer": answer,
+            "executed": executed,
+            "exec_error": exec_error,
+            "result_preview": result_preview,
+        }
+        yield f"data: {json.dumps(done, ensure_ascii=False, default=str)}\n\n".encode()
+
         await _save_messages(
-            session_id, request.query, clean_sql, request.sql_type, db
+            session_id,
+            request.query,
+            answer,
+            request.sql_type,
+            db,
+            generated_sql=clean_sql or None,
+            executed=executed,
+            exec_error=exec_error,
+            result_preview=result_preview,
         )
 
     return StreamingResponse(
@@ -230,6 +344,10 @@ async def get_history(
             "role": m.role,
             "content": m.content,
             "sql_type": m.sql_type,
+            "generated_sql": m.generated_sql,
+            "executed": m.executed,
+            "exec_error": m.exec_error,
+            "result_preview": m.result_preview,
             "created_at": m.created_at.isoformat(),
         }
         for m in msgs

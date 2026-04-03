@@ -2,6 +2,9 @@ fastapi==0.115.6
 uvicorn[standard]==0.32.1
 sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
+# MySQL execute + connection test (data连接设置)
+aiomysql==0.2.0
+PyMySQL>=1.1.0,<2
 pgvector==0.3.6
 pydantic==2.10.3
 pydantic-settings==2.6.1
@@ -27,3 +30,6 @@ httpx>=0.23.0,<0.28.0
 
 # DDL parsing
 sqlglot==26.0.0
+
+# Graph processing
+networkx==3.4.2

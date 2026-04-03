@@ -7,8 +7,9 @@ from __future__ import annotations
 import time
 from typing import Literal
 
+import httpx
 import litellm
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,10 +17,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.models.llm_config import LLMConfig
 from app.models.schemas import (
+    AnalyticsDbSettingsResponse,
+    AnalyticsDbSettingsWrite,
+    AnalyticsDbTestRequest,
     LLMConfigCreate,
     LLMConfigResponse,
     LLMConfigTestResult,
     LLMConfigUpdate,
+)
+from app.services.litellm_kwargs import (
+    assert_safe_ollama_api_base,
+    build_completion_kwargs,
+    build_embedding_kwargs,
 )
 
 router = APIRouter(prefix="/config", tags=["config"])
@@ -37,6 +46,178 @@ def _to_response(row: LLMConfig) -> LLMConfigResponse:
         is_active=row.is_active,
         created_at=row.created_at,
         updated_at=row.updated_at,
+    )
+
+
+# ── Ollama model discovery (must stay before /{config_id} for clarity) ───────
+
+@router.get("/ollama/models")
+async def list_ollama_models(
+    api_base: str = Query(..., description="Ollama base URL, e.g. http://127.0.0.1:11434"),
+) -> dict:
+    """
+    Proxy Ollama GET /api/tags so the settings UI can populate model names.
+    """
+    try:
+        safe_base = assert_safe_ollama_api_base(api_base)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    url = f"{safe_base}/api/tags"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(url)
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"无法连接 Ollama: {e}",
+        ) from e
+
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Ollama 返回 HTTP {resp.status_code}",
+        )
+
+    try:
+        data = resp.json()
+    except ValueError:
+        raise HTTPException(status_code=502, detail="Ollama 响应不是合法 JSON") from None
+
+    raw_models = data.get("models") or []
+    names: list[str] = []
+    for item in raw_models:
+        if isinstance(item, dict) and item.get("name"):
+            names.append(str(item["name"]))
+    names = sorted(set(names))
+    return {"models": names}
+
+
+# ── Analytics DB execute targets (must stay before /{config_id}) ──────────────
+
+
+@router.get("/analytics-db", response_model=AnalyticsDbSettingsResponse)
+async def get_analytics_db_settings(
+    db: AsyncSession = Depends(get_db),
+) -> AnalyticsDbSettingsResponse:
+    from app.services.analytics_db_settings_service import (
+        effective_mysql_execute_url,
+        effective_postgres_execute_url,
+        get_analytics_settings_row,
+        mask_database_url,
+    )
+
+    row = await get_analytics_settings_row(db)
+    stored_pg = row.postgres_url if row else None
+    stored_my = row.mysql_url if row else None
+    eff_pg = await effective_postgres_execute_url(db)
+    eff_my = await effective_mysql_execute_url(db)
+    return AnalyticsDbSettingsResponse(
+        postgres_url_masked=mask_database_url(stored_pg),
+        mysql_url_masked=mask_database_url(stored_my),
+        postgres_stored=bool(stored_pg and stored_pg.strip()),
+        mysql_stored=bool(stored_my and stored_my.strip()),
+        postgres_effective_configured=bool(eff_pg),
+        mysql_effective_configured=bool(eff_my),
+    )
+
+
+@router.put("/analytics-db", response_model=AnalyticsDbSettingsResponse)
+async def put_analytics_db_settings(
+    payload: AnalyticsDbSettingsWrite,
+    db: AsyncSession = Depends(get_db),
+) -> AnalyticsDbSettingsResponse:
+    from app.services.analytics_db_settings_service import (
+        effective_mysql_execute_url,
+        effective_postgres_execute_url,
+        ensure_analytics_db_settings_row,
+        mask_database_url,
+    )
+
+    row = await ensure_analytics_db_settings_row(db)
+    data = payload.model_dump(exclude_unset=True)
+    if data.get("clear_postgres"):
+        row.postgres_url = None
+    elif "postgres_url" in data:
+        v = data["postgres_url"]
+        row.postgres_url = str(v).strip() if v and str(v).strip() else None
+    if data.get("clear_mysql"):
+        row.mysql_url = None
+    elif "mysql_url" in data:
+        v = data["mysql_url"]
+        row.mysql_url = str(v).strip() if v and str(v).strip() else None
+
+    await db.commit()
+    await db.refresh(row)
+    stored_pg = row.postgres_url
+    stored_my = row.mysql_url
+    eff_pg = await effective_postgres_execute_url(db)
+    eff_my = await effective_mysql_execute_url(db)
+    return AnalyticsDbSettingsResponse(
+        postgres_url_masked=mask_database_url(stored_pg),
+        mysql_url_masked=mask_database_url(stored_my),
+        postgres_stored=bool(stored_pg and stored_pg.strip()),
+        mysql_stored=bool(stored_my and stored_my.strip()),
+        postgres_effective_configured=bool(eff_pg),
+        mysql_effective_configured=bool(eff_my),
+    )
+
+
+@router.post("/analytics-db/test", response_model=LLMConfigTestResult)
+async def test_analytics_db_connection(
+    payload: AnalyticsDbTestRequest,
+    db: AsyncSession = Depends(get_db),
+) -> LLMConfigTestResult:
+    from app.services.analytics_db_settings_service import (
+        effective_mysql_execute_url,
+        effective_postgres_execute_url,
+    )
+    from app.services.query_executor import (
+        QueryExecutorError,
+        ping_mysql_dsn,
+        ping_postgresql_dsn,
+    )
+
+    start = time.monotonic()
+    url = (payload.url or "").strip() or None
+    try:
+        if payload.engine == "postgresql":
+            dsn = url or await effective_postgres_execute_url(db)
+            if not dsn:
+                raise HTTPException(
+                    status_code=400,
+                    detail="未配置 PostgreSQL 执行连接",
+                )
+            await ping_postgresql_dsn(dsn)
+        else:
+            dsn = url or await effective_mysql_execute_url(db)
+            if not dsn:
+                raise HTTPException(
+                    status_code=400,
+                    detail="未配置 MySQL 执行连接",
+                )
+            await ping_mysql_dsn(dsn)
+    except HTTPException:
+        raise
+    except QueryExecutorError as e:
+        latency_ms = int((time.monotonic() - start) * 1000)
+        return LLMConfigTestResult(
+            success=False,
+            message=str(e),
+            latency_ms=latency_ms,
+        )
+    except Exception as e:  # noqa: BLE001
+        latency_ms = int((time.monotonic() - start) * 1000)
+        return LLMConfigTestResult(
+            success=False,
+            message=str(e),
+            latency_ms=latency_ms,
+        )
+    latency_ms = int((time.monotonic() - start) * 1000)
+    return LLMConfigTestResult(
+        success=True,
+        message="连接成功",
+        latency_ms=latency_ms,
     )
 
 
@@ -189,15 +370,8 @@ async def test_config(
 
     start = time.monotonic()
     try:
-        kw: dict = {"model": row.model}
-        if row.api_key:
-            kw["api_key"] = row.api_key
-        # Prefer api_base from extra_params, fall back to the dedicated field
-        api_base = (row.extra_params or {}).get("api_base") or row.api_base
-        if api_base:
-            kw["api_base"] = api_base
-
         if row.config_type == "llm":
+            kw = build_completion_kwargs(row)
             resp = await litellm.acompletion(
                 messages=[{"role": "user", "content": "Reply with: OK"}],
                 max_tokens=5,
@@ -205,7 +379,9 @@ async def test_config(
             )
             model_used = resp.model or row.model
         else:
-            resp = await litellm.aembedding(input=["test"], **kw)
+            kw = build_embedding_kwargs(row)
+            kw["input"] = ["test"]
+            resp = await litellm.aembedding(**kw)
             model_used = row.model
 
         latency_ms = int((time.monotonic() - start) * 1000)

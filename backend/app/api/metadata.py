@@ -10,15 +10,18 @@ import pandas as pd
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.metadata import TableMetadata
+from app.models.metadata import TableMetadata, TableMetadataEdge
 from app.models.schemas import (
     ColumnInfo,
     DDLImportRequest,
     SearchRequest,
     TableMetadataCreate,
+    TableMetadataEdgeCreate,
+    TableMetadataEdgeResponse,
     TableMetadataResponse,
     TableMetadataUpdate,
 )
@@ -106,11 +109,145 @@ def _row_to_response(row: TableMetadata) -> TableMetadataResponse:
     return TableMetadataResponse(**data)
 
 
+def _table_display_label(row: TableMetadata) -> str:
+    parts = [row.database_name, row.schema_name, row.table_name]
+    return ".".join(p for p in parts if p) or row.table_name
+
+
+def _edge_to_response(
+    edge: TableMetadataEdge, from_row: TableMetadata, to_row: TableMetadata
+) -> TableMetadataEdgeResponse:
+    return TableMetadataEdgeResponse(
+        id=edge.id,
+        from_metadata_id=edge.from_metadata_id,
+        to_metadata_id=edge.to_metadata_id,
+        from_label=_table_display_label(from_row),
+        to_label=_table_display_label(to_row),
+        from_db_type=from_row.db_type,
+        to_db_type=to_row.db_type,
+        relation_type=edge.relation_type,
+        from_column=edge.from_column,
+        to_column=edge.to_column,
+        note=edge.note,
+        created_at=edge.created_at,
+    )
+
+
+# ── Table relations (must be registered before /{metadata_id}) ────────────────
+
+
+@router.get("/edges", response_model=list[TableMetadataEdgeResponse])
+async def list_table_edges(
+    db: AsyncSession = Depends(get_db),
+) -> list[TableMetadataEdgeResponse]:
+    """List all schema-graph edges with human-readable table names."""
+    try:
+        result = await db.execute(select(TableMetadataEdge).order_by(TableMetadataEdge.id))
+        edges = list(result.scalars().all())
+    except ProgrammingError:
+        await db.rollback()
+        return []
+
+    if not edges:
+        return []
+
+    ids: set[int] = set()
+    for e in edges:
+        ids.add(e.from_metadata_id)
+        ids.add(e.to_metadata_id)
+    meta_res = await db.execute(select(TableMetadata).where(TableMetadata.id.in_(ids)))
+    by_id = {r.id: r for r in meta_res.scalars().all()}
+
+    out: list[TableMetadataEdgeResponse] = []
+    for e in edges:
+        fr = by_id.get(e.from_metadata_id)
+        to = by_id.get(e.to_metadata_id)
+        if fr is None or to is None:
+            continue
+        out.append(_edge_to_response(e, fr, to))
+    return out
+
+
+@router.post(
+    "/edges",
+    response_model=TableMetadataEdgeResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_table_edge(
+    payload: TableMetadataEdgeCreate,
+    db: AsyncSession = Depends(get_db),
+) -> TableMetadataEdgeResponse:
+    if payload.from_metadata_id == payload.to_metadata_id:
+        raise HTTPException(
+            status_code=400,
+            detail="请选择两张不同的表，不能将同一张表连自己。",
+        )
+
+    from_row = await db.get(TableMetadata, payload.from_metadata_id)
+    to_row = await db.get(TableMetadata, payload.to_metadata_id)
+    if not from_row or not to_row:
+        raise HTTPException(status_code=404, detail="找不到对应的表，请先在「表目录」里添加元数据。")
+
+    edge = TableMetadataEdge(
+        from_metadata_id=payload.from_metadata_id,
+        to_metadata_id=payload.to_metadata_id,
+        relation_type=payload.relation_type,
+        from_column=payload.from_column,
+        to_column=payload.to_column,
+        note=payload.note,
+    )
+    db.add(edge)
+    try:
+        await db.commit()
+        await db.refresh(edge)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="这条关系已经存在（同一种类型不能重复添加）。",
+        ) from None
+    except ProgrammingError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="数据库尚未创建「表关系」表。请联系管理员执行 init-db/02-table_metadata_edges.sql。",
+        ) from None
+
+    return _edge_to_response(edge, from_row, to_row)
+
+
+@router.delete(
+    "/edges/{edge_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+async def delete_table_edge(
+    edge_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    try:
+        row = await db.get(TableMetadataEdge, edge_id)
+        if not row:
+            raise HTTPException(status_code=404, detail="这条关系不存在或已删除。")
+        await db.delete(row)
+        await db.commit()
+    except HTTPException:
+        raise
+    except ProgrammingError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail="数据库尚未创建「表关系」表。请联系管理员执行 init-db/02-table_metadata_edges.sql。",
+        ) from None
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 # ── CRUD ──────────────────────────────────────────────────────────────────────
 
 @router.get("/", response_model=list[TableMetadataResponse])
 async def list_metadata(
-    db_type: Literal["hive", "postgresql", "oracle", "all"] = Query("all"),
+    db_type: Literal["hive", "postgresql", "oracle", "mysql", "all"] = Query("all"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -219,7 +356,7 @@ async def import_from_ddl(
 @router.post("/import/ddl-file", response_model=list[TableMetadataResponse], status_code=201)
 async def import_from_ddl_file(
     file: UploadFile = File(...),
-    db_type: Literal["hive", "postgresql", "oracle"] = Form("hive"),
+    db_type: Literal["hive", "postgresql", "oracle", "mysql"] = Form("hive"),
     database_name: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ) -> list[TableMetadataResponse]:
@@ -268,7 +405,7 @@ async def import_from_ddl_file(
 @router.post("/import/csv", response_model=list[TableMetadataResponse], status_code=201)
 async def import_from_csv(
     file: UploadFile = File(...),
-    db_type: Literal["hive", "postgresql", "oracle"] = Form("hive"),
+    db_type: Literal["hive", "postgresql", "oracle", "mysql"] = Form("hive"),
     database_name: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ) -> list[TableMetadataResponse]:
@@ -415,7 +552,7 @@ async def search_metadata(
     emb_svc = get_embedding_service()
     engine = RAGEngine(db, emb_svc)
     sql_type = payload.db_type if payload.db_type != "all" else "hive"
-    tables = await engine.retrieve(payload.query, sql_type, payload.top_k)
+    tables, _ = await engine.retrieve(payload.query, sql_type, payload.top_k)
     return [_row_to_response(t) for t in tables]
 
 

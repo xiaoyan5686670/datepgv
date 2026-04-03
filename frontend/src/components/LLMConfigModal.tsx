@@ -3,10 +3,10 @@
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { createConfig, updateConfig } from "@/lib/api";
+import { createConfig, fetchOllamaModels, updateConfig } from "@/lib/api";
 import type { LLMConfig, LLMConfigCreate } from "@/types";
 
-// Common model presets for quick selection
+// Common model presets for quick selection (LiteLLM: ollama_chat is recommended for chat)
 const LLM_PRESETS = [
   { label: "GPT-4o", value: "openai/gpt-4o" },
   { label: "GPT-4o-mini", value: "openai/gpt-4o-mini" },
@@ -14,7 +14,9 @@ const LLM_PRESETS = [
   { label: "Gemini 1.5 Pro", value: "gemini/gemini-1.5-pro" },
   { label: "DeepSeek Coder V2", value: "deepseek/deepseek-coder" },
   { label: "Claude 3.5 Sonnet", value: "anthropic/claude-3-5-sonnet-20241022" },
-  { label: "Ollama (本地)", value: "ollama/qwen2.5-coder:32b" },
+  { label: "Ollama Chat — llama3.2（推荐）", value: "ollama_chat/llama3.2" },
+  { label: "Ollama Chat — qwen2.5-coder", value: "ollama_chat/qwen2.5-coder" },
+  { label: "Ollama 旧接口 — ollama/…", value: "ollama/qwen2.5-coder" },
   { label: "自定义...", value: "__custom__" },
 ];
 
@@ -22,9 +24,14 @@ const EMBEDDING_PRESETS = [
   { label: "text-embedding-3-small (1536d)", value: "openai/text-embedding-3-small" },
   { label: "text-embedding-3-large (3072d)", value: "openai/text-embedding-3-large" },
   { label: "Gemini text-embedding-004 (768d)", value: "gemini/text-embedding-004" },
-  { label: "Ollama nomic-embed-text (768d)", value: "ollama/nomic-embed-text" },
+  { label: "Ollama嵌入 nomic-embed-text (768d)", value: "ollama/nomic-embed-text" },
   { label: "自定义...", value: "__custom__" },
 ];
+
+function isOllamaModelString(m: string): boolean {
+  const s = m.trim().toLowerCase();
+  return s.startsWith("ollama/") || s.startsWith("ollama_chat/");
+}
 
 interface LLMConfigModalProps {
   configType: "llm" | "embedding";
@@ -53,6 +60,10 @@ export function LLMConfigModal({
   const [extraParamsError, setExtraParamsError] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [ollamaFetchLoading, setOllamaFetchLoading] = useState(false);
+  const [ollamaFetchError, setOllamaFetchError] = useState("");
+  const showOllamaHelper = isOllamaModelString(model);
 
   // When preset changes, autofill model string
   useEffect(() => {
@@ -97,6 +108,24 @@ export function LLMConfigModal({
       setError(err instanceof Error ? err.message : "保存失败");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleFetchOllamaModels = async () => {
+    setOllamaFetchError("");
+    setOllamaFetchLoading(true);
+    try {
+      const base = apiBase.trim() || "http://127.0.0.1:11434";
+      const list = await fetchOllamaModels(base);
+      setOllamaModels(list);
+      if (!list.length) {
+        setOllamaFetchError("未返回任何模型，请在本机执行 ollama pull <model> 后再试。");
+      }
+    } catch (e) {
+      setOllamaFetchError(e instanceof Error ? e.message : "获取失败");
+      setOllamaModels([]);
+    } finally {
+      setOllamaFetchLoading(false);
     }
   };
 
@@ -169,6 +198,7 @@ export function LLMConfigModal({
           <div>
             <label className="block text-xs text-[#8892a4] mb-1.5">
               API Key
+              <span className="ml-2 text-[#4a5568] font-normal">（Ollama 一般留空）</span>
               {isEdit && existing?.api_key_set && (
                 <span className="ml-2 text-green-400">（已设置，留空则保持不变）</span>
               )}
@@ -195,6 +225,68 @@ export function LLMConfigModal({
               className="w-full bg-[#12151f] border border-[#2a2d3d] rounded-lg px-3 py-2 text-sm text-[#e2e8f0] font-mono placeholder-[#4a5568] outline-none focus:border-[#0ea5e9]/50"
             />
           </div>
+
+          {showOllamaHelper && (
+            <div className="rounded-lg border border-[#0ea5e9]/25 bg-[#0ea5e9]/5 px-3 py-3 space-y-2 text-xs text-[#8892a4]">
+              <p>
+                <span className="text-[#e2e8f0]">Ollama：</span>
+                本机通常填{" "}
+                <code className="text-[#0ea5e9]">http://127.0.0.1:11434</code>
+                ；Docker 内后端访问宿主机可试{" "}
+                <code className="text-[#0ea5e9]">http://host.docker.internal:11434</code>
+                。
+                {configType === "llm" ? (
+                  <>
+                    {" "}
+                    LLM 对话推荐使用{" "}
+                    <code className="text-[#0ea5e9]">ollama_chat/模型名</code>。
+                  </>
+                ) : (
+                  <>
+                    {" "}
+                    Embedding 使用{" "}
+                    <code className="text-[#0ea5e9]">ollama/模型名</code>（注意向量维度须与库表一致）。
+                  </>
+                )}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleFetchOllamaModels}
+                  disabled={ollamaFetchLoading}
+                  className="px-3 py-1.5 rounded-lg bg-[#0ea5e9]/20 text-[#0ea5e9] border border-[#0ea5e9]/40 text-xs font-medium hover:bg-[#0ea5e9]/30 disabled:opacity-50"
+                >
+                  {ollamaFetchLoading ? "获取中…" : "获取模型列表"}
+                </button>
+                {ollamaModels.length > 0 && (
+                  <select
+                    className="flex-1 min-w-[12rem] bg-[#12151f] border border-[#2a2d3d] rounded-lg px-2 py-1.5 text-sm text-[#e2e8f0]"
+                    defaultValue=""
+                    onChange={(e) => {
+                      const name = e.target.value;
+                      e.target.value = "";
+                      if (!name) return;
+                      const useChat =
+                        configType === "llm" &&
+                        model.trim().toLowerCase().startsWith("ollama_chat/");
+                      setSelectedPreset("__custom__");
+                      setModel(useChat ? `ollama_chat/${name}` : `ollama/${name}`);
+                    }}
+                  >
+                    <option value="">选择已安装的模型填入上方 Model String…</option>
+                    {ollamaModels.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              {ollamaFetchError && (
+                <p className="text-red-400 font-mono break-all">{ollamaFetchError}</p>
+              )}
+            </div>
+          )}
 
           {/* Extra params */}
           <div>
