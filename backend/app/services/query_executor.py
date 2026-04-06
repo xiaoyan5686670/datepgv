@@ -6,8 +6,11 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass
+from datetime import date, datetime, time
+from decimal import Decimal
 from typing import Any, Literal
 from urllib.parse import unquote, urlparse
+from uuid import UUID
 
 import asyncpg
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -73,6 +76,17 @@ def assert_single_read_statement(sql: str) -> str:
 def _truncate_cell(val: Any) -> Any:
     if val is None:
         return None
+    # Drivers return Decimal / datetime / UUID etc.; JSONB + json.dumps need JSON-native scalars.
+    if isinstance(val, Decimal):
+        val = float(val)
+    elif isinstance(val, datetime):
+        val = val.isoformat()
+    elif isinstance(val, date):
+        val = val.isoformat()
+    elif isinstance(val, time):
+        val = val.isoformat()
+    elif isinstance(val, UUID):
+        val = str(val)
     if isinstance(val, (bytes, bytearray)):
         s = val.decode("utf-8", errors="replace")
     else:
