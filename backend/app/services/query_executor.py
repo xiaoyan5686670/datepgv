@@ -8,7 +8,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, time
+from datetime import date, datetime, time as dt_time
 from decimal import Decimal
 from typing import Any, Literal
 from urllib.parse import unquote, urlparse
@@ -87,7 +87,7 @@ def _truncate_cell(val: Any) -> Any:
         val = val.isoformat()
     elif isinstance(val, date):
         val = val.isoformat()
-    elif isinstance(val, time):
+    elif isinstance(val, dt_time):
         val = val.isoformat()
     elif isinstance(val, UUID):
         val = str(val)
