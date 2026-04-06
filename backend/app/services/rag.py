@@ -344,8 +344,12 @@ class RAGEngine:
 
 {rules}
 
-只返回 SQL 代码块（```sql ... ```），不要任何额外解释。
-如果问题无法从提供的表结构中解答，返回一条注释说明原因。"""
+严格要求（违反则视为错误）：
+- 所有 SELECT / WHERE / GROUP BY / ORDER BY / HAVING 以及 JOIN ON 条件中出现的「列名」，必须逐字来自下方「可用的表结构」中列出的字段名；禁止根据中文含义翻译、缩写或拼音造列名（例如不要用臆造的 renyuanbianma 代替实际字段名）。
+- 若「已知表之间的关联路径参考」给出了 JOIN ON 条件，应优先采用这些 ON 条件连接表，不要改用未在表结构中出现的列去关联。
+- 若无法只用已给出的字段完成查询，不要编造列名：请返回仅含注释的 SQL（如 -- 缺少某某业务字段，元数据中无对应列）说明原因，不要生成会在数据库上报 Unknown column 的语句。
+
+只返回 SQL 代码块（```sql ... ```），不要任何额外解释。"""
 
         user_prompt = f"""可用的表结构：
 
@@ -354,7 +358,7 @@ class RAGEngine:
 ---
 用户需求：{query}
 
-请生成 {sql_type.upper()} SQL："""
+请生成 {sql_type.upper()} SQL（列名必须与上表完全一致）："""
 
         return [
             {"role": "system", "content": system_prompt},

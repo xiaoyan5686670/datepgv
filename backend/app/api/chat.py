@@ -28,6 +28,7 @@ from app.core.config import settings
 from app.services.query_executor import QueryExecutorError, QueryResult, run_analytics_query
 from app.services.rag import RAGEngine
 from app.services.sql_generator import process_llm_output
+from app.services.sql_metadata_guard import validate_generated_sql_columns
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 logger = logging.getLogger(__name__)
@@ -309,6 +310,7 @@ async def chat_stream(
             answer = exec_error
         else:
             try:
+                validate_generated_sql_columns(clean_sql, tables, request.sql_type)
                 qres = await run_analytics_query(request.sql_type, clean_sql, db)
                 executed = True
                 result_preview = {
