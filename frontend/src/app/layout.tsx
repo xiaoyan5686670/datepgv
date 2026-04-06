@@ -12,8 +12,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="zh-CN">
-      <body>{children}</body>
+    <html lang="zh-CN" suppressHydrationWarning>
+      {/* 密码管理器 / 自动填充等扩展会在表单上注入 field_signature 等属性，导致水合告警 */}
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }

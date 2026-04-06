@@ -208,32 +208,38 @@ export default function HomePage() {
               <ul className="py-1">
                 {sessions.map((s) => (
                   <li key={s.session_id} className="group px-2 py-0.5">
-                    <button
-                      onClick={() => handleSelectSession(s.session_id)}
+                    <div
                       className={cn(
-                        "w-full text-left px-3 py-2 rounded-lg text-xs transition-all flex items-start gap-2",
+                        "w-full rounded-lg text-xs transition-all flex items-stretch gap-0 border",
                         activeSessionId === s.session_id
-                          ? "bg-[#1a1d27] text-[#e2e8f0] border border-[#0ea5e9]/30"
-                          : "text-[#a0aec0] hover:bg-[#111827] border border-transparent"
+                          ? "bg-[#1a1d27] border-[#0ea5e9]/30"
+                          : "border-transparent hover:bg-[#111827]"
                       )}
                     >
-                      <div className="flex-1 min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => handleSelectSession(s.session_id)}
+                        className={cn(
+                          "flex-1 min-w-0 text-left px-3 py-2 rounded-l-lg",
+                          activeSessionId === s.session_id
+                            ? "text-[#e2e8f0]"
+                            : "text-[#a0aec0]"
+                        )}
+                      >
                         <div className="truncate leading-5">{s.title}</div>
                         <div className="text-[10px] text-[#4a5568] mt-0.5">
                           {new Date(s.last_message_at).toLocaleString()}
                         </div>
-                      </div>
+                      </button>
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteSession(s.session_id);
-                        }}
-                        className="flex-shrink-0 mt-0.5 p-1 rounded opacity-0 group-hover:opacity-100 text-[#4a5568] hover:text-red-400 transition-all"
+                        type="button"
+                        onClick={() => handleDeleteSession(s.session_id)}
+                        className="flex-shrink-0 self-start mt-1 mr-1 p-1 rounded opacity-0 group-hover:opacity-100 text-[#4a5568] hover:text-red-400 transition-all"
                         title="删除会话"
                       >
                         <Trash2 size={12} />
                       </button>
-                    </button>
+                    </div>
                   </li>
                 ))}
               </ul>

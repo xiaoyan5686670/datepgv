@@ -408,6 +408,7 @@ export function ChatBox({
             onChange={(e) => setExecuteQuery(e.target.checked)}
             disabled={isLoading}
             className="rounded border-[#2a2d3d] bg-[#12151f] text-[#0ea5e9] focus:ring-[#0ea5e9]/40"
+            suppressHydrationWarning
           />
           生成后执行查询并展示结果（仅 PostgreSQL / MySQL；Hive / Oracle 仍以生成 SQL 为主）
         </label>
@@ -450,6 +451,7 @@ export function ChatBox({
             className="flex-1 bg-transparent text-sm text-[#e2e8f0] placeholder-[#4a5568] resize-none outline-none max-h-40 overflow-y-auto"
             style={{ lineHeight: "1.6" }}
             disabled={isLoading}
+            suppressHydrationWarning
           />
           <button
             onClick={() => send(input)}
