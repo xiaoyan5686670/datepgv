@@ -63,6 +63,50 @@ MySQL 5.x 规范：
 """.strip()
 
 
+def _table_column_names_lower(row: TableMetadata) -> set[str]:
+    return {
+        str(c["name"]).lower()
+        for c in (row.columns or [])
+        if c.get("name")
+    }
+
+
+def _join_columns_for_path_step(
+    u_id: int,
+    v_id: int,
+    u_table: TableMetadata,
+    v_table: TableMetadata,
+    cond: dict[str, Any],
+) -> tuple[str, str]:
+    """
+    Map edge from_column/to_column to this undirected step (u -> v) so each column
+    attaches to the correct physical table. If the edge was saved with swapped
+    names, pick the (u_col,v_col) pair that exists in metadata.
+    """
+    fc = (cond.get("from_column") or "").strip() or "id"
+    tc = (cond.get("to_column") or "").strip() or "id"
+    ef = cond.get("endpoint_from")
+    et = cond.get("endpoint_to")
+    uset = _table_column_names_lower(u_table)
+    vset = _table_column_names_lower(v_table)
+
+    candidates: list[tuple[str, str]] = []
+    if ef is not None and et is not None and {u_id, v_id} == {int(ef), int(et)}:
+        if u_id == int(ef) and v_id == int(et):
+            candidates = [(fc, tc), (tc, fc)]
+        elif u_id == int(et) and v_id == int(ef):
+            candidates = [(tc, fc), (fc, tc)]
+        else:
+            candidates = [(fc, tc)]
+    else:
+        candidates = [(fc, tc), (tc, fc)]
+
+    for uc, vc in candidates:
+        if uc.lower() in uset and vc.lower() in vset:
+            return uc, vc
+    return candidates[0]
+
+
 def _format_table_schema(row: TableMetadata) -> str:
     """Convert a TableMetadata row to a human-readable schema block."""
     full_name = ".".join(
@@ -201,6 +245,8 @@ class RAGEngine:
                 from_column=e.from_column,
                 to_column=e.to_column,
                 note=e.note,
+                endpoint_from=e.from_metadata_id,
+                endpoint_to=e.to_metadata_id,
             )
         return G
 
@@ -218,11 +264,14 @@ class RAGEngine:
                 continue
             u_name = u_table.table_name
             v_name = v_table.table_name
-            u_col = cond.get("from_column") or "id"
-            v_col = cond.get("to_column") or "id"
+            u_col, v_col = _join_columns_for_path_step(
+                u, v, u_table, v_table, cond
+            )
             note = cond.get("note") or ""
             note_str = f" (业务含义: {note})" if note else ""
-            formatted.append(f"{u_name} JOIN {v_name} ON {u_name}.{u_col} = {v_name}.{v_col}{note_str}")
+            formatted.append(
+                f"{u_name} JOIN {v_name} ON {u_name}.{u_col} = {v_name}.{v_col}{note_str}"
+            )
         return formatted
 
     async def _load_metadata_map(
