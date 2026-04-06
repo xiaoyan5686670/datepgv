@@ -34,6 +34,10 @@ const LLM_PRESETS = [
 
 const EMBEDDING_PRESETS = [
   {
+    label: "DashScope text-embedding-v4（兼容 /embeddings；维度见百炼文档）",
+    value: "dashscope/text-embedding-v4",
+  },
+  {
     label: "DashScope text-embedding-v2 (常见1536d，请先连接测试)",
     value: "dashscope/text-embedding-v2",
   },

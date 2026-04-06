@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.llm_config import LLMConfig
-from app.services.litellm_kwargs import build_embedding_kwargs
+from app.services.litellm_kwargs import build_embedding_kwargs, embedding_target_dimensions
 from app.services.litellm_retry import async_retry_litellm
 
 # ── In-memory cache ───────────────────────────────────────────────────────────
@@ -63,7 +63,15 @@ class EmbeddingService:
             lambda: litellm.aembedding(**kw),
             operation="embedding.aembedding",
         )
-        return response.data[0]["embedding"]
+        vec = response.data[0]["embedding"]
+        expected = embedding_target_dimensions(cfg)
+        if len(vec) != expected:
+            raise RuntimeError(
+                f"嵌入向量维度为 {len(vec)}，与目标维度 {expected} 不一致（.env 的 EMBEDDING_DIM 或该嵌入配置的 "
+                "extra_params 里 dimensions / dim）。须与 PostgreSQL table_metadata.embedding 的 vector(N) 一致；"
+                "修改后请重嵌或调整模型/维度参数。"
+            )
+        return vec
 
     async def embed_batch(self, texts: list[str], db: AsyncSession) -> list[list[float]]:
         """Embed multiple texts concurrently."""

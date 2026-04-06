@@ -716,9 +716,9 @@ export default function SettingsPage() {
                     "DASHSCOPE_API_KEY；可选 API Base（国内/国际兼容模式 endpoint）",
                   ],
                   [
-                    "阿里云 DashScope 嵌入",
-                    "dashscope/text-embedding-v2",
-                    "同上；维度须与 PG vector(N) 一致，默认库为 1536",
+                    "阿里云 DashScope 嵌入（兼容模式）",
+                    "dashscope/text-embedding-v4",
+                    "仅 text-embedding-v1～v4；qwen3-vl-embedding 等为多模态原生 API，不可用。维度须与 PG vector(N) 一致",
                   ],
                   ["Anthropic", "anthropic/claude-3-5-sonnet-20241022", "ANTHROPIC_API_KEY"],
                   [
