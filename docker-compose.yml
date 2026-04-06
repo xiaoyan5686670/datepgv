@@ -23,15 +23,17 @@ services:
       - ./backend:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+  # Dockerfile.dev 跑 next dev；勿再挂载匿名卷 /app/.next，否则会盖住构建产物导致 /_next/static 404。
+  # 生产仅镜像部署请用 frontend/Dockerfile 且不要挂载 ./frontend 覆盖 /app。
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     container_name: datepgv-frontend
     restart: unless-stopped
     environment:
-      # Next.js rewrites /api/backend → FastAPI (service name inside compose network)
       BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
+      WATCHPACK_POLLING: "true"
     ports:
       - "3000:3000"
     depends_on:
@@ -39,4 +41,3 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
-      - /app/.next

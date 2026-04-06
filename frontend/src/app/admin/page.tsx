@@ -12,6 +12,7 @@ import {
   RefreshCw,
   RotateCcw,
   Settings,
+  Share2,
   Table,
   Trash2,
   Upload,
@@ -261,7 +262,7 @@ export default function AdminPage() {
         )}
 
         {/* Filter tabs */}
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
           {(["all", "hive", "postgresql", "mysql", "oracle"] as const).map((f) => (
             <button
               key={f}
@@ -284,12 +285,25 @@ export default function AdminPage() {
                 : "Oracle"}
             </button>
           ))}
-          <button
-            onClick={load}
-            className="ml-auto text-app-muted hover:text-app-text transition-colors"
-          >
-            <RefreshCw size={14} />
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            {section === "relations" ? (
+              <Link
+                href="/schema-graph"
+                className="flex items-center gap-1 text-xs text-app-muted hover:text-app-accent px-2 py-1 rounded-lg border border-app-border hover:border-app-accent/40 transition-all"
+              >
+                <Share2 size={13} />
+                关系图
+              </Link>
+            ) : null}
+            <button
+              type="button"
+              onClick={load}
+              className="text-app-muted hover:text-app-text transition-colors p-1"
+              title="刷新列表"
+            >
+              <RefreshCw size={14} />
+            </button>
+          </div>
         </div>
 
         {section === "relations" ? (

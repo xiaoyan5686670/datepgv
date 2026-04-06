@@ -6,8 +6,10 @@ import {
   Info,
   Loader2,
   RefreshCw,
+  Share2,
   Trash2,
 } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createTableEdge, deleteTableEdge, fetchTableEdges } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -137,6 +139,15 @@ export function TableRelationsPanel({ tables, filterDb }: TableRelationsPanelPro
             <code className="mx-1 rounded bg-app-input px-1.5 py-0.5 text-slate-500 dark:text-slate-400">
               init-db/02-table_metadata_edges.sql
             </code>
+          </p>
+          <p className="pt-2">
+            <Link
+              href="/schema-graph"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-app-accent hover:underline"
+            >
+              <Share2 size={14} />
+              在关系图中查看
+            </Link>
           </p>
         </div>
       </div>

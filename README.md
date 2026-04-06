@@ -70,6 +70,8 @@ docker compose up -d
 - 后端 API 文档: http://localhost:8000/docs
 - PostgreSQL: localhost:5432
 
+**若浏览器报 `/_next/static/...` 404（如 `webpack.js`、`main-app.js`）**：多半是旧的 Docker 匿名卷把空的 `.next` 盖在挂载目录上。请执行 `docker compose down` 后重新 `docker compose up --build`（本仓库 compose 已改为 `Dockerfile.dev` + `next dev`，且不再单独挂载 `/app/.next`）。仅在本地跑前端时，可在 `frontend` 目录执行 `rm -rf .next` 后重新 `npm run dev`。
+
 ### 3. 导入表元数据
 
 访问 http://localhost:3000/admin，支持：
