@@ -28,10 +28,14 @@ from app.core.config import settings
 from app.services.query_executor import QueryExecutorError, QueryResult, run_analytics_query
 from app.services.rag import RAGEngine
 from app.services.sql_generator import process_llm_output
-from app.services.sql_metadata_guard import validate_generated_sql_columns
+from app.services.sql_column_repair import repair_sql_unknown_columns
+from app.services.sql_metadata_guard import find_unknown_columns
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 logger = logging.getLogger(__name__)
+
+# 首轮 SQL 若含元数据外列名，最多调用 LLM 纠错几次再执行分析库
+_SQL_COLUMN_REPAIR_MAX_ROUNDS = 2
 
 _SUMMARY_SYSTEM = """你是数据分析助手。用户提出了一个问题，系统已执行查询并得到下列 JSON 结果（可能仅包含部分行）。
 请严格根据给定数据用简体中文直接回答用户问题；不得编造数据中不存在的数字、日期或事实。
@@ -310,7 +314,34 @@ async def chat_stream(
             answer = exec_error
         else:
             try:
-                validate_generated_sql_columns(clean_sql, tables, request.sql_type)
+                for repair_round in range(_SQL_COLUMN_REPAIR_MAX_ROUNDS):
+                    unknown = find_unknown_columns(
+                        clean_sql, tables, request.sql_type
+                    )
+                    if not unknown:
+                        break
+                    logger.info(
+                        "chat_sql_column_repair round=%s unknown=%s",
+                        repair_round + 1,
+                        unknown,
+                    )
+                    fixed_raw = await repair_sql_unknown_columns(
+                        clean_sql,
+                        unknown,
+                        tables,
+                        join_paths,
+                        request.sql_type,
+                        llm,
+                        db,
+                    )
+                    clean_sql = process_llm_output(fixed_raw, request.sql_type)
+                still = find_unknown_columns(clean_sql, tables, request.sql_type)
+                if still:
+                    logger.warning(
+                        "chat_sql_column_repair still unknown after %s rounds: %s; executing anyway",
+                        _SQL_COLUMN_REPAIR_MAX_ROUNDS,
+                        still,
+                    )
                 qres = await run_analytics_query(request.sql_type, clean_sql, db)
                 executed = True
                 result_preview = {

@@ -50,20 +50,23 @@ def _alias_names_in_statement(parsed: exp.Expression) -> set[str]:
     return out
 
 
-def validate_generated_sql_columns(
+def find_unknown_columns(
     sql: str,
     tables: list[TableMetadata],
     sql_type: str,
-) -> None:
+) -> list[str]:
     """
-    Raise QueryExecutorError if the SQL references column names outside metadata
-    (and not introduced as aliases in this SQL). Parsing failures are ignored
-    (deferred to the database).
+    Return column identifiers in sql that are not in metadata (nor AS aliases in sql).
+    Empty list if nothing to check, SQL is not a valid single read statement, or parse fails.
     """
     if not tables:
-        return
+        return []
 
-    safe = assert_single_read_statement(sql)
+    try:
+        safe = assert_single_read_statement(sql)
+    except QueryExecutorError:
+        return []
+
     wl_cols = _metadata_column_whitelist(tables)
     wl_tables = _table_name_whitelist(tables)
     dialect = _SQLGLOT_DIALECT.get(sql_type, sql_type)
@@ -71,7 +74,7 @@ def validate_generated_sql_columns(
     try:
         parsed = sqlglot.parse_one(safe, dialect=dialect)
     except Exception:
-        return
+        return []
 
     aliases = _alias_names_in_statement(parsed)
     allowed = wl_cols | aliases | wl_tables
@@ -92,10 +95,19 @@ def validate_generated_sql_columns(
         if key not in allowed:
             unknown.append(raw_s)
 
+    return list(dict.fromkeys(unknown))
+
+
+def validate_generated_sql_columns(
+    sql: str,
+    tables: list[TableMetadata],
+    sql_type: str,
+) -> None:
+    """Strict mode: raise QueryExecutorError if unknown columns remain."""
+    unknown = find_unknown_columns(sql, tables, sql_type)
     if unknown:
-        uniq = list(dict.fromkeys(unknown))
-        preview = ", ".join(f"'{u}'" for u in uniq[:12])
-        more = f" 等共 {len(uniq)} 个" if len(uniq) > 12 else ""
+        preview = ", ".join(f"'{u}'" for u in unknown[:12])
+        more = f" 等共 {len(unknown)} 个" if len(unknown) > 12 else ""
         raise QueryExecutorError(
             "生成的 SQL 使用了元数据中不存在的列名（可能是臆造或拼音）："
             f"{preview}{more}。"
