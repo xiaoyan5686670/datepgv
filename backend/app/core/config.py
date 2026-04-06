@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     # Optional default Ollama API base when model is ollama/… and UI api_base is empty.
     OLLAMA_API_BASE: str | None = None
 
+    # DashScope (通义): optional default compatible-mode base when UI api_base is empty.
+    # China: https://dashscope.aliyuncs.com/compatible-mode/v1
+    # International: https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+    # https://docs.litellm.ai/docs/providers/dashscope
+    DASHSCOPE_API_BASE: str | None = None
+
     # LiteLLM: retry 503 / 429 / overload (e.g. Vertex "high demand")
     LITELLM_RETRY_MAX_ATTEMPTS: int = 4
     LITELLM_RETRY_BASE_DELAY_SEC: float = 2.0

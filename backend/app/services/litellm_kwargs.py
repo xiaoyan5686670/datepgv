@@ -34,6 +34,14 @@ def normalize_litellm_model(model: str) -> str:
     return raw
 
 
+def is_dashscope_family(model: str) -> bool:
+    """True for dashscope/… or bare Qwen ids that normalize_litellm_model prefixes."""
+    raw = (model or "").strip()
+    if raw.lower().startswith("dashscope/"):
+        return True
+    return normalize_litellm_model(raw).lower().startswith("dashscope/")
+
+
 def _host_allowed_for_ollama_proxy(host: str) -> bool:
     """Restrict SSRF for server-side Ollama tag proxy; allow local/dev and Compose service names."""
     if not host:
@@ -82,6 +90,10 @@ def resolve_api_base(cfg: LLMConfig) -> str | None:
     if is_ollama_family(cfg.model):
         env_or_default = (settings.OLLAMA_API_BASE or DEFAULT_OLLAMA_BASE).strip().rstrip("/")
         return env_or_default
+    if is_dashscope_family(cfg.model):
+        ds = (settings.DASHSCOPE_API_BASE or "").strip()
+        if ds:
+            return ds.rstrip("/")
     return None
 
 

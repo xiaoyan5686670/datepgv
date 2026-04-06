@@ -11,11 +11,12 @@ pydantic-settings==2.6.1
 python-dotenv==1.0.1
 python-multipart==0.0.20
 
-# LLM
-litellm==1.57.0
+# LLM — DashScope/通义需 litellm>=1.75（1.57 无 dashscope provider，会报 LLM Provider NOT provided）
+# 见 https://docs.litellm.ai/docs/providers/dashscope
+litellm==1.75.9
 
-# Embeddings (supports OpenAI, HuggingFace, etc.)
-openai==1.59.3
+# Transitive peer of litellm 1.75+ (litellm requires openai>=1.99.5); not imported directly by app code
+openai>=1.99.5,<2
 
 # SQL parsing & validation
 sqlfluff==3.3.1
@@ -25,8 +26,8 @@ sqlparse==0.5.3
 openpyxl==3.1.5
 pandas==2.2.3
 
-# HTTP client (litellm 1.57.0 requires httpx<0.28.0)
-httpx>=0.23.0,<0.28.0
+# HTTP client (litellm 1.75+ allows httpx>=0.23)
+httpx>=0.23.0,<0.29.0
 
 # DDL parsing
 sqlglot==26.0.0
