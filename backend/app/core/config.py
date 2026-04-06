@@ -38,9 +38,9 @@ class Settings(BaseSettings):
     RAG_GRAPH_MAX_TABLES: int = 20
     # Approximate prompt budget for the "可用表结构" blocks (~chars/4 tokens).
     RAG_GRAPH_MAX_SCHEMA_CHARS: int = 32000
-    # Must match PostgreSQL table_metadata.embedding vector(N). For DashScope text-embedding-v3/v4
-    # we pass dimensions=… to the compatible API; native OpenAI text-embedding-3* does not use this
-    # param in LiteLLM (use model default sizes: small=1536, large=3072).
+    # Must match PostgreSQL table_metadata.embedding vector(N) and the active model output size.
+    # DashScope text-embedding-v4 经 LiteLLM 调用时无法传 dimensions（库校验与模型名冲突），默认多为 1024；
+    # v2 多为 1536。OpenAI text-embedding-3-small/large 默认 1536/3072。
     EMBEDDING_DIM: int = 1536
     VECTOR_STORE: Literal["pgvector"] = "pgvector"  # Future: milvus, qdrant, etc.
 

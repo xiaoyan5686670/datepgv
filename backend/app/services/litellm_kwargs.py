@@ -180,12 +180,14 @@ def build_embedding_kwargs(cfg: LLMConfig) -> dict:
     if is_ollama_family(cfg.model):
         kw["drop_params"] = True
 
-    # LiteLLM raises UnsupportedParamsError if we pass `dimensions` to native OpenAI
-    # text-embedding-3* (it treats the param as unsupported). 百炼兼容 /embeddings 的 v3/v4 仍需要 dimensions。
-    dim = embedding_target_dimensions(cfg)
+    # DashScope 嵌入走 openai/ + 百炼 api_base；LiteLLM 在 custom_llm_provider=openai 时若传入
+    # dimensions 且 model 名不含子串 "text-embedding-3"，会误报 UnsupportedParamsError
+    #（text-embedding-v3 / v4 都不含该子串）。故不向 LiteLLM 传 dimensions，用百炼默认输出维度。
     if is_dashscope_family(cfg.model):
         m = kw["model"].lower()
         if "text-embedding-v3" in m or "text-embedding-v4" in m:
-            _assert_bailian_v3_v4_dimension(kw["model"], dim)
-            kw["dimensions"] = dim
+            _assert_bailian_v3_v4_dimension(
+                kw["model"], embedding_target_dimensions(cfg)
+            )
+        kw["drop_params"] = True
     return kw
