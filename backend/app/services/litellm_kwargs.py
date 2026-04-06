@@ -8,6 +8,7 @@ the DashScope OpenAI-compatible /embeddings API via model `openai/<model_id>` + 
 from __future__ import annotations
 
 import ipaddress
+import os
 from urllib.parse import urlparse
 
 from app.core.config import settings
@@ -79,6 +80,21 @@ def embedding_target_dimensions(cfg: LLMConfig) -> int:
         except (TypeError, ValueError):
             pass
     return settings.EMBEDDING_DIM
+
+
+def embedding_dimension_target_explanation(cfg: LLMConfig) -> str:
+    """Human-readable source of embedding_target_dimensions (for error messages)."""
+    extra = cfg.extra_params or {}
+    if extra.get("dimensions") is not None:
+        return "该嵌入配置 extra_params.dimensions"
+    if extra.get("dim") is not None:
+        return "该嵌入配置 extra_params.dim"
+    if os.environ.get("EMBEDDING_DIM") is not None:
+        return "环境变量 EMBEDDING_DIM（如项目根目录 .env）"
+    return (
+        "应用内置默认值 config.EMBEDDING_DIM（未设置环境变量 EMBEDDING_DIM 时使用，"
+        f"当前为 {settings.EMBEDDING_DIM}，通常与 init-db 的 vector(1536) 一致）"
+    )
 
 
 def _assert_bailian_v3_v4_dimension(model: str, dim: int) -> None:

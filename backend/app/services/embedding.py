@@ -13,7 +13,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.llm_config import LLMConfig
-from app.services.litellm_kwargs import build_embedding_kwargs, embedding_target_dimensions
+from app.services.litellm_kwargs import (
+    build_embedding_kwargs,
+    embedding_dimension_target_explanation,
+    embedding_target_dimensions,
+)
 from app.services.litellm_retry import async_retry_litellm
 
 # ── In-memory cache ───────────────────────────────────────────────────────────
@@ -66,10 +70,13 @@ class EmbeddingService:
         vec = response.data[0]["embedding"]
         expected = embedding_target_dimensions(cfg)
         if len(vec) != expected:
+            src = embedding_dimension_target_explanation(cfg)
             raise RuntimeError(
-                f"嵌入向量维度为 {len(vec)}，与目标维度 {expected} 不一致（.env 的 EMBEDDING_DIM 或该嵌入配置的 "
-                "extra_params 里 dimensions / dim）。须与 PostgreSQL table_metadata.embedding 的 vector(N) 一致；"
-                "修改后请重嵌或调整模型/维度参数。"
+                f"嵌入 API 返回 {len(vec)} 维，与目标维度 {expected} 不一致。"
+                f"目标维度来自：{src}。"
+                "须与 PostgreSQL table_metadata.embedding 的 vector(N) 一致。"
+                "若使用百炼 text-embedding-v4，默认输出多为 1024 维，请在 .env 设置 EMBEDDING_DIM=1024 并将列改为 vector(1024) 后重嵌；"
+                "若希望保持 1536 维与默认库表，可改用百炼 text-embedding-v2 等。"
             )
         return vec
 
