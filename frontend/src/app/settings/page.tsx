@@ -710,6 +710,16 @@ export default function SettingsPage() {
                   ["OpenAI", "openai/gpt-4o", "OPENAI_API_KEY"],
                   ["Gemini", "gemini/gemini-2.0-flash", "GEMINI_API_KEY"],
                   ["DeepSeek", "deepseek/deepseek-coder", "DEEPSEEK_API_KEY"],
+                  [
+                    "阿里云 DashScope（通义）",
+                    "dashscope/qwen-turbo",
+                    "DASHSCOPE_API_KEY；可选 API Base（国内/国际兼容模式 endpoint）",
+                  ],
+                  [
+                    "阿里云 DashScope 嵌入",
+                    "dashscope/text-embedding-v2",
+                    "同上；维度须与 PG vector(N) 一致，默认库为 1536",
+                  ],
                   ["Anthropic", "anthropic/claude-3-5-sonnet-20241022", "ANTHROPIC_API_KEY"],
                   [
                     "Ollama Chat（推荐）",
@@ -733,7 +743,16 @@ export default function SettingsPage() {
               </tbody>
             </table>
             <p className="text-xs text-[#4a5568] mt-3">
-              Ollama 说明：
+              DashScope 说明：
+              <a
+                href="https://docs.litellm.ai/docs/providers/dashscope"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#0ea5e9] hover:underline ml-1"
+              >
+                LiteLLM — DashScope
+              </a>
+              。Ollama 说明：
               <a
                 href="https://docs.litellm.ai/docs/providers/ollama"
                 target="_blank"

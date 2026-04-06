@@ -1,6 +1,8 @@
 """
 Shared LiteLLM kwargs for DB-backed LLMConfig rows.
 Normalizes api_base for Ollama / ollama_chat and enables drop_params where needed.
+Bare Alibaba DashScope model ids (e.g. qwen-turbo) get a dashscope/ prefix so LiteLLM
+can route the request.
 """
 from __future__ import annotations
 
@@ -16,6 +18,20 @@ DEFAULT_OLLAMA_BASE = "http://127.0.0.1:11434"
 def is_ollama_family(model: str) -> bool:
     m = model.lower().strip()
     return m.startswith("ollama/") or m.startswith("ollama_chat/")
+
+
+def normalize_litellm_model(model: str) -> str:
+    """
+    LiteLLM requires provider/model. Users often paste DashScope console ids without
+    the dashscope/ prefix, which triggers "LLM Provider NOT provided".
+    """
+    raw = (model or "").strip()
+    if not raw or "/" in raw:
+        return raw
+    m = raw.lower()
+    if m.startswith("qwen") or m.startswith("qwq") or m.startswith("text-embedding"):
+        return f"dashscope/{raw}"
+    return raw
 
 
 def _host_allowed_for_ollama_proxy(host: str) -> bool:
@@ -71,7 +87,7 @@ def resolve_api_base(cfg: LLMConfig) -> str | None:
 
 def build_completion_kwargs(cfg: LLMConfig) -> dict:
     """Kwargs for litellm.acompletion (merge messages, temperature, stream separately)."""
-    kw: dict = {"model": cfg.model}
+    kw: dict = {"model": normalize_litellm_model(cfg.model)}
     if cfg.api_key:
         kw["api_key"] = cfg.api_key
     api_base = resolve_api_base(cfg)
@@ -84,7 +100,7 @@ def build_completion_kwargs(cfg: LLMConfig) -> dict:
 
 def build_embedding_kwargs(cfg: LLMConfig) -> dict:
     """Kwargs for litellm.aembedding (caller adds input)."""
-    kw: dict = {"model": cfg.model}
+    kw: dict = {"model": normalize_litellm_model(cfg.model)}
     if cfg.api_key:
         kw["api_key"] = cfg.api_key
     api_base = resolve_api_base(cfg)

@@ -211,9 +211,9 @@ async def _run_mysql(dsn: str, sql: str) -> QueryResult:
     params = _parse_mysql_url(dsn)
     timeout = settings.ANALYTICS_QUERY_TIMEOUT_SEC
     max_rows = settings.ANALYTICS_MAX_ROWS
-    # 套接字读超时略大于查询 wait_for，减少服务端还在推数据时客户端先断导致 2013
-    sock_read = max(int(timeout) + 90, 120)
     try:
+        # aiomysql.connect 未透传 PyMySQL 的 read_timeout/write_timeout，仅用 connect_timeout +
+        # asyncio.wait_for 控制执行与取数超时。
         conn = await aiomysql.connect(
             host=params["host"],
             port=params["port"],
@@ -221,8 +221,6 @@ async def _run_mysql(dsn: str, sql: str) -> QueryResult:
             password=params["password"],
             db=params["db"],
             connect_timeout=min(timeout, 30),
-            read_timeout=sock_read,
-            write_timeout=sock_read,
             autocommit=False,
         )
     except Exception as e:
@@ -298,8 +296,6 @@ async def ping_mysql_dsn(dsn: str) -> None:
             password=params["password"],
             db=params["db"],
             connect_timeout=5,
-            read_timeout=30,
-            write_timeout=30,
             autocommit=True,
         )
     except Exception as e:

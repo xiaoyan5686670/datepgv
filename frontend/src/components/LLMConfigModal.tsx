@@ -13,6 +13,18 @@ const LLM_PRESETS = [
   { label: "Gemini 2.0 Flash", value: "gemini/gemini-2.0-flash" },
   { label: "Gemini 1.5 Pro", value: "gemini/gemini-1.5-pro" },
   { label: "DeepSeek Coder V2", value: "deepseek/deepseek-coder" },
+  {
+    label: "阿里云 DashScope — qwen-turbo",
+    value: "dashscope/qwen-turbo",
+  },
+  {
+    label: "阿里云 DashScope — qwen-plus",
+    value: "dashscope/qwen-plus",
+  },
+  {
+    label: "阿里云 DashScope — qwen-max",
+    value: "dashscope/qwen-max",
+  },
   { label: "Claude 3.5 Sonnet", value: "anthropic/claude-3-5-sonnet-20241022" },
   { label: "Ollama Chat — llama3.2（推荐）", value: "ollama_chat/llama3.2" },
   { label: "Ollama Chat — qwen2.5-coder", value: "ollama_chat/qwen2.5-coder" },
@@ -21,6 +33,10 @@ const LLM_PRESETS = [
 ];
 
 const EMBEDDING_PRESETS = [
+  {
+    label: "DashScope text-embedding-v2 (常见1536d，请先连接测试)",
+    value: "dashscope/text-embedding-v2",
+  },
   { label: "text-embedding-3-small (1536d)", value: "openai/text-embedding-3-small" },
   { label: "text-embedding-3-large (3072d)", value: "openai/text-embedding-3-large" },
   { label: "Gemini text-embedding-004 (768d)", value: "gemini/text-embedding-004" },
