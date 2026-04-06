@@ -182,6 +182,19 @@ def _friendly_mysql_access_error(exc: BaseException) -> str | None:
         elif "2006" in blob and "MySQL server has gone away" in blob:
             codes.append(2006)
 
+    # Doris / StarRocks (MySQL protocol): parse errors often look like
+    # (1105, "errCode = 2, detailMessage = Please check your sql ...")
+    blob_all = " ".join(str(c) for c in candidates)
+    blob_lower = blob_all.lower()
+    if "detailmessage" in blob_lower and "check your sql" in blob_lower:
+        return (
+            "分析库返回 SQL 解析错误（含 errCode/detailMessage 时，常见于 Apache Doris、"
+            "StarRocks 等兼容 MySQL 协议的引擎，错误码多为 1105）。"
+            "请核对生成的 SQL 是否被该引擎支持：函数名、保留字、子查询/CTE、LIMIT、字符串引号等。"
+            "可在目标库的客户端中对同一条 SQL 直接执行以定位语法问题。"
+            f" 原始信息：{blob_all[:400]}"
+        )
+
     for code in codes:
         if code == 1044:
             return (
