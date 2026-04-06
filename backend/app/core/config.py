@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     APP_TITLE: str = "NL-to-SQL RAG System"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
+    # Log INFO lines with per-stage ms for POST /chat/stream (RAG, LLM stream, execute, summarize).
+    CHAT_STREAM_TIMING_LOG: bool = False
+    # If analytics SELECT exceeds this many ms, log WARNING with SQL preview and EXPLAIN hint.
+    ANALYTICS_SLOW_QUERY_LOG_MS: int = 2000
 
     def effective_analytics_postgres_url(self) -> str | None:
         """Sync postgres DSN for asyncpg execute; explicit override or derived from DATABASE_URL."""

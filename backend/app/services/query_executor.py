@@ -4,7 +4,9 @@ Read-only execution of generated SQL against optional analytics databases (Postg
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
+import time
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal
@@ -22,6 +24,8 @@ from app.services.analytics_db_settings_service import (
 )
 
 SqlEngine = Literal["postgresql", "mysql"]
+
+logger = logging.getLogger(__name__)
 
 
 class QueryExecutorError(Exception):
@@ -273,20 +277,38 @@ async def run_analytics_query(
     engine: SqlEngine, sql: str, db: AsyncSession
 ) -> QueryResult:
     safe_sql = assert_single_read_statement(sql)
-    if engine == "postgresql":
-        dsn = await effective_postgres_execute_url(db)
+    threshold_ms = float(settings.ANALYTICS_SLOW_QUERY_LOG_MS)
+    t0 = time.perf_counter()
+    try:
+        if engine == "postgresql":
+            dsn = await effective_postgres_execute_url(db)
+            if not dsn:
+                raise QueryExecutorError(
+                    "无法连接 PostgreSQL 业务库：请在「设置 → 数据连接」配置，"
+                    "或设置 DATABASE_URL / ANALYTICS_POSTGRES_URL。"
+                )
+            return await _run_postgresql(dsn, safe_sql)
+        dsn = await effective_mysql_execute_url(db)
         if not dsn:
             raise QueryExecutorError(
-                "无法连接 PostgreSQL 业务库：请在「设置 → 数据连接」配置，"
-                "或设置 DATABASE_URL / ANALYTICS_POSTGRES_URL。"
+                "未配置 MySQL 连接：请在「设置 → 数据连接」填写，或设置 ANALYTICS_MYSQL_URL。"
             )
-        return await _run_postgresql(dsn, safe_sql)
-    dsn = await effective_mysql_execute_url(db)
-    if not dsn:
-        raise QueryExecutorError(
-            "未配置 MySQL 连接：请在「设置 → 数据连接」填写，或设置 ANALYTICS_MYSQL_URL。"
-        )
-    return await _run_mysql(dsn, safe_sql)
+        return await _run_mysql(dsn, safe_sql)
+    finally:
+        elapsed_ms = (time.perf_counter() - t0) * 1000
+        if elapsed_ms >= threshold_ms:
+            preview = " ".join(safe_sql.split())
+            if len(preview) > 220:
+                preview = preview[:220] + "…"
+            logger.warning(
+                "slow analytics query: %.0fms (threshold=%.0fms engine=%s). "
+                "On the analytics DB run PostgreSQL EXPLAIN (ANALYZE, BUFFERS) "
+                "or MySQL EXPLAIN ANALYZE on the same SQL; check network RTT. preview=%s",
+                elapsed_ms,
+                threshold_ms,
+                engine,
+                preview,
+            )
 
 
 async def ping_postgresql_dsn(dsn: str) -> None:

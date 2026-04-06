@@ -155,6 +155,11 @@ export function ChatBox({
       const controller = new AbortController();
       abortRef.current = controller;
 
+      const fetchStart = performance.now();
+      let responseAt = fetchStart;
+      let metaAt: number | null = null;
+      let firstTokenAt: number | null = null;
+
       try {
         const res = await fetch(buildChatStreamUrl(), {
           method: "POST",
@@ -168,6 +173,7 @@ export function ChatBox({
           }),
           signal: controller.signal,
         });
+        responseAt = performance.now();
 
         if (!res.ok || !res.body) {
           let msg = `HTTP ${res.status}`;
@@ -199,6 +205,7 @@ export function ChatBox({
             const event: SSEEvent = JSON.parse(raw);
 
             if (event.type === "meta") {
+              if (metaAt === null) metaAt = performance.now();
               const meta = event as MetaEvent;
               setMessages((prev) =>
                 prev.map((m) =>
@@ -212,6 +219,7 @@ export function ChatBox({
                 )
               );
             } else if (event.type === "token") {
+              if (firstTokenAt === null) firstTokenAt = performance.now();
               const token = event as TokenEvent;
               accumulatedSQL += token.text;
               setMessages((prev) =>
@@ -222,6 +230,25 @@ export function ChatBox({
                 )
               );
             } else if (event.type === "done") {
+              if (process.env.NODE_ENV === "development") {
+                const doneAt = performance.now();
+                console.info("[chat/stream client timings ms]", {
+                  ttfb: Number((responseAt - fetchStart).toFixed(1)),
+                  toMeta:
+                    metaAt != null
+                      ? Number((metaAt - fetchStart).toFixed(1))
+                      : null,
+                  metaToFirstToken:
+                    metaAt != null && firstTokenAt != null
+                      ? Number((firstTokenAt - metaAt).toFixed(1))
+                      : null,
+                  toFirstToken:
+                    firstTokenAt != null
+                      ? Number((firstTokenAt - fetchStart).toFixed(1))
+                      : null,
+                  total: Number((doneAt - fetchStart).toFixed(1)),
+                });
+              }
               const doneEvt = event as DoneEvent;
               setMessages((prev) =>
                 prev.map((m) =>
