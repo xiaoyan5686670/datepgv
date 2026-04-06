@@ -12,7 +12,7 @@ import litellm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.llm_config import LLMConfig
+from app.models.llm_config import LLMConfig, LLMConfigRuntime
 from app.services.litellm_kwargs import (
     build_embedding_kwargs,
     embedding_dimension_target_explanation,
@@ -23,7 +23,7 @@ from app.services.litellm_retry import async_retry_litellm
 # ── In-memory cache ───────────────────────────────────────────────────────────
 
 _CACHE_TTL = 30  # seconds
-_cached_config: LLMConfig | None = None
+_cached_config: LLMConfigRuntime | None = None
 _cache_ts: float = 0.0
 
 
@@ -33,7 +33,7 @@ def invalidate_cache() -> None:
     _cache_ts = 0.0
 
 
-async def _get_active_config(db: AsyncSession) -> LLMConfig:
+async def _get_active_config(db: AsyncSession) -> LLMConfigRuntime:
     global _cached_config, _cache_ts
     now = time.monotonic()
     if _cached_config is not None and (now - _cache_ts) < _CACHE_TTL:
@@ -51,9 +51,10 @@ async def _get_active_config(db: AsyncSession) -> LLMConfig:
             "没有活跃的 Embedding 配置。请前往 设置 → 模型配置，激活一个 Embedding 模型。"
         )
 
-    _cached_config = cfg
+    snap = LLMConfigRuntime.from_orm(cfg)
+    _cached_config = snap
     _cache_ts = now
-    return cfg
+    return snap
 
 
 class EmbeddingService:

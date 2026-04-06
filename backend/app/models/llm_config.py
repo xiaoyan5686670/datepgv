@@ -1,4 +1,8 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
@@ -35,3 +39,28 @@ class LLMConfig(Base):
         Index("llm_configs_type_idx", "config_type"),
         # Partial unique index handled in SQL migration; defined here for awareness only
     )
+
+
+@dataclass(frozen=True)
+class LLMConfigRuntime:
+    """
+    Scalar copy of active config for in-process caching.
+    Do not cache SQLAlchemy ORM instances across requests: they stay bound to the
+    AsyncSession that loaded them and confuse asyncpg pool check-in when the GC runs.
+    """
+
+    id: int
+    model: str
+    api_key: str | None
+    api_base: str | None
+    extra_params: dict[str, Any]
+
+    @staticmethod
+    def from_orm(row: LLMConfig) -> LLMConfigRuntime:
+        return LLMConfigRuntime(
+            id=row.id,
+            model=row.model,
+            api_key=row.api_key,
+            api_base=row.api_base,
+            extra_params=dict(row.extra_params or {}),
+        )

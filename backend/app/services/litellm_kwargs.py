@@ -9,10 +9,19 @@ from __future__ import annotations
 
 import ipaddress
 import os
+from typing import Any, Protocol
 from urllib.parse import urlparse
 
 from app.core.config import settings
-from app.models.llm_config import LLMConfig
+
+
+class LiteLLMConfigParams(Protocol):
+    """ORM row or LLMConfigRuntime — fields needed for LiteLLM routing (never cache ORM across sessions)."""
+
+    model: str
+    api_key: str | None
+    api_base: str | None
+    extra_params: dict[str, Any]
 
 DEFAULT_OLLAMA_BASE = "http://127.0.0.1:11434"
 # Same default as litellm.llms.dashscope.chat (intl); China: set DASHSCOPE_API_BASE or UI api_base.
@@ -22,7 +31,7 @@ DEFAULT_DASHSCOPE_COMPAT_BASE = "https://dashscope-intl.aliyuncs.com/compatible-
 # https://help.aliyun.com/zh/model-studio/developer-reference/embedding-interfaces-compatible-with-openai
 
 
-def _dashscope_openai_compat_embedding_bare_id(cfg: LLMConfig) -> str:
+def _dashscope_openai_compat_embedding_bare_id(cfg: LiteLLMConfigParams) -> str:
     full = normalize_litellm_model(cfg.model)
     low = full.lower()
     if not low.startswith("dashscope/"):
@@ -67,7 +76,7 @@ def is_dashscope_family(model: str) -> bool:
     return normalize_litellm_model(raw).lower().startswith("dashscope/")
 
 
-def embedding_target_dimensions(cfg: LLMConfig) -> int:
+def embedding_target_dimensions(cfg: LiteLLMConfigParams) -> int:
     """
     Target vector length for embeddings: extra_params.dimensions / dim override EMBEDDING_DIM.
     Must match PostgreSQL table_metadata.embedding column (vector(N)).
@@ -82,7 +91,7 @@ def embedding_target_dimensions(cfg: LLMConfig) -> int:
     return settings.EMBEDDING_DIM
 
 
-def embedding_dimension_target_explanation(cfg: LLMConfig) -> str:
+def embedding_dimension_target_explanation(cfg: LiteLLMConfigParams) -> str:
     """Human-readable source of embedding_target_dimensions (for error messages)."""
     extra = cfg.extra_params or {}
     if extra.get("dimensions") is not None:
@@ -149,7 +158,7 @@ def assert_safe_ollama_api_base(api_base: str) -> str:
     return raw.rstrip("/")
 
 
-def resolve_api_base(cfg: LLMConfig) -> str | None:
+def resolve_api_base(cfg: LiteLLMConfigParams) -> str | None:
     """Effective api_base for LiteLLM; Ollama defaults when unset."""
     extra = cfg.extra_params or {}
     base = extra.get("api_base") or cfg.api_base
@@ -166,7 +175,7 @@ def resolve_api_base(cfg: LLMConfig) -> str | None:
     return None
 
 
-def build_completion_kwargs(cfg: LLMConfig) -> dict:
+def build_completion_kwargs(cfg: LiteLLMConfigParams) -> dict:
     """Kwargs for litellm.acompletion (merge messages, temperature, stream separately)."""
     kw: dict = {"model": normalize_litellm_model(cfg.model)}
     if cfg.api_key:
@@ -179,7 +188,7 @@ def build_completion_kwargs(cfg: LLMConfig) -> dict:
     return kw
 
 
-def build_embedding_kwargs(cfg: LLMConfig) -> dict:
+def build_embedding_kwargs(cfg: LiteLLMConfigParams) -> dict:
     """Kwargs for litellm.aembedding (caller adds input)."""
     if is_dashscope_family(cfg.model):
         # LiteLLM implements DashScope for chat only; aembedding raises LiteLLMUnknownProvider for

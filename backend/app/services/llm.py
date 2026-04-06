@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models.llm_config import LLMConfig
+from app.models.llm_config import LLMConfig, LLMConfigRuntime
 from app.services.litellm_kwargs import build_completion_kwargs
 from app.services.litellm_retry import async_retry_litellm
 
@@ -24,7 +24,7 @@ litellm.set_verbose = settings.DEBUG
 # hit the database on every streaming token.
 
 _CACHE_TTL = 30  # seconds
-_cached_config: LLMConfig | None = None
+_cached_config: LLMConfigRuntime | None = None
 _cache_ts: float = 0.0
 
 
@@ -34,7 +34,7 @@ def invalidate_cache() -> None:
     _cache_ts = 0.0
 
 
-async def _get_active_config(db: AsyncSession) -> LLMConfig:
+async def _get_active_config(db: AsyncSession) -> LLMConfigRuntime:
     global _cached_config, _cache_ts
     now = time.monotonic()
     if _cached_config is not None and (now - _cache_ts) < _CACHE_TTL:
@@ -53,9 +53,10 @@ async def _get_active_config(db: AsyncSession) -> LLMConfig:
             detail="没有活跃的 LLM 配置。请前往 设置 → 模型配置，激活一个 LLM 模型。"
         )
 
-    _cached_config = cfg
+    snap = LLMConfigRuntime.from_orm(cfg)
+    _cached_config = snap
     _cache_ts = now
-    return cfg
+    return snap
 
 
 class LLMService:

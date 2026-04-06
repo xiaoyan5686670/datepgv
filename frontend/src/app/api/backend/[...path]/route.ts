@@ -1,7 +1,20 @@
 import type { NextRequest } from "next/server";
+import { Agent, fetch as undiciFetch } from "undici";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+/**
+ * Node fetch (undici) defaults include a response body timeout between chunks,
+ * which breaks SSE chat streams ("Body Timeout Error" / failed to pipe response).
+ */
+const backendHttpAgent = new Agent({
+  connectTimeout: 120_000,
+  headersTimeout: 600_000,
+  bodyTimeout: 0,
+  keepAliveTimeout: 120_000,
+  keepAliveMaxTimeout: 600_000,
+});
 
 const HOP_BY_HOP = new Set([
   "connection",
@@ -48,22 +61,26 @@ async function proxy(request: NextRequest, pathSegments: string[]) {
   const target = `${backendOrigin()}/api/v1/${subpath}${request.nextUrl.search}`;
   const headers = forwardRequestHeaders(request.headers);
 
-  const init: RequestInit = {
+  const shared = {
     method: request.method,
     headers,
-    redirect: "manual",
+    redirect: "manual" as const,
+    dispatcher: backendHttpAgent,
   };
 
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    init.body = await request.arrayBuffer();
-  }
+  const upstream =
+    request.method === "GET" || request.method === "HEAD"
+      ? await undiciFetch(target, shared)
+      : await undiciFetch(target, {
+          ...shared,
+          body: await request.arrayBuffer(),
+        });
 
-  const upstream = await fetch(target, init);
-
-  return new Response(upstream.body, {
+  // undici body stream type differs from DOM BodyInit; runtime is compatible for piping.
+  return new Response(upstream.body as unknown as BodyInit, {
     status: upstream.status,
     statusText: upstream.statusText,
-    headers: forwardResponseHeaders(upstream.headers),
+    headers: forwardResponseHeaders(upstream.headers as unknown as Headers),
   });
 }
 
