@@ -2,13 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 浅色（默认）：取消 html.dark 即为白天主题 */
 :root {
+  --bg: #f1f5f9;
+  --aside: #e8edf5;
+  --surface: #ffffff;
+  --surface-hover: #e2e8f0;
+  --input-bg: #ffffff;
+  --border: #cbd5e1;
+  --text: #0f172a;
+  --text-secondary: #475569;
+  --muted: #64748b;
+  --subtle: #94a3b8;
+  --accent-rgb: 2 132 199;
+  --accent-hover: #0369a1;
+}
+
+.dark {
   --bg: #0f1117;
+  --aside: #0b0d14;
   --surface: #1a1d27;
+  --surface-hover: #111827;
+  --input-bg: #12151f;
   --border: #2a2d3d;
   --text: #e2e8f0;
+  --text-secondary: #a0aec0;
   --muted: #8892a4;
-  --accent: #0ea5e9;
+  --subtle: #4a5568;
+  --accent-rgb: 14 165 233;
+  --accent-hover: #0284c7;
 }
 
 body {
@@ -38,6 +60,6 @@ body {
 .typing-cursor::after {
   content: "▊";
   animation: blink 0.8s infinite;
-  color: var(--accent);
+  color: rgb(var(--accent-rgb));
   margin-left: 2px;
 }

@@ -119,26 +119,26 @@ export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-[#1a1d27] border border-[#2a2d3d] rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-[#1a1d27] border-b border-[#2a2d3d] px-6 py-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-[#e2e8f0]">DDL 解析导入</h2>
-          <button onClick={onClose} className="text-[#8892a4] hover:text-[#e2e8f0]">
+      <div className="bg-app-surface border border-app-border rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-app-surface border-b border-app-border px-6 py-4 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-app-text">DDL 解析导入</h2>
+          <button onClick={onClose} className="text-app-muted hover:text-app-text">
             <X size={18} />
           </button>
         </div>
 
         <div className="p-6 space-y-4">
           <div>
-            <label className="block text-xs text-[#8892a4] mb-1.5">导入方式</label>
-            <div className="inline-flex gap-2 bg-[#12151f] border border-[#2a2d3d] rounded-lg p-1">
+            <label className="block text-xs text-app-muted mb-1.5">导入方式</label>
+            <div className="inline-flex gap-2 bg-app-input border border-app-border rounded-lg p-1">
               <button
                 type="button"
                 onClick={() => setMode("text")}
                 className={cn(
                   "px-3 py-1.5 rounded text-xs transition-colors",
                   mode === "text"
-                    ? "bg-[#0ea5e9]/20 text-[#7dd3fc]"
-                    : "text-[#8892a4] hover:text-[#e2e8f0]"
+                    ? "bg-app-accent/20 text-sky-800 dark:text-sky-300"
+                    : "text-app-muted hover:text-app-text"
                 )}
               >
                 文本粘贴
@@ -149,8 +149,8 @@ export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
                 className={cn(
                   "px-3 py-1.5 rounded text-xs transition-colors",
                   mode === "file"
-                    ? "bg-[#0ea5e9]/20 text-[#7dd3fc]"
-                    : "text-[#8892a4] hover:text-[#e2e8f0]"
+                    ? "bg-app-accent/20 text-sky-800 dark:text-sky-300"
+                    : "text-app-muted hover:text-app-text"
                 )}
               >
                 文件上传
@@ -160,7 +160,7 @@ export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-[#8892a4] mb-1.5">数据库类型</label>
+              <label className="block text-xs text-app-muted mb-1.5">数据库类型</label>
               <div className="flex flex-wrap gap-2">
                 {(["hive", "postgresql", "mysql", "oracle"] as SqlType[]).map((t) => (
                   <button
@@ -188,7 +188,7 @@ export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
                           : t === "mysql"
                           ? "bg-orange-500/20 text-orange-300 border-orange-500/40"
                           : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                        : "bg-[#12151f] text-[#8892a4] border-[#2a2d3d] hover:text-[#e2e8f0]"
+                        : "bg-app-input text-app-muted border-app-border hover:text-app-text"
                     )}
                   >
                     {t === "hive"
@@ -203,12 +203,12 @@ export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
               </div>
             </div>
             <div>
-              <label className="block text-xs text-[#8892a4] mb-1.5">数据库名（可选）</label>
+              <label className="block text-xs text-app-muted mb-1.5">数据库名（可选）</label>
               <input
                 value={databaseName}
                 onChange={(e) => setDatabaseName(e.target.value)}
                 placeholder="如: dw"
-                className="w-full bg-[#12151f] border border-[#2a2d3d] rounded-lg px-3 py-1.5 text-sm text-[#e2e8f0] placeholder-[#4a5568] outline-none focus:border-[#0ea5e9]/50"
+                className="w-full bg-app-input border border-app-border rounded-lg px-3 py-1.5 text-sm text-app-text placeholder:text-app-subtle outline-none focus:border-app-accent/50"
               />
             </div>
           </div>
@@ -216,7 +216,7 @@ export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
           {mode === "text" ? (
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs text-[#8892a4]">
+                <label className="text-xs text-app-muted">
                   DDL 语句（支持多张表）
                 </label>
                 <button
@@ -232,7 +232,7 @@ export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
                         : ORACLE_EXAMPLE
                     )
                   }
-                  className="text-xs text-[#0ea5e9] hover:text-[#38bdf8]"
+                  className="text-xs text-app-accent hover:text-sky-500 dark:hover:text-sky-300"
                 >
                   填入示例
                 </button>
@@ -242,29 +242,29 @@ export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
                 onChange={(e) => setDdl(e.target.value)}
                 placeholder="粘贴 CREATE TABLE 语句..."
                 rows={12}
-                className="w-full bg-[#0f1117] border border-[#2a2d3d] rounded-xl px-4 py-3 text-sm text-[#e2e8f0] placeholder-[#4a5568] outline-none focus:border-[#0ea5e9]/50 font-mono resize-none"
+                className="w-full bg-app-bg border border-app-border rounded-xl px-4 py-3 text-sm text-app-text placeholder:text-app-subtle outline-none focus:border-app-accent/50 font-mono resize-none"
               />
             </div>
           ) : (
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-[#8892a4] block mb-1.5">
+                <label className="text-xs text-app-muted block mb-1.5">
                   选择 DDL 文件（.sql / .ddl / .txt）
                 </label>
                 <input
                   type="file"
                   accept=".sql,.ddl,.txt,text/plain"
                   onChange={(e) => handleFileSelect(e.target.files?.[0] ?? null)}
-                  className="w-full text-sm text-[#8892a4] file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border file:border-[#2a2d3d] file:bg-[#12151f] file:text-[#e2e8f0] hover:file:border-[#0ea5e9]/50"
+                  className="w-full text-sm text-app-muted file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border file:border-app-border file:bg-app-input file:text-app-text hover:file:border-app-accent/50"
                 />
                 {ddlFile && (
-                  <p className="mt-2 text-xs text-[#4a5568]">
+                  <p className="mt-2 text-xs text-app-subtle">
                     已选择: {ddlFile.name} ({(ddlFile.size / 1024).toFixed(1)} KB)
                   </p>
                 )}
               </div>
               <div>
-                <label className="text-xs text-[#8892a4] block mb-1.5">
+                <label className="text-xs text-app-muted block mb-1.5">
                   导入前预览（前 20 行）
                 </label>
                 <textarea
@@ -272,7 +272,7 @@ export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
                   readOnly
                   rows={10}
                   placeholder="选择文件后显示预览"
-                  className="w-full bg-[#0f1117] border border-[#2a2d3d] rounded-xl px-4 py-3 text-sm text-[#a8b2c7] placeholder-[#4a5568] outline-none font-mono resize-none"
+                  className="w-full bg-app-bg border border-app-border rounded-xl px-4 py-3 text-sm text-app-muted placeholder:text-app-subtle outline-none font-mono resize-none"
                 />
               </div>
             </div>
@@ -287,14 +287,14 @@ export function DDLImportModal({ onSuccess, onClose }: DDLImportModalProps) {
           <div className="flex gap-3">
             <button
               onClick={onClose}
-              className="flex-1 py-2.5 rounded-xl border border-[#2a2d3d] text-sm text-[#8892a4] hover:text-[#e2e8f0] transition-colors"
+              className="flex-1 py-2.5 rounded-xl border border-app-border text-sm text-app-muted hover:text-app-text transition-colors"
             >
               取消
             </button>
             <button
               onClick={handleImport}
               disabled={loading}
-              className="flex-1 py-2.5 rounded-xl bg-[#0ea5e9] hover:bg-[#0284c7] disabled:bg-[#2a2d3d] text-white text-sm font-medium transition-colors"
+              className="flex-1 py-2.5 rounded-xl bg-app-accent hover:bg-app-accent-hover disabled:bg-app-border text-white text-sm font-medium transition-colors"
             >
               {loading ? "解析中..." : "解析并导入"}
             </button>

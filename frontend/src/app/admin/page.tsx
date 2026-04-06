@@ -21,6 +21,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { DDLImportModal } from "@/components/DDLImportModal";
 import { MetadataForm } from "@/components/MetadataForm";
 import { TableRelationsPanel } from "@/components/TableRelationsPanel";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 import {
   deleteMetadata,
@@ -91,30 +92,30 @@ export default function AdminPage() {
   const withEmbedding = tables.filter((t) => t.has_embedding).length;
 
   return (
-    <div className="min-h-screen bg-[#0f1117] text-[#e2e8f0]">
+    <div className="min-h-screen bg-app-bg text-app-text">
       {/* Header */}
-      <header className="border-b border-[#2a2d3d] bg-[#12151f] px-6 py-4">
+      <header className="border-b border-app-border bg-app-input px-6 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link
               href="/"
-              className="text-[#8892a4] hover:text-[#e2e8f0] transition-colors"
+              className="text-app-muted hover:text-app-text transition-colors"
             >
               <ArrowLeft size={18} />
             </Link>
             <div className="flex items-center gap-2">
-              <Table size={18} className="text-[#0ea5e9]" />
+              <Table size={18} className="text-app-accent" />
               <span className="font-semibold">元数据管理</span>
             </div>
-            <div className="hidden sm:flex items-center rounded-lg border border-[#2a2d3d] p-0.5 bg-[#12151f]">
+            <div className="hidden sm:flex items-center rounded-lg border border-app-border p-0.5 bg-app-input">
               <button
                 type="button"
                 onClick={() => setSection("tables")}
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all",
                   section === "tables"
-                    ? "bg-[#0ea5e9]/15 text-[#0ea5e9]"
-                    : "text-[#8892a4] hover:text-[#e2e8f0]"
+                    ? "bg-app-accent/15 text-app-accent"
+                    : "text-app-muted hover:text-app-text"
                 )}
               >
                 <Table size={12} />
@@ -126,8 +127,8 @@ export default function AdminPage() {
                 className={cn(
                   "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all",
                   section === "relations"
-                    ? "bg-[#0ea5e9]/15 text-[#0ea5e9]"
-                    : "text-[#8892a4] hover:text-[#e2e8f0]"
+                    ? "bg-app-accent/15 text-app-accent"
+                    : "text-app-muted hover:text-app-text"
                 )}
               >
                 <GitBranch size={12} />
@@ -136,7 +137,7 @@ export default function AdminPage() {
             </div>
             <Link
               href="/settings"
-              className="flex items-center gap-1.5 text-xs text-[#8892a4] hover:text-[#e2e8f0] px-2.5 py-1 rounded-lg border border-[#2a2d3d] hover:border-[#0ea5e9]/50 transition-all"
+              className="flex items-center gap-1.5 text-xs text-app-muted hover:text-app-text px-2.5 py-1 rounded-lg border border-app-border hover:border-app-accent/50 transition-all"
             >
               <Settings size={12} />
               模型配置
@@ -144,11 +145,12 @@ export default function AdminPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            <ThemeToggle className="p-2 rounded-lg border border-app-border text-app-muted hover:text-app-text hover:border-app-accent/50 transition-all" />
             {section === "tables" && (
             <button
               onClick={handleReembed}
               disabled={reembedding}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[#2a2d3d] text-[#8892a4] hover:text-[#e2e8f0] hover:border-[#0ea5e9]/40 transition-all disabled:opacity-40"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-app-border text-app-muted hover:text-app-text hover:border-app-accent/40 transition-all disabled:opacity-40"
             >
               {reembedding ? (
                 <Loader2 size={12} className="animate-spin" />
@@ -162,7 +164,7 @@ export default function AdminPage() {
             {section === "tables" && (
             <button
               onClick={() => fileRef.current?.click()}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[#2a2d3d] text-[#8892a4] hover:text-[#e2e8f0] hover:border-[#0ea5e9]/40 transition-all"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-app-border text-app-muted hover:text-app-text hover:border-app-accent/40 transition-all"
             >
               <FileSpreadsheet size={12} />
               CSV 导入
@@ -179,7 +181,7 @@ export default function AdminPage() {
             {section === "tables" && (
             <button
               onClick={() => setShowDDL(true)}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[#2a2d3d] text-[#8892a4] hover:text-[#e2e8f0] hover:border-[#0ea5e9]/40 transition-all"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-app-border text-app-muted hover:text-app-text hover:border-app-accent/40 transition-all"
             >
               <Upload size={12} />
               DDL 导入
@@ -189,7 +191,7 @@ export default function AdminPage() {
             {section === "tables" && (
             <button
               onClick={() => setShowForm(true)}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[#0ea5e9] hover:bg-[#0284c7] text-white transition-colors"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-app-accent hover:bg-app-accent-hover text-white transition-colors"
             >
               <Plus size={12} />
               新增表
@@ -201,15 +203,15 @@ export default function AdminPage() {
 
       <main className="max-w-6xl mx-auto px-6 py-6">
         {/* Mobile section tabs */}
-        <div className="sm:hidden flex rounded-lg border border-[#2a2d3d] p-0.5 bg-[#12151f] mb-4">
+        <div className="sm:hidden flex rounded-lg border border-app-border p-0.5 bg-app-input mb-4">
           <button
             type="button"
             onClick={() => setSection("tables")}
             className={cn(
               "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium",
               section === "tables"
-                ? "bg-[#0ea5e9]/15 text-[#0ea5e9]"
-                : "text-[#8892a4]"
+                ? "bg-app-accent/15 text-app-accent"
+                : "text-app-muted"
             )}
           >
             <Table size={12} />
@@ -221,8 +223,8 @@ export default function AdminPage() {
             className={cn(
               "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium",
               section === "relations"
-                ? "bg-[#0ea5e9]/15 text-[#0ea5e9]"
-                : "text-[#8892a4]"
+                ? "bg-app-accent/15 text-app-accent"
+                : "text-app-muted"
             )}
           >
             <GitBranch size={12} />
@@ -234,7 +236,7 @@ export default function AdminPage() {
         {section === "tables" && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
           {[
-            { label: "全部表", value: tables.length, color: "text-[#e2e8f0]" },
+            { label: "全部表", value: tables.length, color: "text-app-text" },
             { label: "Hive 表", value: hiveCount, color: "text-amber-300" },
             { label: "PostgreSQL 表", value: pgCount, color: "text-blue-300" },
             { label: "MySQL 表", value: mysqlCount, color: "text-orange-300" },
@@ -247,9 +249,9 @@ export default function AdminPage() {
           ].map((stat) => (
             <div
               key={stat.label}
-              className="bg-[#1a1d27] border border-[#2a2d3d] rounded-xl px-4 py-3"
+              className="bg-app-surface border border-app-border rounded-xl px-4 py-3"
             >
-              <p className="text-xs text-[#8892a4] mb-1">{stat.label}</p>
+              <p className="text-xs text-app-muted mb-1">{stat.label}</p>
               <p className={cn("text-2xl font-semibold", stat.color)}>
                 {stat.value}
               </p>
@@ -267,8 +269,8 @@ export default function AdminPage() {
               className={cn(
                 "px-3 py-1.5 rounded-lg text-xs font-medium transition-all border",
                 filter === f
-                  ? "bg-[#0ea5e9]/10 text-[#0ea5e9] border-[#0ea5e9]/30"
-                  : "text-[#8892a4] border-[#2a2d3d] hover:text-[#e2e8f0]"
+                  ? "bg-app-accent/10 text-app-accent border-app-accent/30"
+                  : "text-app-muted border-app-border hover:text-app-text"
               )}
             >
               {f === "all"
@@ -284,7 +286,7 @@ export default function AdminPage() {
           ))}
           <button
             onClick={load}
-            className="ml-auto text-[#8892a4] hover:text-[#e2e8f0] transition-colors"
+            className="ml-auto text-app-muted hover:text-app-text transition-colors"
           >
             <RefreshCw size={14} />
           </button>
@@ -293,17 +295,17 @@ export default function AdminPage() {
         {section === "relations" ? (
           loading ? (
             <div className="flex justify-center py-20">
-              <Loader2 size={24} className="animate-spin text-[#0ea5e9]" />
+              <Loader2 size={24} className="animate-spin text-app-accent" />
             </div>
           ) : (
             <TableRelationsPanel tables={tables} filterDb={filter} />
           )
         ) : loading ? (
           <div className="flex justify-center py-20">
-            <Loader2 size={24} className="animate-spin text-[#0ea5e9]" />
+            <Loader2 size={24} className="animate-spin text-app-accent" />
           </div>
         ) : tables.length === 0 ? (
-          <div className="text-center py-20 text-[#4a5568]">
+          <div className="text-center py-20 text-app-subtle">
             <Database size={40} className="mx-auto mb-3 opacity-40" />
             <p>暂无表元数据，请先导入</p>
           </div>
@@ -312,18 +314,18 @@ export default function AdminPage() {
             {tables.map((table) => (
               <div
                 key={table.id}
-                className="bg-[#1a1d27] border border-[#2a2d3d] rounded-xl overflow-hidden"
+                className="bg-app-surface border border-app-border rounded-xl overflow-hidden"
               >
                 <button
                   onClick={() =>
                     setExpandedId(expandedId === table.id ? null : table.id)
                   }
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#12151f] transition-colors text-left"
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-app-input transition-colors text-left"
                 >
                   {expandedId === table.id ? (
-                    <ChevronDown size={14} className="text-[#8892a4] flex-shrink-0" />
+                    <ChevronDown size={14} className="text-app-muted flex-shrink-0" />
                   ) : (
-                    <ChevronRight size={14} className="text-[#8892a4] flex-shrink-0" />
+                    <ChevronRight size={14} className="text-app-muted flex-shrink-0" />
                   )}
 
                   <span
@@ -343,7 +345,7 @@ export default function AdminPage() {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm text-[#e2e8f0] truncate">
+                      <span className="font-mono text-sm text-app-text truncate">
                         {[table.database_name, table.schema_name, table.table_name]
                           .filter(Boolean)
                           .join(".")}
@@ -355,13 +357,13 @@ export default function AdminPage() {
                       )}
                     </div>
                     {table.table_comment && (
-                      <p className="text-xs text-[#8892a4] truncate">
+                      <p className="text-xs text-app-muted truncate">
                         {table.table_comment}
                       </p>
                     )}
                   </div>
 
-                  <span className="text-xs text-[#4a5568] flex-shrink-0">
+                  <span className="text-xs text-app-subtle flex-shrink-0">
                     {table.columns?.length ?? 0} 字段
                   </span>
 
@@ -370,7 +372,7 @@ export default function AdminPage() {
                       e.stopPropagation();
                       handleDelete(table.id);
                     }}
-                    className="flex-shrink-0 text-[#4a5568] hover:text-red-400 transition-colors ml-2"
+                    className="flex-shrink-0 text-app-subtle hover:text-red-400 transition-colors ml-2"
                   >
                     <Trash2 size={14} />
                   </button>
@@ -378,13 +380,13 @@ export default function AdminPage() {
 
                 {/* Expanded columns */}
                 {expandedId === table.id && (
-                  <div className="border-t border-[#2a2d3d] px-4 pb-4 pt-3">
+                  <div className="border-t border-app-border px-4 pb-4 pt-3">
                     {table.tags && table.tags.length > 0 && (
                       <div className="flex gap-1 mb-3">
                         {table.tags.map((tag) => (
                           <span
                             key={tag}
-                            className="text-xs px-2 py-0.5 rounded bg-[#2a2d3d] text-[#8892a4]"
+                            className="text-xs px-2 py-0.5 rounded bg-app-border text-app-muted"
                           >
                             {tag}
                           </span>
@@ -394,7 +396,7 @@ export default function AdminPage() {
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
                         <thead>
-                          <tr className="text-[#4a5568]">
+                          <tr className="text-app-subtle">
                             <th className="text-left py-1 pr-4">字段名</th>
                             <th className="text-left py-1 pr-4">类型</th>
                             <th className="text-left py-1 pr-4">注释</th>
@@ -406,15 +408,15 @@ export default function AdminPage() {
                           {(table.columns ?? []).map((col, idx) => (
                             <tr
                               key={idx}
-                              className="border-t border-[#2a2d3d]/50"
+                              className="border-t border-app-border/50"
                             >
-                              <td className="py-1.5 pr-4 font-mono text-[#e2e8f0]">
+                              <td className="py-1.5 pr-4 font-mono text-app-text">
                                 {col.name}
                               </td>
-                              <td className="py-1.5 pr-4 text-[#0ea5e9]">
+                              <td className="py-1.5 pr-4 text-app-accent">
                                 {col.type}
                               </td>
-                              <td className="py-1.5 pr-4 text-[#8892a4]">
+                              <td className="py-1.5 pr-4 text-app-muted">
                                 {col.comment || "—"}
                               </td>
                               <td className="py-1.5 pr-4 text-center">

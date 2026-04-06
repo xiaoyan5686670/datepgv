@@ -297,14 +297,14 @@ export function ChatBox({
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
         {messages.length === 0 && !loadingHistory && (
           <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-[#0ea5e9]/10 border border-[#0ea5e9]/20 flex items-center justify-center">
-              <Database size={32} className="text-[#0ea5e9]" />
+            <div className="w-16 h-16 rounded-2xl bg-app-accent/10 border border-app-accent/20 flex items-center justify-center">
+              <Database size={32} className="text-app-accent" />
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-[#e2e8f0] mb-1">
+              <h2 className="text-xl font-semibold text-app-text mb-1">
                 自然语言转 SQL
               </h2>
-              <p className="text-[#8892a4] text-sm">
+              <p className="text-app-muted text-sm">
                 描述你的数据需求，AI 生成 SQL；PostgreSQL / MySQL 模式下还可执行查询并生成中文结论
               </p>
             </div>
@@ -313,7 +313,7 @@ export function ChatBox({
                 <button
                   key={q}
                   onClick={() => send(q)}
-                  className="text-left text-sm px-4 py-3 rounded-xl bg-[#1a1d27] border border-[#2a2d3d] text-[#8892a4] hover:text-[#e2e8f0] hover:border-[#0ea5e9]/50 transition-all"
+                  className="text-left text-sm px-4 py-3 rounded-xl bg-app-surface border border-app-border text-app-muted hover:text-app-text hover:border-app-accent/50 transition-all"
                 >
                   {q}
                 </button>
@@ -323,7 +323,7 @@ export function ChatBox({
         )}
 
         {loadingHistory && messages.length === 0 && (
-          <div className="flex items-center justify-center h-full text-sm text-[#8892a4] gap-2">
+          <div className="flex items-center justify-center h-full text-sm text-app-muted gap-2">
             <Loader2 size={16} className="animate-spin" />
             加载历史记录...
           </div>
@@ -338,8 +338,8 @@ export function ChatBox({
             )}
           >
             {msg.role === "assistant" && (
-              <div className="w-8 h-8 rounded-lg bg-[#0ea5e9]/10 border border-[#0ea5e9]/20 flex items-center justify-center flex-shrink-0 mt-1">
-                <Database size={14} className="text-[#0ea5e9]" />
+              <div className="w-8 h-8 rounded-lg bg-app-accent/10 border border-app-accent/20 flex items-center justify-center flex-shrink-0 mt-1">
+                <Database size={14} className="text-app-accent" />
               </div>
             )}
 
@@ -350,13 +350,13 @@ export function ChatBox({
               )}
             >
               {msg.role === "user" ? (
-                <div className="bg-[#0ea5e9] text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm">
+                <div className="bg-app-accent text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm">
                   {msg.content}
                 </div>
               ) : (
                 <div className="space-y-3">
                   {msg.content ? (
-                    <div className="text-sm text-[#e2e8f0] bg-[#1a1d27] rounded-xl px-4 py-3 border border-[#2a2d3d] whitespace-pre-wrap leading-relaxed">
+                    <div className="text-sm text-app-text bg-app-surface rounded-xl px-4 py-3 border border-app-border whitespace-pre-wrap leading-relaxed">
                       {msg.content}
                     </div>
                   ) : null}
@@ -377,7 +377,7 @@ export function ChatBox({
                         />
                       ) : null}
                       {msg.isStreaming ? (
-                        <p className="text-xs text-[#8892a4] flex items-center gap-2">
+                        <p className="text-xs text-app-muted flex items-center gap-2">
                           <Loader2 size={12} className="animate-spin" />
                           正在完成查询或生成回答…
                         </p>
@@ -385,7 +385,7 @@ export function ChatBox({
                     </>
                   ) : null}
                   {!msg.sql && !msg.content && msg.isStreaming ? (
-                    <div className="text-sm text-[#8892a4] flex items-center gap-2">
+                    <div className="text-sm text-app-muted flex items-center gap-2">
                       <Loader2 size={14} className="animate-spin" />
                       正在生成 SQL…
                     </div>
@@ -400,14 +400,14 @@ export function ChatBox({
       </div>
 
       {/* Input area */}
-      <div className="border-t border-[#2a2d3d] bg-[#0f1117] p-4">
-        <label className="flex items-center gap-2 mb-2 px-1 text-xs text-[#8892a4] cursor-pointer select-none">
+      <div className="border-t border-app-border bg-app-bg p-4">
+        <label className="flex items-center gap-2 mb-2 px-1 text-xs text-app-muted cursor-pointer select-none">
           <input
             type="checkbox"
             checked={executeQuery}
             onChange={(e) => setExecuteQuery(e.target.checked)}
             disabled={isLoading}
-            className="rounded border-[#2a2d3d] bg-[#12151f] text-[#0ea5e9] focus:ring-[#0ea5e9]/40"
+            className="rounded border-app-border bg-app-input text-app-accent focus:ring-app-accent/40"
             suppressHydrationWarning
           />
           生成后执行查询并展示结果（仅 PostgreSQL / MySQL；Hive / Oracle 仍以生成 SQL 为主）
@@ -417,7 +417,7 @@ export function ChatBox({
             {isLoading && (
               <button
                 onClick={stopGeneration}
-                className="flex items-center gap-1 text-xs text-[#8892a4] hover:text-amber-400 transition-colors"
+                className="flex items-center gap-1 text-xs text-app-muted hover:text-amber-400 transition-colors"
               >
                 <Square size={12} />
                 停止生成
@@ -425,14 +425,14 @@ export function ChatBox({
             )}
             <button
               onClick={clearSession}
-              className="flex items-center gap-1 text-xs text-[#8892a4] hover:text-red-400 transition-colors"
+              className="flex items-center gap-1 text-xs text-app-muted hover:text-red-400 transition-colors"
             >
               <Trash2 size={12} />
               清空对话
             </button>
           </div>
         )}
-        <div className="flex gap-3 items-end bg-[#1a1d27] border border-[#2a2d3d] rounded-2xl px-4 py-3 focus-within:border-[#0ea5e9]/50 transition-colors">
+        <div className="flex gap-3 items-end bg-app-surface border border-app-border rounded-2xl px-4 py-3 focus-within:border-app-accent/50 transition-colors">
           <textarea
             ref={textareaRef}
             value={input}
@@ -448,7 +448,7 @@ export function ChatBox({
                 : "Oracle"
             } 模式)`}
             rows={1}
-            className="flex-1 bg-transparent text-sm text-[#e2e8f0] placeholder-[#4a5568] resize-none outline-none max-h-40 overflow-y-auto"
+            className="flex-1 bg-transparent text-sm text-app-text placeholder:text-app-subtle resize-none outline-none max-h-40 overflow-y-auto"
             style={{ lineHeight: "1.6" }}
             disabled={isLoading}
             suppressHydrationWarning
@@ -456,7 +456,7 @@ export function ChatBox({
           <button
             onClick={() => send(input)}
             disabled={isLoading || !input.trim()}
-            className="flex-shrink-0 w-8 h-8 rounded-lg bg-[#0ea5e9] hover:bg-[#0284c7] disabled:bg-[#2a2d3d] disabled:text-[#4a5568] text-white flex items-center justify-center transition-colors"
+            className="flex-shrink-0 w-8 h-8 rounded-lg bg-app-accent hover:bg-app-accent-hover disabled:bg-app-border disabled:text-app-subtle text-white flex items-center justify-center transition-colors"
           >
             {isLoading ? (
               <Loader2 size={14} className="animate-spin" />
@@ -465,7 +465,7 @@ export function ChatBox({
             )}
           </button>
         </div>
-        <p className="text-xs text-[#4a5568] mt-2 text-center">
+        <p className="text-xs text-app-subtle mt-2 text-center">
           Enter 发送 · Shift+Enter 换行 · 多轮对话支持追问
         </p>
       </div>

@@ -39,17 +39,17 @@ export function SQLResult({
       : "PostgreSQL";
   const labelColor =
     sqlType === "hive"
-      ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
+      ? "bg-amber-500/20 text-amber-900 dark:text-amber-300 border-amber-500/30"
       : sqlType === "oracle"
-      ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+      ? "bg-emerald-500/20 text-emerald-900 dark:text-emerald-300 border-emerald-500/30"
       : sqlType === "mysql"
-      ? "bg-orange-500/20 text-orange-300 border-orange-500/30"
-      : "bg-blue-500/20 text-blue-300 border-blue-500/30";
+      ? "bg-orange-500/20 text-orange-900 dark:text-orange-300 border-orange-500/30"
+      : "bg-blue-500/20 text-blue-900 dark:text-blue-300 border-blue-500/30";
 
   return (
-    <div className="rounded-xl border border-[#2a2d3d] overflow-hidden bg-[#1a1d27]">
+    <div className="rounded-xl border border-app-border overflow-hidden bg-app-surface">
       {/* Header bar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-[#12151f] border-b border-[#2a2d3d]">
+      <div className="flex items-center justify-between px-4 py-2 bg-app-input border-b border-app-border">
         <div className="flex items-center gap-2">
           <span
             className={cn(
@@ -60,7 +60,7 @@ export function SQLResult({
             {label}
           </span>
           {referencedTables && referencedTables.length > 0 && (
-            <span className="text-xs text-[#8892a4]">
+            <span className="text-xs text-app-muted">
               引用: {referencedTables.join(", ")}
             </span>
           )}
@@ -68,7 +68,7 @@ export function SQLResult({
         <button
           onClick={handleCopy}
           disabled={isStreaming}
-          className="flex items-center gap-1 text-xs text-[#8892a4] hover:text-[#e2e8f0] transition-colors disabled:opacity-40"
+          className="flex items-center gap-1 text-xs text-app-muted hover:text-app-text transition-colors disabled:opacity-40"
         >
           {copied ? (
             <>

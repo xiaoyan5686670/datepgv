@@ -71,10 +71,10 @@ export function MetadataForm({ onSuccess, onClose }: MetadataFormProps) {
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-[#1a1d27] border border-[#2a2d3d] rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-[#1a1d27] border-b border-[#2a2d3d] px-6 py-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-[#e2e8f0]">新增表元数据</h2>
-          <button onClick={onClose} className="text-[#8892a4] hover:text-[#e2e8f0]">
+      <div className="bg-app-surface border border-app-border rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-app-surface border-b border-app-border px-6 py-4 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-app-text">新增表元数据</h2>
+          <button onClick={onClose} className="text-app-muted hover:text-app-text">
             <X size={18} />
           </button>
         </div>
@@ -83,7 +83,7 @@ export function MetadataForm({ onSuccess, onClose }: MetadataFormProps) {
           {/* DB Type */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-[#8892a4] mb-1.5">数据库类型</label>
+              <label className="block text-xs text-app-muted mb-1.5">数据库类型</label>
               <div className="flex flex-wrap gap-2">
                 {(["hive", "postgresql", "mysql", "oracle"] as SqlType[]).map((t) => (
                   <button
@@ -100,7 +100,7 @@ export function MetadataForm({ onSuccess, onClose }: MetadataFormProps) {
                           : t === "mysql"
                           ? "bg-orange-500/20 text-orange-300 border-orange-500/40"
                           : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                        : "bg-[#12151f] text-[#8892a4] border-[#2a2d3d] hover:text-[#e2e8f0]"
+                        : "bg-app-input text-app-muted border-app-border hover:text-app-text"
                     )}
                   >
                     {t === "hive"
@@ -115,19 +115,19 @@ export function MetadataForm({ onSuccess, onClose }: MetadataFormProps) {
               </div>
             </div>
             <div>
-              <label className="block text-xs text-[#8892a4] mb-1.5">数据库名</label>
+              <label className="block text-xs text-app-muted mb-1.5">数据库名</label>
               <input
                 value={databaseName}
                 onChange={(e) => setDatabaseName(e.target.value)}
                 placeholder="如: dw"
-                className="w-full bg-[#12151f] border border-[#2a2d3d] rounded-lg px-3 py-2 text-sm text-[#e2e8f0] placeholder-[#4a5568] outline-none focus:border-[#0ea5e9]/50"
+                className="w-full bg-app-input border border-app-border rounded-lg px-3 py-2 text-sm text-app-text placeholder:text-app-subtle outline-none focus:border-app-accent/50"
               />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-[#8892a4] mb-1.5">
+              <label className="block text-xs text-app-muted mb-1.5">
                 表名 <span className="text-red-400">*</span>
               </label>
               <input
@@ -135,52 +135,52 @@ export function MetadataForm({ onSuccess, onClose }: MetadataFormProps) {
                 onChange={(e) => setTableName(e.target.value)}
                 placeholder="如: ods_orders"
                 required
-                className="w-full bg-[#12151f] border border-[#2a2d3d] rounded-lg px-3 py-2 text-sm text-[#e2e8f0] placeholder-[#4a5568] outline-none focus:border-[#0ea5e9]/50"
+                className="w-full bg-app-input border border-app-border rounded-lg px-3 py-2 text-sm text-app-text placeholder:text-app-subtle outline-none focus:border-app-accent/50"
               />
             </div>
             <div>
-              <label className="block text-xs text-[#8892a4] mb-1.5">Schema</label>
+              <label className="block text-xs text-app-muted mb-1.5">Schema</label>
               <input
                 value={schemaName}
                 onChange={(e) => setSchemaName(e.target.value)}
                 placeholder="如: public"
-                className="w-full bg-[#12151f] border border-[#2a2d3d] rounded-lg px-3 py-2 text-sm text-[#e2e8f0] placeholder-[#4a5568] outline-none focus:border-[#0ea5e9]/50"
+                className="w-full bg-app-input border border-app-border rounded-lg px-3 py-2 text-sm text-app-text placeholder:text-app-subtle outline-none focus:border-app-accent/50"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs text-[#8892a4] mb-1.5">表说明</label>
+            <label className="block text-xs text-app-muted mb-1.5">表说明</label>
             <input
               value={tableComment}
               onChange={(e) => setTableComment(e.target.value)}
               placeholder="描述这张表的用途..."
-              className="w-full bg-[#12151f] border border-[#2a2d3d] rounded-lg px-3 py-2 text-sm text-[#e2e8f0] placeholder-[#4a5568] outline-none focus:border-[#0ea5e9]/50"
+              className="w-full bg-app-input border border-app-border rounded-lg px-3 py-2 text-sm text-app-text placeholder:text-app-subtle outline-none focus:border-app-accent/50"
             />
           </div>
 
           <div>
-            <label className="block text-xs text-[#8892a4] mb-1.5">
-              标签 <span className="text-[#4a5568]">（逗号分隔）</span>
+            <label className="block text-xs text-app-muted mb-1.5">
+              标签 <span className="text-app-subtle">（逗号分隔）</span>
             </label>
             <input
               value={tags}
               onChange={(e) => setTags(e.target.value)}
               placeholder="ods, orders, transaction"
-              className="w-full bg-[#12151f] border border-[#2a2d3d] rounded-lg px-3 py-2 text-sm text-[#e2e8f0] placeholder-[#4a5568] outline-none focus:border-[#0ea5e9]/50"
+              className="w-full bg-app-input border border-app-border rounded-lg px-3 py-2 text-sm text-app-text placeholder:text-app-subtle outline-none focus:border-app-accent/50"
             />
           </div>
 
           {/* Columns */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="text-xs text-[#8892a4]">
+              <label className="text-xs text-app-muted">
                 字段定义 <span className="text-red-400">*</span>
               </label>
               <button
                 type="button"
                 onClick={addColumn}
-                className="flex items-center gap-1 text-xs text-[#0ea5e9] hover:text-[#38bdf8]"
+                className="flex items-center gap-1 text-xs text-app-accent hover:text-sky-500 dark:hover:text-sky-300"
               >
                 <Plus size={12} />
                 添加字段
@@ -189,7 +189,7 @@ export function MetadataForm({ onSuccess, onClose }: MetadataFormProps) {
 
             <div className="space-y-2">
               {/* Header */}
-              <div className="grid grid-cols-12 gap-2 text-xs text-[#4a5568] px-1">
+              <div className="grid grid-cols-12 gap-2 text-xs text-app-subtle px-1">
                 <span className="col-span-3">字段名</span>
                 <span className="col-span-2">类型</span>
                 <span className="col-span-4">注释</span>
@@ -204,26 +204,26 @@ export function MetadataForm({ onSuccess, onClose }: MetadataFormProps) {
                     value={col.name}
                     onChange={(e) => updateColumn(idx, "name", e.target.value)}
                     placeholder="column_name"
-                    className="col-span-3 bg-[#12151f] border border-[#2a2d3d] rounded-lg px-2 py-1.5 text-xs text-[#e2e8f0] placeholder-[#4a5568] outline-none focus:border-[#0ea5e9]/50"
+                    className="col-span-3 bg-app-input border border-app-border rounded-lg px-2 py-1.5 text-xs text-app-text placeholder:text-app-subtle outline-none focus:border-app-accent/50"
                   />
                   <input
                     value={col.type}
                     onChange={(e) => updateColumn(idx, "type", e.target.value)}
                     placeholder="STRING"
-                    className="col-span-2 bg-[#12151f] border border-[#2a2d3d] rounded-lg px-2 py-1.5 text-xs text-[#e2e8f0] placeholder-[#4a5568] outline-none focus:border-[#0ea5e9]/50"
+                    className="col-span-2 bg-app-input border border-app-border rounded-lg px-2 py-1.5 text-xs text-app-text placeholder:text-app-subtle outline-none focus:border-app-accent/50"
                   />
                   <input
                     value={col.comment}
                     onChange={(e) => updateColumn(idx, "comment", e.target.value)}
                     placeholder="字段说明"
-                    className="col-span-4 bg-[#12151f] border border-[#2a2d3d] rounded-lg px-2 py-1.5 text-xs text-[#e2e8f0] placeholder-[#4a5568] outline-none focus:border-[#0ea5e9]/50"
+                    className="col-span-4 bg-app-input border border-app-border rounded-lg px-2 py-1.5 text-xs text-app-text placeholder:text-app-subtle outline-none focus:border-app-accent/50"
                   />
                   <div className="col-span-1 flex justify-center">
                     <input
                       type="checkbox"
                       checked={col.nullable}
                       onChange={(e) => updateColumn(idx, "nullable", e.target.checked)}
-                      className="accent-[#0ea5e9]"
+                      className="accent-app"
                     />
                   </div>
                   <div className="col-span-1 flex justify-center">
@@ -238,7 +238,7 @@ export function MetadataForm({ onSuccess, onClose }: MetadataFormProps) {
                     type="button"
                     onClick={() => removeColumn(idx)}
                     disabled={columns.length === 1}
-                    className="col-span-1 flex justify-center text-[#4a5568] hover:text-red-400 disabled:opacity-20"
+                    className="col-span-1 flex justify-center text-app-subtle hover:text-red-400 disabled:opacity-20"
                   >
                     <Trash2 size={13} />
                   </button>
@@ -257,14 +257,14 @@ export function MetadataForm({ onSuccess, onClose }: MetadataFormProps) {
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-2.5 rounded-xl border border-[#2a2d3d] text-sm text-[#8892a4] hover:text-[#e2e8f0] transition-colors"
+              className="flex-1 py-2.5 rounded-xl border border-app-border text-sm text-app-muted hover:text-app-text transition-colors"
             >
               取消
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="flex-1 py-2.5 rounded-xl bg-[#0ea5e9] hover:bg-[#0284c7] disabled:bg-[#2a2d3d] text-white text-sm font-medium transition-colors"
+              className="flex-1 py-2.5 rounded-xl bg-app-accent hover:bg-app-accent-hover disabled:bg-app-border text-white text-sm font-medium transition-colors"
             >
               {loading ? "提交中..." : "保存并生成向量"}
             </button>

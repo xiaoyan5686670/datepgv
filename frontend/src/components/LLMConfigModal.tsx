@@ -153,12 +153,12 @@ export function LLMConfigModal({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-[#1a1d27] border border-[#2a2d3d] rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-[#1a1d27] border-b border-[#2a2d3d] px-6 py-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-[#e2e8f0]">
+      <div className="bg-app-surface border border-app-border rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-app-surface border-b border-app-border px-6 py-4 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-app-text">
             {isEdit ? "编辑" : "新增"} {typeLabel} 配置
           </h2>
-          <button onClick={onClose} className="text-[#8892a4] hover:text-[#e2e8f0]">
+          <button onClick={onClose} className="text-app-muted hover:text-app-text">
             <X size={18} />
           </button>
         </div>
@@ -166,7 +166,7 @@ export function LLMConfigModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {/* Name */}
           <div>
-            <label className="block text-xs text-[#8892a4] mb-1.5">
+            <label className="block text-xs text-app-muted mb-1.5">
               配置名称 <span className="text-red-400">*</span>
             </label>
             <input
@@ -174,19 +174,19 @@ export function LLMConfigModal({
               onChange={(e) => setName(e.target.value)}
               placeholder="如：我的 Gemini 配置"
               required
-              className="w-full bg-[#12151f] border border-[#2a2d3d] rounded-lg px-3 py-2 text-sm text-[#e2e8f0] placeholder-[#4a5568] outline-none focus:border-[#0ea5e9]/50"
+              className="w-full bg-app-input border border-app-border rounded-lg px-3 py-2 text-sm text-app-text placeholder:text-app-subtle outline-none focus:border-app-accent/50"
             />
           </div>
 
           {/* Model preset selector */}
           <div>
-            <label className="block text-xs text-[#8892a4] mb-1.5">
+            <label className="block text-xs text-app-muted mb-1.5">
               模型预设
             </label>
             <select
               value={selectedPreset}
               onChange={(e) => setSelectedPreset(e.target.value)}
-              className="w-full bg-[#12151f] border border-[#2a2d3d] rounded-lg px-3 py-2 text-sm text-[#e2e8f0] outline-none focus:border-[#0ea5e9]/50"
+              className="w-full bg-app-input border border-app-border rounded-lg px-3 py-2 text-sm text-app-text outline-none focus:border-app-accent/50"
             >
               <option value="__custom__">自定义输入</option>
               {presets.filter((p) => p.value !== "__custom__").map((p) => (
@@ -199,9 +199,9 @@ export function LLMConfigModal({
 
           {/* Model string */}
           <div>
-            <label className="block text-xs text-[#8892a4] mb-1.5">
+            <label className="block text-xs text-app-muted mb-1.5">
               Model String <span className="text-red-400">*</span>
-              <span className="ml-2 text-[#4a5568]">
+              <span className="ml-2 text-app-subtle">
                 （LiteLLM 格式，如 gemini/gemini-2.0-flash）
               </span>
             </label>
@@ -210,15 +210,15 @@ export function LLMConfigModal({
               onChange={(e) => setModel(e.target.value)}
               placeholder="provider/model-name"
               required
-              className="w-full bg-[#12151f] border border-[#2a2d3d] rounded-lg px-3 py-2 text-sm text-[#e2e8f0] font-mono placeholder-[#4a5568] outline-none focus:border-[#0ea5e9]/50"
+              className="w-full bg-app-input border border-app-border rounded-lg px-3 py-2 text-sm text-app-text font-mono placeholder:text-app-subtle outline-none focus:border-app-accent/50"
             />
           </div>
 
           {/* API Key */}
           <div>
-            <label className="block text-xs text-[#8892a4] mb-1.5">
+            <label className="block text-xs text-app-muted mb-1.5">
               API Key
-              <span className="ml-2 text-[#4a5568] font-normal">（Ollama 一般留空）</span>
+              <span className="ml-2 text-app-subtle font-normal">（Ollama 一般留空）</span>
               {isEdit && existing?.api_key_set && (
                 <span className="ml-2 text-green-400">（已设置，留空则保持不变）</span>
               )}
@@ -228,44 +228,44 @@ export function LLMConfigModal({
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={isEdit && existing?.api_key_set ? "留空保持现有 Key" : "sk-... 或 AIza..."}
-              className="w-full bg-[#12151f] border border-[#2a2d3d] rounded-lg px-3 py-2 text-sm text-[#e2e8f0] placeholder-[#4a5568] outline-none focus:border-[#0ea5e9]/50"
+              className="w-full bg-app-input border border-app-border rounded-lg px-3 py-2 text-sm text-app-text placeholder:text-app-subtle outline-none focus:border-app-accent/50"
             />
           </div>
 
           {/* API Base */}
           <div>
-            <label className="block text-xs text-[#8892a4] mb-1.5">
+            <label className="block text-xs text-app-muted mb-1.5">
               API Base URL
-              <span className="ml-2 text-[#4a5568]">（可选，Ollama / 私有代理时填写）</span>
+              <span className="ml-2 text-app-subtle">（可选，Ollama / 私有代理时填写）</span>
             </label>
             <input
               value={apiBase}
               onChange={(e) => setApiBase(e.target.value)}
               placeholder="http://localhost:11434"
-              className="w-full bg-[#12151f] border border-[#2a2d3d] rounded-lg px-3 py-2 text-sm text-[#e2e8f0] font-mono placeholder-[#4a5568] outline-none focus:border-[#0ea5e9]/50"
+              className="w-full bg-app-input border border-app-border rounded-lg px-3 py-2 text-sm text-app-text font-mono placeholder:text-app-subtle outline-none focus:border-app-accent/50"
             />
           </div>
 
           {showOllamaHelper && (
-            <div className="rounded-lg border border-[#0ea5e9]/25 bg-[#0ea5e9]/5 px-3 py-3 space-y-2 text-xs text-[#8892a4]">
+            <div className="rounded-lg border border-app-accent/25 bg-app-accent/5 px-3 py-3 space-y-2 text-xs text-app-muted">
               <p>
-                <span className="text-[#e2e8f0]">Ollama：</span>
+                <span className="text-app-text">Ollama：</span>
                 本机通常填{" "}
-                <code className="text-[#0ea5e9]">http://127.0.0.1:11434</code>
+                <code className="text-app-accent">http://127.0.0.1:11434</code>
                 ；Docker 内后端访问宿主机可试{" "}
-                <code className="text-[#0ea5e9]">http://host.docker.internal:11434</code>
+                <code className="text-app-accent">http://host.docker.internal:11434</code>
                 。
                 {configType === "llm" ? (
                   <>
                     {" "}
                     LLM 对话推荐使用{" "}
-                    <code className="text-[#0ea5e9]">ollama_chat/模型名</code>。
+                    <code className="text-app-accent">ollama_chat/模型名</code>。
                   </>
                 ) : (
                   <>
                     {" "}
                     Embedding 使用{" "}
-                    <code className="text-[#0ea5e9]">ollama/模型名</code>（注意向量维度须与库表一致）。
+                    <code className="text-app-accent">ollama/模型名</code>（注意向量维度须与库表一致）。
                   </>
                 )}
               </p>
@@ -274,13 +274,13 @@ export function LLMConfigModal({
                   type="button"
                   onClick={handleFetchOllamaModels}
                   disabled={ollamaFetchLoading}
-                  className="px-3 py-1.5 rounded-lg bg-[#0ea5e9]/20 text-[#0ea5e9] border border-[#0ea5e9]/40 text-xs font-medium hover:bg-[#0ea5e9]/30 disabled:opacity-50"
+                  className="px-3 py-1.5 rounded-lg bg-app-accent/20 text-app-accent border border-app-accent/40 text-xs font-medium hover:bg-app-accent/30 disabled:opacity-50"
                 >
                   {ollamaFetchLoading ? "获取中…" : "获取模型列表"}
                 </button>
                 {ollamaModels.length > 0 && (
                   <select
-                    className="flex-1 min-w-[12rem] bg-[#12151f] border border-[#2a2d3d] rounded-lg px-2 py-1.5 text-sm text-[#e2e8f0]"
+                    className="flex-1 min-w-[12rem] bg-app-input border border-app-border rounded-lg px-2 py-1.5 text-sm text-app-text"
                     defaultValue=""
                     onChange={(e) => {
                       const name = e.target.value;
@@ -310,9 +310,9 @@ export function LLMConfigModal({
 
           {/* Extra params */}
           <div>
-            <label className="block text-xs text-[#8892a4] mb-1.5">
+            <label className="block text-xs text-app-muted mb-1.5">
               额外参数
-              <span className="ml-2 text-[#4a5568]">（JSON 格式，如 temperature、dim）</span>
+              <span className="ml-2 text-app-subtle">（JSON 格式，如 temperature、dim）</span>
             </label>
             <textarea
               value={extraParams}
@@ -322,8 +322,8 @@ export function LLMConfigModal({
               }}
               rows={4}
               className={cn(
-                "w-full bg-[#12151f] border rounded-lg px-3 py-2 text-sm text-[#e2e8f0] font-mono placeholder-[#4a5568] outline-none resize-none",
-                extraParamsError ? "border-red-400/50" : "border-[#2a2d3d] focus:border-[#0ea5e9]/50"
+                "w-full bg-app-input border rounded-lg px-3 py-2 text-sm text-app-text font-mono placeholder:text-app-subtle outline-none resize-none",
+                extraParamsError ? "border-red-400/50" : "border-app-border focus:border-app-accent/50"
               )}
             />
             {extraParamsError && (
@@ -341,14 +341,14 @@ export function LLMConfigModal({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 py-2.5 rounded-xl border border-[#2a2d3d] text-sm text-[#8892a4] hover:text-[#e2e8f0] transition-colors"
+              className="flex-1 py-2.5 rounded-xl border border-app-border text-sm text-app-muted hover:text-app-text transition-colors"
             >
               取消
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="flex-1 py-2.5 rounded-xl bg-[#0ea5e9] hover:bg-[#0284c7] disabled:bg-[#2a2d3d] text-white text-sm font-medium transition-colors"
+              className="flex-1 py-2.5 rounded-xl bg-app-accent hover:bg-app-accent-hover disabled:bg-app-border text-white text-sm font-medium transition-colors"
             >
               {loading ? "保存中..." : "保存"}
             </button>

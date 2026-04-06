@@ -124,17 +124,17 @@ export function TableRelationsPanel({ tables, filterDb }: TableRelationsPanelPro
   return (
     <div className="space-y-6">
       {/* 说明 */}
-      <div className="rounded-xl border border-[#2a2d3d] bg-[#1a1d27] p-4 flex gap-3">
-        <Info size={20} className="text-[#0ea5e9] flex-shrink-0 mt-0.5" />
-        <div className="text-sm text-[#cbd5e1] space-y-2 leading-relaxed">
+      <div className="rounded-xl border border-app-border bg-app-surface p-4 flex gap-3">
+        <Info size={20} className="text-app-accent flex-shrink-0 mt-0.5" />
+        <div className="text-sm text-slate-600 dark:text-slate-300 space-y-2 leading-relaxed">
           <p>
-            <strong className="text-[#e2e8f0]">这一步在做什么？</strong>
+            <strong className="text-app-text">这一步在做什么？</strong>
             用鼠标把「相关的两张表」连起来。这样您只用平常说话问问题，后台也会自动把关联表一并提供给
             AI，减少漏表、写不出 JOIN 的情况。
           </p>
-          <p className="text-[#8892a4] text-xs">
+          <p className="text-app-muted text-xs">
             不需要懂 SQL。若保存时提示数据库未就绪，把下面文件名发给技术人员执行一次即可：
-            <code className="mx-1 rounded bg-[#12151f] px-1.5 py-0.5 text-[#94a3b8]">
+            <code className="mx-1 rounded bg-app-input px-1.5 py-0.5 text-slate-500 dark:text-slate-400">
               init-db/02-table_metadata_edges.sql
             </code>
           </p>
@@ -142,7 +142,7 @@ export function TableRelationsPanel({ tables, filterDb }: TableRelationsPanelPro
       </div>
 
       {pickList.length < 2 ? (
-        <div className="text-center py-16 text-[#8892a4] border border-dashed border-[#2a2d3d] rounded-xl">
+        <div className="text-center py-16 text-app-muted border border-dashed border-app-border rounded-xl">
           <GitBranch size={36} className="mx-auto mb-3 opacity-40" />
           <p>这里至少要登记两张表，才能连线。</p>
           <p className="text-sm mt-2">请切换到「表目录」，先导入或新增表元数据。</p>
@@ -150,19 +150,19 @@ export function TableRelationsPanel({ tables, filterDb }: TableRelationsPanelPro
       ) : (
         <>
           {/* 添加表单 — 图形化：左表 → 右表 */}
-          <div className="rounded-xl border border-[#2a2d3d] bg-[#1a1d27] p-5 space-y-4">
-            <h3 className="text-sm font-medium text-[#e2e8f0] flex items-center gap-2">
-              <GitBranch size={16} className="text-[#0ea5e9]" />
+          <div className="rounded-xl border border-app-border bg-app-surface p-5 space-y-4">
+            <h3 className="text-sm font-medium text-app-text flex items-center gap-2">
+              <GitBranch size={16} className="text-app-accent" />
               新建一条关系
             </h3>
 
             <div className="flex flex-col lg:flex-row lg:items-stretch gap-4">
               <div className="flex-1 space-y-2">
-                <label className="text-xs text-[#8892a4]">第一张表（例如：订单表）</label>
+                <label className="text-xs text-app-muted">第一张表（例如：订单表）</label>
                 <select
                   value={fromId}
                   onChange={(e) => setFromId(e.target.value)}
-                  className="w-full rounded-lg border border-[#2a2d3d] bg-[#12151f] text-[#e2e8f0] text-sm px-3 py-2.5"
+                  className="w-full rounded-lg border border-app-border bg-app-input text-app-text text-sm px-3 py-2.5"
                 >
                   <option value="">请选择…</option>
                   {pickList.map((t) => (
@@ -176,19 +176,19 @@ export function TableRelationsPanel({ tables, filterDb }: TableRelationsPanelPro
               </div>
 
               <div className="flex items-center justify-center lg:pt-6">
-                <div className="flex items-center gap-2 text-[#0ea5e9]">
-                  <div className="hidden lg:block h-px w-8 bg-[#2a2d3d]" />
+                <div className="flex items-center gap-2 text-app-accent">
+                  <div className="hidden lg:block h-px w-8 bg-app-border" />
                   <ArrowRight size={22} className="flex-shrink-0" />
-                  <div className="hidden lg:block h-px w-8 bg-[#2a2d3d]" />
+                  <div className="hidden lg:block h-px w-8 bg-app-border" />
                 </div>
               </div>
 
               <div className="flex-1 space-y-2">
-                <label className="text-xs text-[#8892a4]">第二张表（例如：用户表）</label>
+                <label className="text-xs text-app-muted">第二张表（例如：用户表）</label>
                 <select
                   value={toId}
                   onChange={(e) => setToId(e.target.value)}
-                  className="w-full rounded-lg border border-[#2a2d3d] bg-[#12151f] text-[#e2e8f0] text-sm px-3 py-2.5"
+                  className="w-full rounded-lg border border-app-border bg-app-input text-app-text text-sm px-3 py-2.5"
                 >
                   <option value="">请选择…</option>
                   {pickList.map((t) => (
@@ -203,11 +203,11 @@ export function TableRelationsPanel({ tables, filterDb }: TableRelationsPanelPro
             </div>
 
             <div className="space-y-2">
-              <label className="text-xs text-[#8892a4]">关系类型（选最贴近的一种即可）</label>
+              <label className="text-xs text-app-muted">关系类型（选最贴近的一种即可）</label>
               <select
                 value={relationType}
                 onChange={(e) => setRelationType(e.target.value as TableRelationType)}
-                className="w-full max-w-xl rounded-lg border border-[#2a2d3d] bg-[#12151f] text-[#e2e8f0] text-sm px-3 py-2.5"
+                className="w-full max-w-xl rounded-lg border border-app-border bg-app-input text-app-text text-sm px-3 py-2.5"
               >
                 {RELATION_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -216,42 +216,42 @@ export function TableRelationsPanel({ tables, filterDb }: TableRelationsPanelPro
                 ))}
               </select>
               {selectedHint && (
-                <p className="text-xs text-[#64748b] leading-relaxed">{selectedHint}</p>
+                <p className="text-xs text-app-muted leading-relaxed">{selectedHint}</p>
               )}
             </div>
 
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="text-xs text-[#8892a4]">
+                <label className="text-xs text-app-muted">
                   第一张表里的字段名（选填）
                 </label>
                 <input
                   value={fromCol}
                   onChange={(e) => setFromCol(e.target.value)}
                   placeholder="例如 user_id"
-                  className="w-full rounded-lg border border-[#2a2d3d] bg-[#12151f] text-[#e2e8f0] text-sm px-3 py-2 placeholder:text-[#4a5568]"
+                  className="w-full rounded-lg border border-app-border bg-app-input text-app-text text-sm px-3 py-2 placeholder:text-app-subtle"
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-xs text-[#8892a4]">
+                <label className="text-xs text-app-muted">
                   第二张表里的字段名（选填）
                 </label>
                 <input
                   value={toCol}
                   onChange={(e) => setToCol(e.target.value)}
                   placeholder="例如 user_id"
-                  className="w-full rounded-lg border border-[#2a2d3d] bg-[#12151f] text-[#e2e8f0] text-sm px-3 py-2 placeholder:text-[#4a5568]"
+                  className="w-full rounded-lg border border-app-border bg-app-input text-app-text text-sm px-3 py-2 placeholder:text-app-subtle"
                 />
               </div>
             </div>
 
             <div className="space-y-2">
-              <label className="text-xs text-[#8892a4]">给同事看的说明（选填）</label>
+              <label className="text-xs text-app-muted">给同事看的说明（选填）</label>
               <input
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="例如：下单用户与维度用户通过 user_id 对应"
-                className="w-full rounded-lg border border-[#2a2d3d] bg-[#12151f] text-[#e2e8f0] text-sm px-3 py-2 placeholder:text-[#4a5568]"
+                className="w-full rounded-lg border border-app-border bg-app-input text-app-text text-sm px-3 py-2 placeholder:text-app-subtle"
               />
             </div>
 
@@ -259,7 +259,7 @@ export function TableRelationsPanel({ tables, filterDb }: TableRelationsPanelPro
               type="button"
               onClick={handleAdd}
               disabled={saving || !fromId || !toId}
-              className="px-4 py-2.5 rounded-lg bg-[#0ea5e9] hover:bg-[#0284c7] disabled:opacity-40 disabled:pointer-events-none text-white text-sm font-medium transition-colors"
+              className="px-4 py-2.5 rounded-lg bg-app-accent hover:bg-app-accent-hover disabled:opacity-40 disabled:pointer-events-none text-white text-sm font-medium transition-colors"
             >
               {saving ? "保存中…" : "保存这条关系"}
             </button>
@@ -268,11 +268,11 @@ export function TableRelationsPanel({ tables, filterDb }: TableRelationsPanelPro
           {/* 已有关系 — 卡片式「小图」 */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-[#e2e8f0]">已保存的关系</h3>
+              <h3 className="text-sm font-medium text-app-text">已保存的关系</h3>
               <button
                 type="button"
                 onClick={loadEdges}
-                className="text-[#8892a4] hover:text-[#e2e8f0] p-1"
+                className="text-app-muted hover:text-app-text p-1"
                 title="刷新"
               >
                 <RefreshCw size={14} />
@@ -281,10 +281,10 @@ export function TableRelationsPanel({ tables, filterDb }: TableRelationsPanelPro
 
             {loadingEdges ? (
               <div className="flex justify-center py-12">
-                <Loader2 className="animate-spin text-[#0ea5e9]" size={22} />
+                <Loader2 className="animate-spin text-app-accent" size={22} />
               </div>
             ) : edges.length === 0 ? (
-              <p className="text-sm text-[#64748b] py-8 text-center border border-dashed border-[#2a2d3d] rounded-xl">
+              <p className="text-sm text-app-muted py-8 text-center border border-dashed border-app-border rounded-xl">
                 还没有任何连线。在上方选两张表并保存即可。
               </p>
             ) : (
@@ -292,7 +292,7 @@ export function TableRelationsPanel({ tables, filterDb }: TableRelationsPanelPro
                 {edges.map((e) => (
                   <li
                     key={e.id}
-                    className="rounded-xl border border-[#2a2d3d] bg-[#1a1d27] p-4 flex flex-col sm:flex-row sm:items-center gap-4"
+                    className="rounded-xl border border-app-border bg-app-surface p-4 flex flex-col sm:flex-row sm:items-center gap-4"
                   >
                     <div className="flex flex-1 flex-col sm:flex-row sm:items-center gap-3 min-w-0">
                       <div className="flex items-start gap-2 min-w-0 flex-1">
@@ -304,18 +304,18 @@ export function TableRelationsPanel({ tables, filterDb }: TableRelationsPanelPro
                         >
                           {e.from_db_type}
                         </span>
-                        <span className="font-mono text-sm text-[#e2e8f0] truncate">
+                        <span className="font-mono text-sm text-app-text truncate">
                           {e.from_label}
                         </span>
                       </div>
 
-                      <div className="flex items-center gap-2 text-[#64748b] flex-shrink-0 px-2">
-                        <div className="hidden sm:block h-px w-6 bg-[#2a2d3d]" />
-                        <span className="text-xs whitespace-nowrap text-[#0ea5e9]">
+                      <div className="flex items-center gap-2 text-app-muted flex-shrink-0 px-2">
+                        <div className="hidden sm:block h-px w-6 bg-app-border" />
+                        <span className="text-xs whitespace-nowrap text-app-accent">
                           {relationLabel(e.relation_type)}
                         </span>
-                        <ArrowRight size={16} className="text-[#475569]" />
-                        <div className="hidden sm:block h-px w-6 bg-[#2a2d3d]" />
+                        <ArrowRight size={16} className="text-app-subtle" />
+                        <div className="hidden sm:block h-px w-6 bg-app-border" />
                       </div>
 
                       <div className="flex items-start gap-2 min-w-0 flex-1 sm:justify-end">
@@ -327,14 +327,14 @@ export function TableRelationsPanel({ tables, filterDb }: TableRelationsPanelPro
                         >
                           {e.to_db_type}
                         </span>
-                        <span className="font-mono text-sm text-[#e2e8f0] truncate text-right sm:text-left">
+                        <span className="font-mono text-sm text-app-text truncate text-right sm:text-left">
                           {e.to_label}
                         </span>
                       </div>
                     </div>
 
-                    <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2 border-t sm:border-t-0 border-[#2a2d3d] pt-3 sm:pt-0 sm:pl-2">
-                      <div className="text-xs text-[#64748b] text-left sm:text-right max-w-[200px]">
+                    <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2 border-t sm:border-t-0 border-app-border pt-3 sm:pt-0 sm:pl-2">
+                      <div className="text-xs text-app-muted text-left sm:text-right max-w-[200px]">
                         {(e.from_column || e.to_column) && (
                           <p>
                             字段：{e.from_column ?? "？"} → {e.to_column ?? "？"}
@@ -345,7 +345,7 @@ export function TableRelationsPanel({ tables, filterDb }: TableRelationsPanelPro
                       <button
                         type="button"
                         onClick={() => handleDelete(e.id)}
-                        className="text-[#64748b] hover:text-red-400 p-2 rounded-lg hover:bg-[#12151f]"
+                        className="text-app-muted hover:text-red-400 p-2 rounded-lg hover:bg-app-input"
                         title="删除"
                       >
                         <Trash2 size={16} />
