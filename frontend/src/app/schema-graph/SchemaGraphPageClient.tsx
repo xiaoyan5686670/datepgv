@@ -158,7 +158,7 @@ export function SchemaGraphPageClient() {
 
         {!loading && !error && links.length > 0 ? (
           <p className="text-[11px] text-app-subtle mt-3 text-center shrink-0">
-            图例：节点颜色表示库类型；箭头方向为「从表 → 到表」；蓝色系边为字段关联，黄/紫为逻辑或共查关系。
+            图例：节点旁为短表名与库类型；边上为关联字段或关系说明；缩放过小时边标签自动隐藏，可放大查看。箭头为「从表 → 到表」。
           </p>
         ) : null}
       </main>
