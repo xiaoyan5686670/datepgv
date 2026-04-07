@@ -2,6 +2,7 @@
 
 import { Database, Loader2, Send, Square, Trash2 } from "lucide-react";
 import {
+  memo,
   useCallback,
   useEffect,
   useRef,
@@ -39,6 +40,131 @@ interface ChatBoxProps {
   onSessionChange: (newSessionId: string) => void;
   onMessageSent?: () => void;
 }
+
+interface MessageListProps {
+  messages: ChatMessage[];
+  loadingHistory: boolean;
+  sqlType: SqlType;
+  send: (query: string) => void;
+}
+
+const MessageList = memo(function MessageList({
+  messages,
+  loadingHistory,
+  sqlType,
+  send,
+}: MessageListProps) {
+  return (
+    <>
+      {messages.length === 0 && !loadingHistory && (
+        <div className="flex flex-col items-center justify-center h-full gap-8 text-center max-w-2xl mx-auto">
+          <div className="w-20 h-20 rounded-3xl bg-primary/10 flex items-center justify-center shadow-inner border border-primary/20 animate-in zoom-in duration-500">
+            <Database size={40} className="text-primary" />
+          </div>
+          <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            <h2 className="text-3xl font-bold tracking-tight">
+              你好，我是 DATEPGV
+            </h2>
+            <p className="text-muted-foreground text-base leading-relaxed">
+              我可以帮你将自然语言转化为精准的 SQL 语句。
+              <br />
+              在 PostgreSQL / MySQL 模式下，我还可以执行查询并为你总结数据洞察。
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full animate-in fade-in slide-in-from-bottom-8 duration-1000">
+            {SUGGESTED_QUERIES.map((q) => (
+              <button
+                key={q}
+                onClick={() => send(q)}
+                className="text-left text-sm px-5 py-4 rounded-2xl bg-card border hover:border-primary/50 hover:shadow-md hover:bg-accent/50 transition-all duration-300 group"
+              >
+                <span className="text-muted-foreground group-hover:text-foreground transition-colors">{q}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {loadingHistory && messages.length === 0 && (
+        <div className="flex items-center justify-center h-full text-sm text-muted-foreground gap-3 animate-pulse">
+          <Loader2 size={18} className="animate-spin text-primary" />
+          正在加载历史会话...
+        </div>
+      )}
+
+      {messages.map((msg, idx) => (
+        <div
+          key={msg.id}
+          className={cn(
+            "flex gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300",
+            msg.role === "user" ? "flex-row-reverse" : "flex-row"
+          )}
+          style={{ animationDelay: `${idx * 50}ms` }}
+        >
+          <div className={cn(
+            "w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-1 shadow-sm border",
+            msg.role === "user"
+              ? "bg-primary text-primary-foreground border-primary/20"
+              : "bg-background text-primary border-border"
+          )}>
+            {msg.role === "user" ? (
+              <span className="text-xs font-bold">U</span>
+            ) : (
+              <Database size={16} />
+            )}
+          </div>
+
+          <div
+            className={cn(
+              "flex flex-col gap-3",
+              msg.role === "user" ? "items-end max-w-[80%]" : "items-start w-full max-w-[90%]"
+            )}
+          >
+            {msg.role === "user" ? (
+              <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-none px-5 py-3 text-sm shadow-sm leading-relaxed">
+                {msg.content}
+              </div>
+            ) : (
+              <div className="w-full space-y-4">
+                {msg.content ? (
+                  <div className="text-sm text-foreground bg-card rounded-2xl rounded-tl-none px-5 py-4 border shadow-sm whitespace-pre-wrap leading-relaxed">
+                    {msg.content}
+                  </div>
+                ) : null}
+                {msg.sql ? (
+                  <div className="w-full animate-in zoom-in-95 duration-300">
+                    <SQLResult
+                      sql={msg.sql}
+                      sqlType={msg.sql_type ?? sqlType}
+                      referencedTables={msg.referenced_tables}
+                      isStreaming={msg.isStreaming}
+                    />
+                    {!msg.isStreaming ? (
+                      <div className="mt-3">
+                        <QueryResultPreview
+                          sqlType={msg.sql_type ?? sqlType}
+                          executed={msg.executed}
+                          execError={msg.exec_error}
+                          resultPreview={msg.result_preview}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {msg.isStreaming && !msg.sql && !msg.content && (
+                  <div className="flex items-center gap-3 text-sm text-muted-foreground bg-muted/30 px-5 py-3 rounded-2xl border border-dashed">
+                    <Loader2 size={16} className="animate-spin text-primary" />
+                    <span>思考中，正在生成 SQL...</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+});
 
 export function ChatBox({
   sqlType,
@@ -192,6 +318,20 @@ export function ChatBox({
         const decoder = new TextDecoder();
         let buffer = "";
         let accumulatedSQL = "";
+        let pendingSQL: string | null = null;
+        let flushTimer: ReturnType<typeof setTimeout> | null = null;
+        const flushSQL = () => {
+          if (pendingSQL === null) return;
+          const nextSQL = pendingSQL;
+          pendingSQL = null;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantMsgId
+                ? { ...m, sql: nextSQL }
+                : m
+            )
+          );
+        };
 
         while (true) {
           const { done, value } = await reader.read();
@@ -226,14 +366,19 @@ export function ChatBox({
               if (firstTokenAt === null) firstTokenAt = performance.now();
               const token = event as TokenEvent;
               accumulatedSQL += token.text;
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantMsgId
-                    ? { ...m, sql: accumulatedSQL }
-                    : m
-                )
-              );
+              pendingSQL = accumulatedSQL;
+              if (flushTimer === null) {
+                flushTimer = setTimeout(() => {
+                  flushTimer = null;
+                  flushSQL();
+                }, 50);
+              }
             } else if (event.type === "done") {
+              if (flushTimer !== null) {
+                clearTimeout(flushTimer);
+                flushTimer = null;
+              }
+              flushSQL();
               if (process.env.NODE_ENV === "development") {
                 const doneAt = performance.now();
                 console.info("[chat/stream client timings ms]", {
@@ -270,6 +415,11 @@ export function ChatBox({
                 )
               );
             } else if (event.type === "error") {
+              if (flushTimer !== null) {
+                clearTimeout(flushTimer);
+                flushTimer = null;
+              }
+              flushSQL();
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsgId
@@ -326,112 +476,12 @@ export function ChatBox({
     <div className="flex flex-col h-full">
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-8 space-y-8">
-        {messages.length === 0 && !loadingHistory && (
-          <div className="flex flex-col items-center justify-center h-full gap-8 text-center max-w-2xl mx-auto">
-            <div className="w-20 h-20 rounded-3xl bg-primary/10 flex items-center justify-center shadow-inner border border-primary/20 animate-in zoom-in duration-500">
-              <Database size={40} className="text-primary" />
-            </div>
-            <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-700">
-              <h2 className="text-3xl font-bold tracking-tight">
-                你好，我是 DATEPGV
-              </h2>
-              <p className="text-muted-foreground text-base leading-relaxed">
-                我可以帮你将自然语言转化为精准的 SQL 语句。
-                <br />
-                在 PostgreSQL / MySQL 模式下，我还可以执行查询并为你总结数据洞察。
-              </p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full animate-in fade-in slide-in-from-bottom-8 duration-1000">
-              {SUGGESTED_QUERIES.map((q) => (
-                <button
-                  key={q}
-                  onClick={() => send(q)}
-                  className="text-left text-sm px-5 py-4 rounded-2xl bg-card border hover:border-primary/50 hover:shadow-md hover:bg-accent/50 transition-all duration-300 group"
-                >
-                  <span className="text-muted-foreground group-hover:text-foreground transition-colors">{q}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {loadingHistory && messages.length === 0 && (
-          <div className="flex items-center justify-center h-full text-sm text-muted-foreground gap-3 animate-pulse">
-            <Loader2 size={18} className="animate-spin text-primary" />
-            正在加载历史会话...
-          </div>
-        )}
-
-        {messages.map((msg, idx) => (
-          <div
-            key={msg.id}
-            className={cn(
-              "flex gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300",
-              msg.role === "user" ? "flex-row-reverse" : "flex-row"
-            )}
-            style={{ animationDelay: `${idx * 50}ms` }}
-          >
-            <div className={cn(
-              "w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-1 shadow-sm border",
-              msg.role === "user" 
-                ? "bg-primary text-primary-foreground border-primary/20" 
-                : "bg-background text-primary border-border"
-            )}>
-              {msg.role === "user" ? (
-                <span className="text-xs font-bold">U</span>
-              ) : (
-                <Database size={16} />
-              )}
-            </div>
-
-            <div
-              className={cn(
-                "flex flex-col gap-3",
-                msg.role === "user" ? "items-end max-w-[80%]" : "items-start w-full max-w-[90%]"
-              )}
-            >
-              {msg.role === "user" ? (
-                <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-none px-5 py-3 text-sm shadow-sm leading-relaxed">
-                  {msg.content}
-                </div>
-              ) : (
-                <div className="w-full space-y-4">
-                  {msg.content ? (
-                    <div className="text-sm text-foreground bg-card rounded-2xl rounded-tl-none px-5 py-4 border shadow-sm whitespace-pre-wrap leading-relaxed">
-                      {msg.content}
-                    </div>
-                  ) : null}
-                  {msg.sql ? (
-                    <div className="w-full animate-in zoom-in-95 duration-300">
-                      <SQLResult
-                        sql={msg.sql}
-                        sqlType={msg.sql_type ?? sqlType}
-                        referencedTables={msg.referenced_tables}
-                        isStreaming={msg.isStreaming}
-                      />
-                      {!msg.isStreaming ? (
-                        <div className="mt-3">
-                          <QueryResultPreview
-                            sqlType={msg.sql_type ?? sqlType}
-                            executed={msg.executed}
-                            execError={msg.exec_error}
-                            resultPreview={msg.result_preview}
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                  {msg.isStreaming && !msg.sql && !msg.content && (
-                    <div className="flex items-center gap-3 text-sm text-muted-foreground bg-muted/30 px-5 py-3 rounded-2xl border border-dashed">
-                      <Loader2 size={16} className="animate-spin text-primary" />
-                      <span>思考中，正在生成 SQL...</span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
+        <MessageList
+          messages={messages}
+          loadingHistory={loadingHistory}
+          sqlType={sqlType}
+          send={send}
+        />
 
         <div ref={bottomRef} />
       </div>

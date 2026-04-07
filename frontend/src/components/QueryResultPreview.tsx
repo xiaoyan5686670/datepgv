@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertCircle, CheckCircle2, Info, Table2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { memo } from "react";
 import type { ResultPreview, SqlType } from "@/types";
 
 function formatCell(v: unknown): string {
@@ -17,7 +17,7 @@ interface QueryResultPreviewProps {
   resultPreview?: ResultPreview | null;
 }
 
-export function QueryResultPreview({
+export const QueryResultPreview = memo(function QueryResultPreview({
   sqlType,
   executed,
   execError,
@@ -152,4 +152,4 @@ export function QueryResultPreview({
   }
 
   return null;
-}
+});

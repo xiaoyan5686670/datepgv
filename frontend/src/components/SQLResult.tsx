@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Copy, ExternalLink, Table } from "lucide-react";
-import { useCallback, useState } from "react";
+import { memo, useCallback, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cn } from "@/lib/utils";
@@ -14,7 +14,7 @@ interface SQLResultProps {
   isStreaming?: boolean;
 }
 
-export function SQLResult({
+export const SQLResult = memo(function SQLResult({
   sql,
   sqlType,
   referencedTables,
@@ -119,4 +119,4 @@ export function SQLResult({
       </div>
     </div>
   );
-}
+});
