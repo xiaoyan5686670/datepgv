@@ -9,38 +9,103 @@ import type {
 
 export const ACCESS_TOKEN_KEY = "datepgv_access_token";
 
+/** Cookie mirror lifetime — must cover typical JWT session; proxy reads this if `Authorization` is stripped. */
+const ACCESS_TOKEN_COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 14;
+
+function readAccessTokenCookie(): string | null {
+  if (typeof document === "undefined") return null;
+  const prefix = `${ACCESS_TOKEN_KEY}=`;
+  for (const segment of document.cookie.split(";")) {
+    const part = segment.trim();
+    if (!part.startsWith(prefix)) continue;
+    const raw = part.slice(prefix.length);
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+  return null;
+}
+
+function writeAccessTokenCookie(token: string): void {
+  if (typeof document === "undefined") return;
+  document.cookie = `${ACCESS_TOKEN_KEY}=${encodeURIComponent(token)}; Path=/; Max-Age=${ACCESS_TOKEN_COOKIE_MAX_AGE_SEC}; SameSite=Lax`;
+}
+
+function clearAccessTokenCookie(): void {
+  if (typeof document === "undefined") return;
+  document.cookie = `${ACCESS_TOKEN_KEY}=; Path=/; Max-Age=0; SameSite=Lax`;
+}
+
 export function getStoredAccessToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(ACCESS_TOKEN_KEY);
+  let token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  if (!token) {
+    token = readAccessTokenCookie();
+    if (token) localStorage.setItem(ACCESS_TOKEN_KEY, token);
+  } else if (readAccessTokenCookie() !== token) {
+    writeAccessTokenCookie(token);
+  }
+  return token;
 }
 
 export function setStoredAccessToken(token: string | null): void {
   if (typeof window === "undefined") return;
-  if (token) localStorage.setItem(ACCESS_TOKEN_KEY, token);
-  else localStorage.removeItem(ACCESS_TOKEN_KEY);
+  if (token) {
+    localStorage.setItem(ACCESS_TOKEN_KEY, token);
+    writeAccessTokenCookie(token);
+  } else {
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
+    clearAccessTokenCookie();
+  }
 }
 
 /**
- * FastAPI is reached via Next.js rewrite `/api/backend/*` → backend `/api/v1/*`
- * (see next.config.js). No frontend .env needed for the API base URL.
+ * In the real browser, always call same-origin `/api/backend/*` (App Route proxies to FastAPI).
+ * Do not call `http://127.0.0.1:8000` from the page: that is cross-origin vs Next (e.g. :3000),
+ * preflight/credentials differ, and you often get 401 even when logged in.
+ *
+ * Note: avoid `typeof window !== "undefined"` alone — some Next/Webpack shared chunks have
+ * incorrectly folded that to the server branch, producing the wrong base URL in the browser.
  */
 function apiV1Prefix(): string {
-  if (typeof window !== "undefined") {
-    return "/api/backend";
-  }
-  return `${(process.env.BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "")}/api/v1`;
+  // Frontend requests must always go through Next.js same-origin proxy.
+  // This avoids cross-origin auth drift and prevents accidental direct calls to backend origin.
+  return "/api/backend";
 }
+
+function normalizeBrowserApiUrl(input: string): string {
+  if (typeof window === "undefined") return input;
+  try {
+    const u = new URL(input, window.location.origin);
+    const backendOrigin = (process.env.BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
+    if (u.origin === backendOrigin && u.pathname.startsWith("/api/v1/")) {
+      return `/api/backend${u.pathname.slice("/api/v1".length)}${u.search}`;
+    }
+  } catch {
+    // ignore parse errors and fall back to original input
+  }
+  return input;
+}
+
+/** Custom header echoed by `/api/backend/*` when `Authorization` is stripped upstream. */
+export const DATEPGV_AUTH_HEADER = "X-DatePGV-Authorization";
 
 /** Merge Bearer token into fetch init (skips when no token). */
 export function authFetchInit(init?: RequestInit): RequestInit {
   const token = getStoredAccessToken();
   const headers = new Headers(init?.headers);
-  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (token) {
+    const bearer = `Bearer ${token}`;
+    headers.set("Authorization", bearer);
+    headers.set(DATEPGV_AUTH_HEADER, bearer);
+  }
   return { ...init, headers };
 }
 
 function apiFetch(input: string, init?: RequestInit): Promise<Response> {
-  return fetch(input, authFetchInit(init));
+  return fetch(normalizeBrowserApiUrl(input), authFetchInit(init));
 }
 
 async function readErrorMessage(res: Response, fallback: string): Promise<string> {
@@ -272,7 +337,9 @@ export async function fetchConfigs(
   configType: "llm" | "embedding" | "all" = "all"
 ): Promise<LLMConfig[]> {
   const res = await apiFetch(`${apiV1Prefix()}/config/?config_type=${configType}`);
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "加载模型配置失败"));
+  }
   return res.json();
 }
 
