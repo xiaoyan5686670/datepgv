@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, ExternalLink, Table } from "lucide-react";
 import { useCallback, useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -37,70 +37,85 @@ export function SQLResult({
       : sqlType === "mysql"
       ? "MySQL"
       : "PostgreSQL";
-  const labelColor =
+  
+  const labelStyles =
     sqlType === "hive"
-      ? "bg-amber-500/20 text-amber-900 dark:text-amber-300 border-amber-500/30"
+      ? "bg-amber-500 text-white"
       : sqlType === "oracle"
-      ? "bg-emerald-500/20 text-emerald-900 dark:text-emerald-300 border-emerald-500/30"
+      ? "bg-emerald-500 text-white"
       : sqlType === "mysql"
-      ? "bg-orange-500/20 text-orange-900 dark:text-orange-300 border-orange-500/30"
-      : "bg-blue-500/20 text-blue-900 dark:text-blue-300 border-blue-500/30";
+      ? "bg-orange-500 text-white"
+      : "bg-blue-500 text-white";
 
   return (
-    <div className="rounded-xl border border-app-border overflow-hidden bg-app-surface">
+    <div className="rounded-2xl border shadow-sm overflow-hidden bg-[#1e1e1e] group/sql">
       {/* Header bar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-app-input border-b border-app-border">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-[#252526] border-b border-white/5">
+        <div className="flex items-center gap-3">
           <span
             className={cn(
-              "text-xs font-semibold px-2 py-0.5 rounded border",
-              labelColor
+              "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider",
+              labelStyles
             )}
           >
             {label}
           </span>
           {referencedTables && referencedTables.length > 0 && (
-            <span className="text-xs text-app-muted">
-              引用: {referencedTables.join(", ")}
-            </span>
+            <div className="flex items-center gap-1.5 text-[10px] text-gray-400 font-medium">
+              <Table size={12} className="text-gray-500" />
+              <span className="max-w-[200px] truncate" title={referencedTables.join(", ")}>
+                {referencedTables.join(", ")}
+              </span>
+            </div>
           )}
         </div>
         <button
           onClick={handleCopy}
           disabled={isStreaming}
-          className="flex items-center gap-1 text-xs text-app-muted hover:text-app-text transition-colors disabled:opacity-40"
+          className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-400 hover:text-white transition-colors disabled:opacity-40 px-2 py-1 rounded-md hover:bg-white/5"
         >
           {copied ? (
             <>
-              <Check size={13} />
-              已复制
+              <Check size={12} className="text-green-400" />
+              <span>已复制</span>
             </>
           ) : (
             <>
-              <Copy size={13} />
-              复制
+              <Copy size={12} />
+              <span>复制代码</span>
             </>
           )}
         </button>
       </div>
 
       {/* Code block */}
-      <div className={cn(isStreaming && "typing-cursor")}>
+      <div className={cn("relative", isStreaming && "typing-cursor")}>
         <SyntaxHighlighter
           language={lang}
           style={vscDarkPlus}
           customStyle={{
             margin: 0,
-            padding: "1rem",
+            padding: "1.25rem",
             background: "transparent",
-            fontSize: "0.85rem",
-            lineHeight: "1.6",
+            fontSize: "0.8rem",
+            lineHeight: "1.7",
+            fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
           }}
           showLineNumbers
+          lineNumberStyle={{ minWidth: "2.5em", paddingRight: "1em", color: "#5a5a5a", textAlign: "right" }}
           wrapLines
         >
           {sql || " "}
         </SyntaxHighlighter>
+        
+        {!isStreaming && (
+          <div className="absolute bottom-3 right-3 opacity-0 group-hover/sql:opacity-100 transition-opacity">
+            <div className="flex items-center gap-2 px-2 py-1 rounded bg-black/40 backdrop-blur-sm border border-white/10 text-[10px] text-gray-400">
+              <ExternalLink size={10} />
+              <span>SQL Ready</span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

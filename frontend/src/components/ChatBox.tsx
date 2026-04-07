@@ -325,28 +325,30 @@ export function ChatBox({
   return (
     <div className="flex flex-col h-full">
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
+      <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-8 space-y-8">
         {messages.length === 0 && !loadingHistory && (
-          <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-app-accent/10 border border-app-accent/20 flex items-center justify-center">
-              <Database size={32} className="text-app-accent" />
+          <div className="flex flex-col items-center justify-center h-full gap-8 text-center max-w-2xl mx-auto">
+            <div className="w-20 h-20 rounded-3xl bg-primary/10 flex items-center justify-center shadow-inner border border-primary/20 animate-in zoom-in duration-500">
+              <Database size={40} className="text-primary" />
             </div>
-            <div>
-              <h2 className="text-xl font-semibold text-app-text mb-1">
-                自然语言转 SQL
+            <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-700">
+              <h2 className="text-3xl font-bold tracking-tight">
+                你好，我是 DATEPGV
               </h2>
-              <p className="text-app-muted text-sm">
-                描述你的数据需求，AI 生成 SQL；PostgreSQL / MySQL 模式下还可执行查询并生成中文结论
+              <p className="text-muted-foreground text-base leading-relaxed">
+                我可以帮你将自然语言转化为精准的 SQL 语句。
+                <br />
+                在 PostgreSQL / MySQL 模式下，我还可以执行查询并为你总结数据洞察。
               </p>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-lg">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full animate-in fade-in slide-in-from-bottom-8 duration-1000">
               {SUGGESTED_QUERIES.map((q) => (
                 <button
                   key={q}
                   onClick={() => send(q)}
-                  className="text-left text-sm px-4 py-3 rounded-xl bg-app-surface border border-app-border text-app-muted hover:text-app-text hover:border-app-accent/50 transition-all"
+                  className="text-left text-sm px-5 py-4 rounded-2xl bg-card border hover:border-primary/50 hover:shadow-md hover:bg-accent/50 transition-all duration-300 group"
                 >
-                  {q}
+                  <span className="text-muted-foreground group-hover:text-foreground transition-colors">{q}</span>
                 </button>
               ))}
             </div>
@@ -354,45 +356,53 @@ export function ChatBox({
         )}
 
         {loadingHistory && messages.length === 0 && (
-          <div className="flex items-center justify-center h-full text-sm text-app-muted gap-2">
-            <Loader2 size={16} className="animate-spin" />
-            加载历史记录...
+          <div className="flex items-center justify-center h-full text-sm text-muted-foreground gap-3 animate-pulse">
+            <Loader2 size={18} className="animate-spin text-primary" />
+            正在加载历史会话...
           </div>
         )}
 
-        {messages.map((msg) => (
+        {messages.map((msg, idx) => (
           <div
             key={msg.id}
             className={cn(
-              "flex gap-3",
-              msg.role === "user" ? "justify-end" : "justify-start"
+              "flex gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300",
+              msg.role === "user" ? "flex-row-reverse" : "flex-row"
             )}
+            style={{ animationDelay: `${idx * 50}ms` }}
           >
-            {msg.role === "assistant" && (
-              <div className="w-8 h-8 rounded-lg bg-app-accent/10 border border-app-accent/20 flex items-center justify-center flex-shrink-0 mt-1">
-                <Database size={14} className="text-app-accent" />
-              </div>
-            )}
+            <div className={cn(
+              "w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-1 shadow-sm border",
+              msg.role === "user" 
+                ? "bg-primary text-primary-foreground border-primary/20" 
+                : "bg-background text-primary border-border"
+            )}>
+              {msg.role === "user" ? (
+                <span className="text-xs font-bold">U</span>
+              ) : (
+                <Database size={16} />
+              )}
+            </div>
 
             <div
               className={cn(
-                "max-w-3xl",
-                msg.role === "user" ? "max-w-lg" : "w-full"
+                "flex flex-col gap-3",
+                msg.role === "user" ? "items-end max-w-[80%]" : "items-start w-full max-w-[90%]"
               )}
             >
               {msg.role === "user" ? (
-                <div className="bg-app-accent text-white rounded-2xl rounded-tr-sm px-4 py-3 text-sm">
+                <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-none px-5 py-3 text-sm shadow-sm leading-relaxed">
                   {msg.content}
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="w-full space-y-4">
                   {msg.content ? (
-                    <div className="text-sm text-app-text bg-app-surface rounded-xl px-4 py-3 border border-app-border whitespace-pre-wrap leading-relaxed">
+                    <div className="text-sm text-foreground bg-card rounded-2xl rounded-tl-none px-5 py-4 border shadow-sm whitespace-pre-wrap leading-relaxed">
                       {msg.content}
                     </div>
                   ) : null}
                   {msg.sql ? (
-                    <>
+                    <div className="w-full animate-in zoom-in-95 duration-300">
                       <SQLResult
                         sql={msg.sql}
                         sqlType={msg.sql_type ?? sqlType}
@@ -400,27 +410,23 @@ export function ChatBox({
                         isStreaming={msg.isStreaming}
                       />
                       {!msg.isStreaming ? (
-                        <QueryResultPreview
-                          sqlType={msg.sql_type ?? sqlType}
-                          executed={msg.executed}
-                          execError={msg.exec_error}
-                          resultPreview={msg.result_preview}
-                        />
+                        <div className="mt-3">
+                          <QueryResultPreview
+                            sqlType={msg.sql_type ?? sqlType}
+                            executed={msg.executed}
+                            execError={msg.exec_error}
+                            resultPreview={msg.result_preview}
+                          />
+                        </div>
                       ) : null}
-                      {msg.isStreaming ? (
-                        <p className="text-xs text-app-muted flex items-center gap-2">
-                          <Loader2 size={12} className="animate-spin" />
-                          正在完成查询或生成回答…
-                        </p>
-                      ) : null}
-                    </>
-                  ) : null}
-                  {!msg.sql && !msg.content && msg.isStreaming ? (
-                    <div className="text-sm text-app-muted flex items-center gap-2">
-                      <Loader2 size={14} className="animate-spin" />
-                      正在生成 SQL…
                     </div>
                   ) : null}
+                  {msg.isStreaming && !msg.sql && !msg.content && (
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground bg-muted/30 px-5 py-3 rounded-2xl border border-dashed">
+                      <Loader2 size={16} className="animate-spin text-primary" />
+                      <span>思考中，正在生成 SQL...</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -431,74 +437,81 @@ export function ChatBox({
       </div>
 
       {/* Input area */}
-      <div className="border-t border-app-border bg-app-bg p-4">
-        <label className="flex items-center gap-2 mb-2 px-1 text-xs text-app-muted cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={executeQuery}
-            onChange={(e) => setExecuteQuery(e.target.checked)}
-            disabled={isLoading}
-            className="rounded border-app-border bg-app-input text-app-accent focus:ring-app-accent/40"
-            suppressHydrationWarning
-          />
-          生成后执行查询并展示结果（仅 PostgreSQL / MySQL；Hive / Oracle 仍以生成 SQL 为主）
-        </label>
-        {messages.length > 0 && (
-          <div className="flex justify-end mb-2 gap-3">
-            {isLoading && (
-              <button
-                onClick={stopGeneration}
-                className="flex items-center gap-1 text-xs text-app-muted hover:text-amber-400 transition-colors"
-              >
-                <Square size={12} />
-                停止生成
-              </button>
+      <div className="border-t bg-background/80 backdrop-blur-md p-4 sm:p-6">
+        <div className="max-w-4xl mx-auto space-y-4">
+          <div className="flex items-center justify-between px-1">
+            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors">
+              <input
+                type="checkbox"
+                checked={executeQuery}
+                onChange={(e) => setExecuteQuery(e.target.checked)}
+                disabled={isLoading}
+                className="rounded-sm border-muted-foreground/30 bg-background text-primary focus:ring-primary/20"
+                suppressHydrationWarning
+              />
+              <span>生成后尝试执行查询（仅 PostgreSQL / MySQL）</span>
+            </label>
+            
+            {messages.length > 0 && (
+              <div className="flex items-center gap-4">
+                {isLoading && (
+                  <button
+                    onClick={stopGeneration}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-amber-600 hover:text-amber-500 transition-colors"
+                  >
+                    <Square size={12} fill="currentColor" />
+                    停止生成
+                  </button>
+                )}
+                <button
+                  onClick={clearSession}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  <Trash2 size={12} />
+                  清空对话
+                </button>
+              </div>
             )}
+          </div>
+
+          <div className="relative flex items-end gap-3 bg-card border shadow-sm rounded-2xl p-2 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/50 transition-all duration-200">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={`输入你的数据查询需求... (${
+                sqlType === "hive"
+                  ? "Hive"
+                  : sqlType === "postgresql"
+                  ? "PostgreSQL"
+                  : sqlType === "mysql"
+                  ? "MySQL"
+                  : "Oracle"
+              } 模式)`}
+              rows={1}
+              className="flex-1 bg-transparent text-sm px-3 py-2.5 min-h-[44px] max-h-40 resize-none outline-none placeholder:text-muted-foreground/60"
+              style={{ lineHeight: "1.6" }}
+              disabled={isLoading}
+              suppressHydrationWarning
+            />
             <button
-              onClick={clearSession}
-              className="flex items-center gap-1 text-xs text-app-muted hover:text-red-400 transition-colors"
+              onClick={() => send(input)}
+              disabled={isLoading || !input.trim()}
+              className="flex-shrink-0 w-10 h-10 rounded-xl bg-primary hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground text-primary-foreground flex items-center justify-center shadow-sm transition-all active:scale-95"
             >
-              <Trash2 size={12} />
-              清空对话
+              {isLoading ? (
+                <Loader2 size={18} className="animate-spin" />
+              ) : (
+                <Send size={18} />
+              )}
             </button>
           </div>
-        )}
-        <div className="flex gap-3 items-end bg-app-surface border border-app-border rounded-2xl px-4 py-3 focus-within:border-app-accent/50 transition-colors">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={`描述你的查询需求，按 Enter 发送 (${
-              sqlType === "hive"
-                ? "Hive"
-                : sqlType === "postgresql"
-                ? "PostgreSQL"
-                : sqlType === "mysql"
-                ? "MySQL"
-                : "Oracle"
-            } 模式)`}
-            rows={1}
-            className="flex-1 bg-transparent text-sm text-app-text placeholder:text-app-subtle resize-none outline-none max-h-40 overflow-y-auto"
-            style={{ lineHeight: "1.6" }}
-            disabled={isLoading}
-            suppressHydrationWarning
-          />
-          <button
-            onClick={() => send(input)}
-            disabled={isLoading || !input.trim()}
-            className="flex-shrink-0 w-8 h-8 rounded-lg bg-app-accent hover:bg-app-accent-hover disabled:bg-app-border disabled:text-app-subtle text-white flex items-center justify-center transition-colors"
-          >
-            {isLoading ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Send size={14} />
-            )}
-          </button>
+          
+          <p className="text-[10px] text-muted-foreground/60 text-center font-medium">
+            Enter 发送 · Shift+Enter 换行 · 支持多轮对话
+          </p>
         </div>
-        <p className="text-xs text-app-subtle mt-2 text-center">
-          Enter 发送 · Shift+Enter 换行 · 多轮对话支持追问
-        </p>
       </div>
     </div>
   );

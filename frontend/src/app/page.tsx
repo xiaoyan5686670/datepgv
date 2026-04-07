@@ -100,28 +100,30 @@ function HomePageInner() {
   return (
     <div className="flex flex-col h-screen bg-app-bg">
       {/* Top nav */}
-      <header className="flex items-center justify-between px-6 py-3 border-b border-app-border bg-app-input">
+      <header className="flex items-center justify-between px-6 py-3 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-app-accent/10 border border-app-accent/20 flex items-center justify-center">
-            <Database size={16} className="text-app-accent" />
+          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shadow-sm border border-primary/20">
+            <Database size={18} className="text-primary" />
           </div>
-          <span className="font-semibold text-app-text">NL-to-SQL</span>
-          <span className="text-xs text-app-subtle hidden sm:block">
-            自然语言转 SQL 生成系统
-          </span>
+          <div className="flex flex-col">
+            <span className="font-bold text-sm tracking-tight">DATEPGV</span>
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider hidden sm:block">
+              NL-to-SQL System
+            </span>
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
           {/* SQL type toggle */}
           <div className="flex flex-col items-end gap-1">
-          <div className="flex items-center bg-app-surface border border-app-border rounded-lg p-0.5">
+          <div className="flex items-center bg-muted/50 border rounded-full p-1">
             <button
               onClick={() => setSqlType("hive")}
               className={cn(
-                "px-3 py-1 rounded-md text-xs font-medium transition-all",
+                "px-4 py-1 rounded-full text-[11px] font-semibold transition-all",
                 sqlType === "hive"
-                  ? "bg-amber-500/20 text-amber-900 dark:text-amber-300 border border-amber-500/30"
-                  : "text-app-muted hover:text-app-text"
+                  ? "bg-amber-500 text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
               )}
             >
               Hive
@@ -129,10 +131,10 @@ function HomePageInner() {
             <button
               onClick={() => setSqlType("postgresql")}
               className={cn(
-                "px-3 py-1 rounded-md text-xs font-medium transition-all",
+                "px-4 py-1 rounded-full text-[11px] font-semibold transition-all",
                 sqlType === "postgresql"
-                  ? "bg-blue-500/20 text-blue-900 dark:text-blue-300 border border-blue-500/30"
-                  : "text-app-muted hover:text-app-text"
+                  ? "bg-blue-500 text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
               )}
             >
               PostgreSQL
@@ -140,10 +142,10 @@ function HomePageInner() {
             <button
               onClick={() => setSqlType("mysql")}
               className={cn(
-                "px-3 py-1 rounded-md text-xs font-medium transition-all",
+                "px-4 py-1 rounded-full text-[11px] font-semibold transition-all",
                 sqlType === "mysql"
-                  ? "bg-orange-500/20 text-orange-900 dark:text-orange-300 border border-orange-500/30"
-                  : "text-app-muted hover:text-app-text"
+                  ? "bg-orange-500 text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
               )}
             >
               MySQL
@@ -151,115 +153,120 @@ function HomePageInner() {
             <button
               onClick={() => setSqlType("oracle")}
               className={cn(
-                "px-3 py-1 rounded-md text-xs font-medium transition-all",
+                "px-4 py-1 rounded-full text-[11px] font-semibold transition-all",
                 sqlType === "oracle"
-                  ? "bg-emerald-500/20 text-emerald-900 dark:text-emerald-300 border border-emerald-500/30"
-                  : "text-app-muted hover:text-app-text"
+                  ? "bg-emerald-500 text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
               )}
             >
               Oracle
             </button>
           </div>
-          <span className="text-[10px] text-app-subtle max-w-[280px] text-right leading-snug hidden lg:block">
-            PostgreSQL / MySQL：可生成并在服务端执行 SQL；Hive / Oracle：仅生成 SQL
+          <span className="text-[10px] text-muted-foreground max-w-[280px] text-right leading-snug hidden lg:block">
+            PostgreSQL / MySQL: 可执行 · Hive / Oracle: 仅生成
           </span>
           </div>
 
-          <ThemeToggle className="p-2 rounded-lg border border-app-border text-app-muted hover:text-app-text hover:border-app-accent/50 transition-all" />
+          <div className="h-8 w-px bg-border mx-1" />
+
+          <ThemeToggle className="p-2 rounded-full border bg-background hover:bg-accent text-muted-foreground hover:text-foreground transition-all" />
+          
           {user?.roles.includes("admin") ? (
-            <>
+            <div className="flex items-center gap-2">
               <Link
                 href="/admin"
-                className="flex items-center gap-1.5 text-xs text-app-muted hover:text-app-text px-3 py-1.5 rounded-lg border border-app-border hover:border-app-accent/50 transition-all"
+                className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground px-3 py-2 rounded-full border bg-background hover:bg-accent transition-all"
               >
-                <Table size={13} />
-                元数据管理
+                <Table size={14} />
+                元数据
               </Link>
               <Link
                 href="/settings"
-                className="flex items-center gap-1.5 text-xs text-app-muted hover:text-app-text px-3 py-1.5 rounded-lg border border-app-border hover:border-app-accent/50 transition-all"
+                className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground px-3 py-2 rounded-full border bg-background hover:bg-accent transition-all"
               >
-                <Settings size={13} />
-                模型配置
+                <Settings size={14} />
+                配置
               </Link>
-            </>
+            </div>
           ) : null}
-          <span className="text-xs text-app-subtle hidden sm:inline max-w-[120px] truncate" title={user?.username}>
-            {user?.username}
-          </span>
-          <button
-            type="button"
-            onClick={() => logout()}
-            className="flex items-center gap-1.5 text-xs text-app-muted hover:text-app-text px-3 py-1.5 rounded-lg border border-app-border hover:border-app-accent/50 transition-all"
-            title="退出登录"
-          >
-            <LogOut size={13} />
-            退出
-          </button>
-          <Link
-            href="/docs"
-            className="flex items-center gap-1.5 text-xs text-app-muted hover:text-app-text px-3 py-1.5 rounded-lg border border-app-border hover:border-app-accent/50 transition-all"
-          >
-            文档
-          </Link>
+          
+          <div className="flex items-center gap-3 pl-2">
+            <div className="flex flex-col items-end">
+              <span className="text-xs font-semibold max-w-[100px] truncate" title={user?.username}>
+                {user?.username}
+              </span>
+              <button
+                onClick={() => logout()}
+                className="text-[10px] font-medium text-muted-foreground hover:text-destructive transition-colors"
+              >
+                退出登录
+              </button>
+            </div>
+            <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-bold text-xs">
+              {user?.username?.[0]?.toUpperCase() || "U"}
+            </div>
+          </div>
         </div>
       </header>
 
       {/* Main: sidebar + chat */}
       <main className="flex-1 overflow-hidden flex">
         {/* Session sidebar */}
-        <aside className="hidden md:flex w-64 flex-col border-r border-app-border bg-app-aside">
+        <aside className="hidden md:flex w-72 flex-col border-r bg-muted/30">
           {/* New session button */}
-          <div className="px-3 py-3 border-b border-app-border">
+          <div className="p-4">
             <button
               onClick={handleNewSession}
-              className="flex items-center gap-2 w-full px-3 py-2 text-xs font-medium text-app-text bg-app-surface border border-app-border rounded-lg hover:border-app-accent/50 transition-all"
+              className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-sm font-semibold text-white bg-primary hover:bg-primary/90 rounded-xl shadow-sm transition-all active:scale-[0.98]"
             >
-              <MessageSquarePlus size={14} className="text-app-accent" />
-              新建会话
+              <MessageSquarePlus size={16} />
+              开启新对话
             </button>
           </div>
 
           {/* Session list */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto px-2 pb-4">
+            <div className="px-3 mb-2 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+              历史会话
+            </div>
             {sessions.length === 0 ? (
-              <div className="px-4 py-6 text-xs text-app-subtle text-center">
-                暂无历史会话
+              <div className="px-4 py-8 text-xs text-muted-foreground text-center italic">
+                暂无历史记录
               </div>
             ) : (
-              <ul className="py-1">
+              <ul className="space-y-1">
                 {sessions.map((s) => (
-                  <li key={s.session_id} className="group px-2 py-0.5">
+                  <li key={s.session_id} className="group">
                     <div
                       className={cn(
-                        "w-full rounded-lg text-xs transition-all flex items-stretch gap-0 border",
+                        "relative w-full rounded-xl text-sm transition-all flex items-center group",
                         activeSessionId === s.session_id
-                          ? "bg-app-surface border-app-accent/30"
-                          : "border-transparent hover:bg-app-surface-hover"
+                          ? "bg-background shadow-sm border ring-1 ring-primary/10"
+                          : "hover:bg-background/50 border-transparent"
                       )}
                     >
                       <button
                         type="button"
                         onClick={() => handleSelectSession(s.session_id)}
                         className={cn(
-                          "flex-1 min-w-0 text-left px-3 py-2 rounded-l-lg",
+                          "flex-1 min-w-0 text-left px-4 py-3 rounded-xl",
                           activeSessionId === s.session_id
-                            ? "text-app-text"
-                            : "text-app-text-secondary"
+                            ? "font-semibold text-foreground"
+                            : "text-muted-foreground hover:text-foreground"
                         )}
                       >
-                        <div className="truncate leading-5">{s.title}</div>
-                        <div className="text-[10px] text-app-subtle mt-0.5">
-                          {new Date(s.last_message_at).toLocaleString()}
+                        <div className="truncate pr-6">{s.title}</div>
+                        <div className="text-[10px] text-muted-foreground/60 mt-1 font-medium">
+                          {new Date(s.last_message_at).toLocaleDateString()} · {new Date(s.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </div>
                       </button>
                       <button
                         type="button"
                         onClick={() => handleDeleteSession(s.session_id)}
-                        className="flex-shrink-0 self-start mt-1 mr-1 p-1 rounded opacity-0 group-hover:opacity-100 text-app-subtle hover:text-red-400 transition-all"
+                        className="absolute right-2 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
                         title="删除会话"
                       >
-                        <Trash2 size={12} />
+                        <Trash2 size={14} />
                       </button>
                     </div>
                   </li>
