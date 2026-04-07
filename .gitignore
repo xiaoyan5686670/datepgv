@@ -15,6 +15,9 @@ downloads/
 eggs/
 .eggs/
 lib/
+# Next.js：`lib/` 会误伤 `frontend/src/lib`，此处显式跟踪
+!frontend/src/lib/
+!frontend/src/lib/**
 lib64/
 parts/
 sdist/
