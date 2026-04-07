@@ -11,6 +11,10 @@ pydantic-settings==2.6.1
 python-dotenv==1.0.1
 python-multipart==0.0.20
 
+# Auth (JWT + password hashing)
+python-jose[cryptography]==3.3.0
+bcrypt==4.2.1
+
 # LLM — DashScope/通义需 litellm>=1.75（1.57 无 dashscope provider，会报 LLM Provider NOT provided）
 # 见 https://docs.litellm.ai/docs/providers/dashscope
 litellm==1.75.9

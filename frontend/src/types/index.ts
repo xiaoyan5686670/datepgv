@@ -1,5 +1,13 @@
 export type SqlType = "hive" | "postgresql" | "oracle" | "mysql";
 
+/** 当前登录用户（GET /auth/me） */
+export interface AuthUser {
+  id: number;
+  username: string;
+  is_active: boolean;
+  roles: string[];
+}
+
 export interface ColumnInfo {
   name: string;
   type: string;

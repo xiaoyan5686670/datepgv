@@ -2,6 +2,7 @@
 
 import {
   Database,
+  LogOut,
   MessageSquarePlus,
   Settings,
   Table,
@@ -10,8 +11,10 @@ import {
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
+import { AuthGuard } from "@/components/AuthGuard";
 import { ChatBox } from "@/components/ChatBox";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { deleteChatSession, fetchChatSessions } from "@/lib/api";
 import type { ChatSessionSummary, SqlType } from "@/types";
@@ -33,7 +36,8 @@ function persistSessionId(id: string) {
   }
 }
 
-export default function HomePage() {
+function HomePageInner() {
+  const { user, logout } = useAuth();
   const [sqlType, setSqlType] = useState<SqlType>("mysql");
   const [activeSessionId, setActiveSessionId] = useState<string>(getOrCreateSessionId);
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
@@ -162,20 +166,36 @@ export default function HomePage() {
           </div>
 
           <ThemeToggle className="p-2 rounded-lg border border-app-border text-app-muted hover:text-app-text hover:border-app-accent/50 transition-all" />
-          <Link
-            href="/admin"
+          {user?.roles.includes("admin") ? (
+            <>
+              <Link
+                href="/admin"
+                className="flex items-center gap-1.5 text-xs text-app-muted hover:text-app-text px-3 py-1.5 rounded-lg border border-app-border hover:border-app-accent/50 transition-all"
+              >
+                <Table size={13} />
+                元数据管理
+              </Link>
+              <Link
+                href="/settings"
+                className="flex items-center gap-1.5 text-xs text-app-muted hover:text-app-text px-3 py-1.5 rounded-lg border border-app-border hover:border-app-accent/50 transition-all"
+              >
+                <Settings size={13} />
+                模型配置
+              </Link>
+            </>
+          ) : null}
+          <span className="text-xs text-app-subtle hidden sm:inline max-w-[120px] truncate" title={user?.username}>
+            {user?.username}
+          </span>
+          <button
+            type="button"
+            onClick={() => logout()}
             className="flex items-center gap-1.5 text-xs text-app-muted hover:text-app-text px-3 py-1.5 rounded-lg border border-app-border hover:border-app-accent/50 transition-all"
+            title="退出登录"
           >
-            <Table size={13} />
-            元数据管理
-          </Link>
-          <Link
-            href="/settings"
-            className="flex items-center gap-1.5 text-xs text-app-muted hover:text-app-text px-3 py-1.5 rounded-lg border border-app-border hover:border-app-accent/50 transition-all"
-          >
-            <Settings size={13} />
-            模型配置
-          </Link>
+            <LogOut size={13} />
+            退出
+          </button>
           <Link
             href="/docs"
             className="flex items-center gap-1.5 text-xs text-app-muted hover:text-app-text px-3 py-1.5 rounded-lg border border-app-border hover:border-app-accent/50 transition-all"
@@ -261,5 +281,13 @@ export default function HomePage() {
         </section>
       </main>
     </div>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <AuthGuard>
+      <HomePageInner />
+    </AuthGuard>
   );
 }

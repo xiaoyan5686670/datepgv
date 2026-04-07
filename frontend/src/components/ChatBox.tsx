@@ -10,6 +10,7 @@ import {
 import { v4 as uuidv4 } from "uuid";
 import { cn } from "@/lib/utils";
 import {
+  authFetchInit,
   buildChatStreamUrl,
   deleteChatSession,
   fetchChatHistory,
@@ -161,18 +162,21 @@ export function ChatBox({
       let firstTokenAt: number | null = null;
 
       try {
-        const res = await fetch(buildChatStreamUrl(), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            session_id: sessionId,
-            query,
-            sql_type: sqlType,
-            top_k: 5,
-            execute: executeQuery,
-          }),
-          signal: controller.signal,
-        });
+        const res = await fetch(
+          buildChatStreamUrl(),
+          authFetchInit({
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              session_id: sessionId,
+              query,
+              sql_type: sqlType,
+              top_k: 5,
+              execute: executeQuery,
+            }),
+            signal: controller.signal,
+          })
+        );
         responseAt = performance.now();
 
         if (!res.ok || !res.body) {

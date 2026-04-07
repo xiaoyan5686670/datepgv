@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { AuthGuard } from "@/components/AuthGuard";
 import { LLMConfigModal } from "@/components/LLMConfigModal";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -37,7 +38,7 @@ import type {
 
 type TabType = "llm" | "embedding" | "analytics";
 
-export default function SettingsPage() {
+function SettingsPageInner() {
   const [activeTab, setActiveTab] = useState<TabType>("llm");
   const [configs, setConfigs] = useState<LLMConfig[]>([]);
   const [loading, setLoading] = useState(true);
@@ -792,5 +793,13 @@ export default function SettingsPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <AuthGuard requireAdmin>
+      <SettingsPageInner />
+    </AuthGuard>
   );
 }

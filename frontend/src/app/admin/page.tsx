@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AuthGuard } from "@/components/AuthGuard";
 import { DDLImportModal } from "@/components/DDLImportModal";
 import { MetadataForm } from "@/components/MetadataForm";
 import { TableRelationsPanel } from "@/components/TableRelationsPanel";
@@ -32,7 +33,7 @@ import {
 } from "@/lib/api";
 import type { SqlType, TableMetadata } from "@/types";
 
-export default function AdminPage() {
+function AdminPageInner() {
   const [tables, setTables] = useState<TableMetadata[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | SqlType>("all");
@@ -476,5 +477,13 @@ export default function AdminPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function AdminPage() {
+  return (
+    <AuthGuard requireAdmin>
+      <AdminPageInner />
+    </AuthGuard>
   );
 }

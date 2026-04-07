@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AuthGuard } from "@/components/AuthGuard";
 import { SchemaGraphPageClient } from "./SchemaGraphPageClient";
 
 export const metadata: Metadata = {
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function SchemaGraphPage() {
-  return <SchemaGraphPageClient />;
+  return (
+    <AuthGuard>
+      <SchemaGraphPageClient />
+    </AuthGuard>
+  );
 }

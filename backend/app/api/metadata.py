@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.deps.auth import get_current_active_user, require_admin
 from app.models.metadata import TableMetadata, TableMetadataEdge
 from app.models.schemas import (
     ColumnInfo,
@@ -28,7 +29,11 @@ from app.models.schemas import (
 from app.services.ddl_parser import parse_ddl
 from app.services.embedding import build_table_text, get_embedding_service
 
-router = APIRouter(prefix="/metadata", tags=["metadata"])
+router = APIRouter(
+    prefix="/metadata",
+    tags=["metadata"],
+    dependencies=[Depends(get_current_active_user)],
+)
 
 _DDL_FILE_EXTENSIONS = (".sql", ".ddl", ".txt")
 
@@ -172,6 +177,7 @@ async def list_table_edges(
     "/edges",
     response_model=TableMetadataEdgeResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_admin)],
 )
 async def create_table_edge(
     payload: TableMetadataEdgeCreate,
@@ -220,6 +226,7 @@ async def create_table_edge(
     "/edges/{edge_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    dependencies=[Depends(require_admin)],
 )
 async def delete_table_edge(
     edge_id: int,
@@ -270,7 +277,12 @@ async def get_metadata(
     return _row_to_response(row)
 
 
-@router.post("/", response_model=TableMetadataResponse, status_code=201)
+@router.post(
+    "/",
+    response_model=TableMetadataResponse,
+    status_code=201,
+    dependencies=[Depends(require_admin)],
+)
 async def create_metadata(
     payload: TableMetadataCreate,
     db: AsyncSession = Depends(get_db),
@@ -279,7 +291,11 @@ async def create_metadata(
     return _row_to_response(row)
 
 
-@router.put("/{metadata_id}", response_model=TableMetadataResponse)
+@router.put(
+    "/{metadata_id}",
+    response_model=TableMetadataResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def update_metadata(
     metadata_id: int,
     payload: TableMetadataUpdate,
@@ -316,6 +332,7 @@ async def update_metadata(
     "/{metadata_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
+    dependencies=[Depends(require_admin)],
 )
 async def delete_metadata(
     metadata_id: int,
@@ -331,7 +348,12 @@ async def delete_metadata(
 
 # ── DDL Import ────────────────────────────────────────────────────────────────
 
-@router.post("/import/ddl", response_model=list[TableMetadataResponse], status_code=201)
+@router.post(
+    "/import/ddl",
+    response_model=list[TableMetadataResponse],
+    status_code=201,
+    dependencies=[Depends(require_admin)],
+)
 async def import_from_ddl(
     payload: DDLImportRequest,
     db: AsyncSession = Depends(get_db),
@@ -353,7 +375,12 @@ async def import_from_ddl(
     return results
 
 
-@router.post("/import/ddl-file", response_model=list[TableMetadataResponse], status_code=201)
+@router.post(
+    "/import/ddl-file",
+    response_model=list[TableMetadataResponse],
+    status_code=201,
+    dependencies=[Depends(require_admin)],
+)
 async def import_from_ddl_file(
     file: UploadFile = File(...),
     db_type: Literal["hive", "postgresql", "oracle", "mysql"] = Form("hive"),
@@ -402,7 +429,12 @@ async def import_from_ddl_file(
 
 # ── CSV / Excel Bulk Import ───────────────────────────────────────────────────
 
-@router.post("/import/csv", response_model=list[TableMetadataResponse], status_code=201)
+@router.post(
+    "/import/csv",
+    response_model=list[TableMetadataResponse],
+    status_code=201,
+    dependencies=[Depends(require_admin)],
+)
 async def import_from_csv(
     file: UploadFile = File(...),
     db_type: Literal["hive", "postgresql", "oracle", "mysql"] = Form("hive"),
@@ -467,7 +499,12 @@ async def import_from_csv(
 
 # ── DB Auto-Sync ──────────────────────────────────────────────────────────────
 
-@router.post("/sync/postgresql", response_model=list[TableMetadataResponse], status_code=201)
+@router.post(
+    "/sync/postgresql",
+    response_model=list[TableMetadataResponse],
+    status_code=201,
+    dependencies=[Depends(require_admin)],
+)
 async def sync_from_postgresql(
     dsn: str = Form(..., description="Target PostgreSQL connection string"),
     schema: str = Form("public"),
@@ -558,7 +595,7 @@ async def search_metadata(
 
 # ── Re-embed all ──────────────────────────────────────────────────────────────
 
-@router.post("/reembed", status_code=202)
+@router.post("/reembed", status_code=202, dependencies=[Depends(require_admin)])
 async def reembed_all(db: AsyncSession = Depends(get_db)) -> dict:
     """Re-generate embeddings for all table metadata rows."""
     emb_svc = get_embedding_service()

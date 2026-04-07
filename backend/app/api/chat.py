@@ -12,6 +12,8 @@ from typing import AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response, StreamingResponse
+
+from app.deps.auth import get_current_active_user
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,7 +33,11 @@ from app.services.sql_generator import process_llm_output
 from app.services.sql_column_repair import repair_sql_unknown_columns
 from app.services.sql_metadata_guard import find_unknown_columns
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+router = APIRouter(
+    prefix="/chat",
+    tags=["chat"],
+    dependencies=[Depends(get_current_active_user)],
+)
 logger = logging.getLogger(__name__)
 
 # 首轮 SQL 若含元数据外列名，最多调用 LLM 纠错几次再执行分析库

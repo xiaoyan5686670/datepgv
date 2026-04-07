@@ -200,3 +200,18 @@ class AnalyticsDbTestRequest(BaseModel):
         default=None,
         description="Explicit URL to test; if omitted, uses saved + env effective URL",
     )
+
+
+# ── Auth ────────────────────────────────────────────────────────────────────────
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class UserMeResponse(BaseModel):
+    id: int
+    username: str
+    is_active: bool
+    roles: list[str]

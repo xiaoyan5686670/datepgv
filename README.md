@@ -65,6 +65,8 @@ EMBEDDING_DIM=768
 docker compose up -d
 ```
 
+首次部署或从旧版本升级时，请执行数据库脚本 **`init-db/08-auth_users_roles.sql`**，并配置 **`JWT_SECRET_KEY`**（生产环境必做）。完整说明见 **[docs/DEPLOY_AND_AUTH_MIGRATION.md](docs/DEPLOY_AND_AUTH_MIGRATION.md)**。
+
 服务地址：
 - 前端 Chatbot: http://localhost:3000
 - 后端 API 文档: http://localhost:8000/docs

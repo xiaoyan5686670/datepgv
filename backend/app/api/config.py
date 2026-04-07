@@ -15,6 +15,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.deps.auth import require_admin
 from app.models.llm_config import LLMConfig
 from app.models.schemas import (
     AnalyticsDbSettingsResponse,
@@ -31,7 +32,11 @@ from app.services.litellm_kwargs import (
     build_embedding_kwargs,
 )
 
-router = APIRouter(prefix="/config", tags=["config"])
+router = APIRouter(
+    prefix="/config",
+    tags=["config"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 def _to_response(row: LLMConfig) -> LLMConfigResponse:

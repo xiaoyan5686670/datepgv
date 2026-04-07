@@ -103,6 +103,9 @@ PostgreSQL 会在容器首次启动时自动执行 `init-db` 目录下的 SQL：
 - `03-...`：MySQL NL 回答等（视版本）
 - `05-analytics_db_settings.sql`：「设置 → 数据连接」用的分析库 URL 存储表（旧库可单独执行此文件补齐）
 - `06-table_metadata_db_type_mysql_oracle.sql`：放宽 `table_metadata.db_type` 校验，允许 `mysql` / `oracle`（仅跑过早期 `01-init` 的旧库需执行）
+- `08-auth_users_roles.sql`：**用户 / 角色 / JWT 登录**（新装必跑；旧库升级见下方文档）
+
+**认证与迁移的完整步骤（备份、SQL、环境变量、验证）** 见：[`docs/DEPLOY_AND_AUTH_MIGRATION.md`](./DEPLOY_AND_AUTH_MIGRATION.md)。
 
 如需在本机 PostgreSQL 中手动初始化，可参考：
 

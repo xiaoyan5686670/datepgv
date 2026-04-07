@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     LITELLM_RETRY_BASE_DELAY_SEC: float = 2.0
     LITELLM_RETRY_MAX_DELAY_SEC: float = 60.0
 
+    # -- Auth (JWT) -------------------------------------------------------------
+    # 生产环境必须通过环境变量设置强随机密钥。
+    JWT_SECRET_KEY: str = "dev-only-change-me"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+
     # -- App --------------------------------------------------------------------
     APP_TITLE: str = "NL-to-SQL RAG System"
     APP_VERSION: str = "0.1.0"
