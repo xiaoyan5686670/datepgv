@@ -10,7 +10,7 @@
 | 项目  | 说明                                                                                                                        |
 | --- | ------------------------------------------------------------------------------------------------------------------------- |
 | 前端  | 首页、表关系图需**登录**；`/admin`、`/settings` 需 `**admin` 角色**。公开页：`/login`、`/docs`。                                                |
-| 后端  | `/api/v1/chat/`*、`/api/v1/metadata/*`、`/api/v1/config/*` 均受保护；`/api/v1/auth/token`、`/api/v1/auth/me` 为认证接口；`/health` 仍匿名。 |
+| 后端  | `/api/v1/chat/`*、`/api/v1/metadata/*`、`/api/v1/config/*` 均受保护；`/api/v1/auth/token`、`/api/v1/auth/me` 为认证接口；`/api/v1/auth/trusted-login` 为办公网免密入口（匿名）；`/health` 仍匿名。 |
 | 数据库 | 新增 `roles`、`users`、`user_roles` 表及种子用户（见 `init-db/08-auth_users_roles.sql`）。                                              |
 | 依赖  | 后端增加 `python-jose[cryptography]`、`bcrypt`（见 `backend/requirements.txt`）。                                                  |
 
@@ -141,6 +141,9 @@ curl -s -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:8000/api/v1/auth/me"
 | `JWT_SECRET_KEY`              | 签名密钥，**生产必须**改为长随机串 | `openssl rand -hex 32` 的输出 |
 | `JWT_ALGORITHM`               | 默认 `HS256`          | 一般不改                       |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | 访问令牌有效期（分钟）         | `1440`（24h）                |
+| `TRUSTED_SSO_FRONTEND_BASE`   | 免密登录成功后浏览器跳转的前端根 URL | `http://localhost:3000` 或生产 HTTPS 域名 |
+| `TRUSTED_SSO_SECRET`         | （可选）非空则请求必须带请求头 `X-Trusted-Sso-Secret`，值与此一致；可由网关注入 | 长随机串 |
+| `TRUSTED_SSO_ACCESS_TOKEN_MINUTES` | （可选）仅 `trusted-login` 签发 JWT 的有效期（分钟）；不设则与 `ACCESS_TOKEN_EXPIRE_MINUTES` 相同 | `480` |
 
 
 将上述变量写入根目录 `.env`；`docker-compose.yml` 中 backend 已 `env_file: .env`，会传入容器。
@@ -210,12 +213,54 @@ Authorization: Bearer <access_token>
 
 ---
 
-## 9. 相关文件索引
+## 9. 办公网免密登录（trusted user_id）
+
+适用于**办公网**：上游系统仅需提供带 `user_id` 的链接（如门户图标），无需改上游业务代码传签名。
+
+### 9.1 行为说明
+
+- **接口**：`GET /api/v1/auth/trusted-login?user_id=<工号或用户名>`
+- **匹配规则**：`user_id` 与表 `users.username` **大小写不敏感**（如 `XY007801` 与 `xy007801` 等价）。
+- **成功**：HTTP **302**，`Location` 指向 `{TRUSTED_SSO_FRONTEND_BASE}/sso/callback#access_token=<JWT>`（JWT 已 URL 编码）。前端 `/sso/callback` 将 token 写入 `localStorage` 后进入系统。
+- **可选**：`next` 查询参数，`/` 开头的站内路径，例如  
+  `.../trusted-login?user_id=XY007801&next=%2Fadmin`（须 [URL 编码](https://developer.mozilla.org/zh-CN/docs/Web/JavaScript/Reference/Global_Objects/encodeURIComponent)）。
+- **失败**：统一返回 **404**「登录失败」或 **409**（多条用户命中，数据异常），避免枚举账号。**停用用户**同样拒绝。
+
+### 9.2 上游链接示例（经 Next 代理）
+
+本机开发（前端 3000、代理到后端）：
+
+```text
+http://localhost:3000/api/backend/auth/trusted-login?user_id=XY007801
+```
+
+生产请将 `localhost:3000` 换为实际前端域名，并保证 `.env` 中 **`TRUSTED_SSO_FRONTEND_BASE`** 与浏览器访问的前端 origin 一致。
+
+### 9.3 可选加固：共享密钥
+
+若设置 **`TRUSTED_SSO_SECRET`**，则除 `user_id` 外，请求必须带请求头 **`X-Trusted-Sso-Secret`** ，值与该变量一致。上游应用仍只拼 URL；密钥由**反向代理/网关**注入，适用于内网零信任加固。
+
+### 9.4 安全与运维
+
+- 仍依赖**办公网访问控制**；`user_id` 可能出现在浏览器历史与访问日志，建议 **HTTPS**、**审计日志**（后端已打 INFO/WARNING）。
+- 须在 `users` 中预先存在对应账号（及角色）；免密不提供「自动开户」。
+
+### 9.5 验证
+
+```bash
+# 不设 TRUSTED_SSO_SECRET 时（仅本地/内网测试）
+curl -sI "http://127.0.0.1:8000/api/v1/auth/trusted-login?user_id=admin" | grep -i ^location
+# 应指向 TRUSTED_SSO_FRONTEND_BASE/sso/callback#access_token=...
+```
+
+---
+
+## 10. 相关文件索引
 
 - SQL：`init-db/08-auth_users_roles.sql`
 - 后端认证：`backend/app/api/auth.py`、`backend/app/deps/auth.py`、`backend/app/core/security.py`
 - 模型：`backend/app/models/user.py`
-- 前端登录与守卫：`frontend/src/app/login/page.tsx`、`frontend/src/components/AuthGuard.tsx`、`frontend/src/contexts/AuthContext.tsx`
+- 前端登录与守卫：`frontend/src/app/login/page.tsx`、`frontend/src/app/sso/callback/page.tsx`、`frontend/src/components/AuthGuard.tsx`、`frontend/src/contexts/AuthContext.tsx`
 - API 客户端：`frontend/src/lib/api.ts`（`authFetchInit` / `ACCESS_TOKEN_KEY`）
 
 如有定制部署（K8s、多实例、反向代理路径），在以上基础上保证：**前端到后端的代理转发保留 `Authorization` 头**，且各实例使用**相同** `JWT_SECRET_KEY`。

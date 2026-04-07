@@ -64,6 +64,13 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
 
+    # 办公网免密：`GET /auth/trusted-login?user_id=` → 302 到前端 `/sso/callback#access_token=…`
+    TRUSTED_SSO_FRONTEND_BASE: str = "http://localhost:3000"
+    # 非空则必须携带请求头 X-Trusted-Sso-Secret（可由网关注入，上游应用仍只拼 user_id）
+    TRUSTED_SSO_SECRET: str | None = None
+    # 不设置则与 ACCESS_TOKEN_EXPIRE_MINUTES 相同；仅影响 trusted-login 签发的 JWT
+    TRUSTED_SSO_ACCESS_TOKEN_MINUTES: int | None = None
+
     # -- App --------------------------------------------------------------------
     APP_TITLE: str = "NL-to-SQL RAG System"
     APP_VERSION: str = "0.1.0"
