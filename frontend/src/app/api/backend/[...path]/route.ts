@@ -29,6 +29,11 @@ const HOP_BY_HOP = new Set([
   "upgrade",
 ]);
 
+const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
+const PRESERVE_METHOD_REDIRECT = new Set([307, 308]);
+const MAX_REDIRECT_FOLLOWS = 3;
+const MAX_BUFFERED_BODY_BYTES = 10 * 1024 * 1024;
+
 function backendOrigin(): string {
   return (process.env.BACKEND_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 }
@@ -52,7 +57,14 @@ function rawTokenFromCookieHeader(cookieHeader: string | null): string | null {
 function forwardRequestHeaders(incoming: Headers): Headers {
   const out = new Headers();
   incoming.forEach((value, key) => {
-    if (!HOP_BY_HOP.has(key.toLowerCase())) {
+    const lower = key.toLowerCase();
+    if (
+      !HOP_BY_HOP.has(lower) &&
+      lower !== "forwarded" &&
+      lower !== "x-forwarded-for" &&
+      lower !== "x-forwarded-host" &&
+      lower !== "x-forwarded-proto"
+    ) {
       out.append(key, value);
     }
   });
@@ -86,47 +98,124 @@ function forwardResponseHeaders(upstream: Headers): Headers {
   return out;
 }
 
+export function normalizePathSegments(pathSegments: string[]): string {
+  return pathSegments.map((segment) => encodeURIComponent(segment)).join("/");
+}
+
+export function resolveRedirectUrl(baseOrigin: string, location: string): URL | null {
+  try {
+    const next = new URL(location, `${baseOrigin}/`);
+    const allowed = new URL(baseOrigin);
+    return next.origin === allowed.origin ? next : null;
+  } catch {
+    return null;
+  }
+}
+
+export function isTimeoutError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = (error as { code?: unknown }).code;
+  const name = (error as { name?: unknown }).name;
+  return (
+    code === "UND_ERR_CONNECT_TIMEOUT" ||
+    code === "UND_ERR_HEADERS_TIMEOUT" ||
+    code === "UND_ERR_BODY_TIMEOUT" ||
+    name === "ConnectTimeoutError" ||
+    name === "HeadersTimeoutError" ||
+    name === "BodyTimeoutError"
+  );
+}
+
+export async function readBufferedBody(request: NextRequest): Promise<ArrayBuffer | undefined> {
+  if (request.method === "GET" || request.method === "HEAD") return undefined;
+  const contentLengthRaw = request.headers.get("content-length");
+  if (contentLengthRaw) {
+    const parsed = Number(contentLengthRaw);
+    if (Number.isFinite(parsed) && parsed > MAX_BUFFERED_BODY_BYTES) {
+      throw new Response("Payload Too Large", { status: 413 });
+    }
+  }
+  const body = await request.arrayBuffer();
+  if (body.byteLength > MAX_BUFFERED_BODY_BYTES) {
+    throw new Response("Payload Too Large", { status: 413 });
+  }
+  return body;
+}
+
 async function proxy(request: NextRequest, pathSegments: string[]) {
-  const subpath = pathSegments.length ? pathSegments.join("/") : "";
+  const subpath = pathSegments.length ? normalizePathSegments(pathSegments) : "";
   if (!subpath) {
     return new Response("Not Found", { status: 404 });
   }
 
-  let target = `${backendOrigin()}/api/v1/${subpath}${request.nextUrl.search}`;
-  let headers = forwardRequestHeaders(request.headers);
+  const baseOrigin = backendOrigin();
+  let target = `${baseOrigin}/api/v1/${subpath}${request.nextUrl.search}`;
+  const headers = forwardRequestHeaders(request.headers);
 
-  const shared = {
-    method: request.method,
-    headers,
-    redirect: "manual" as const,
-    dispatcher: backendHttpAgent,
-  };
+  try {
+    const bufferedBody = await readBufferedBody(request);
+    let method = request.method.toUpperCase();
+    let response: Awaited<ReturnType<typeof undiciFetch>>;
 
-  // Handle redirects manually to preserve auth headers
-  let response =
-    request.method === "GET" || request.method === "HEAD"
-      ? await undiciFetch(target, shared)
-      : await undiciFetch(target, {
-          ...shared,
-          body: await request.arrayBuffer(),
+    for (let i = 0; i <= MAX_REDIRECT_FOLLOWS; i += 1) {
+      response = await undiciFetch(target, {
+        method,
+        headers,
+        redirect: "manual",
+        dispatcher: backendHttpAgent,
+        body: method === "GET" || method === "HEAD" ? undefined : bufferedBody,
+      });
+
+      if (!REDIRECT_STATUS.has(response.status)) {
+        return new Response(response.body as unknown as BodyInit, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: forwardResponseHeaders(response.headers as unknown as Headers),
         });
+      }
 
-  // If redirected, follow with same headers
-  if (response.status === 307 || response.status === 308) {
-    const location = response.headers.get("location");
-    if (location) {
-      // Convert relative redirect to absolute if needed
-      const redirectUrl = location.startsWith("http") ? location : `${backendOrigin()}${location}`;
-      response = await undiciFetch(redirectUrl, shared);
+      if (i === MAX_REDIRECT_FOLLOWS) {
+        return new Response("Bad Gateway", { status: 502 });
+      }
+
+      const location = response.headers.get("location");
+      if (!location) {
+        return new Response("Bad Gateway", { status: 502 });
+      }
+
+      const resolved = resolveRedirectUrl(baseOrigin, location);
+      if (!resolved) {
+        console.error("[backend-proxy] blocked cross-origin redirect", {
+          method,
+          location,
+          target,
+        });
+        return new Response("Bad Gateway", { status: 502 });
+      }
+
+      if (!PRESERVE_METHOD_REDIRECT.has(response.status)) {
+        method = "GET";
+        headers.delete("content-length");
+        headers.delete("content-type");
+      }
+
+      target = resolved.toString();
     }
-  }
 
-  // undici body stream type differs from DOM BodyInit; runtime is compatible for piping.
-  return new Response(response.body as unknown as BodyInit, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: forwardResponseHeaders(response.headers as unknown as Headers),
-  });
+    return new Response("Bad Gateway", { status: 502 });
+  } catch (error) {
+    if (error instanceof Response) return error;
+    const status = isTimeoutError(error) ? 504 : 502;
+    const err = error as { name?: string; message?: string };
+    console.error("[backend-proxy] upstream request failed", {
+      method: request.method,
+      target,
+      status,
+      error: err?.name ?? "Error",
+      message: err?.message ?? "Unknown",
+    });
+    return new Response(status === 504 ? "Gateway Timeout" : "Bad Gateway", { status });
+  }
 }
 
 export async function GET(
@@ -164,6 +253,9 @@ export async function DELETE(
   return proxy(request, ctx.params.path);
 }
 
-export async function OPTIONS() {
-  return new Response(null, { status: 204 });
+export async function OPTIONS(
+  request: NextRequest,
+  ctx: { params: { path: string[] } }
+) {
+  return proxy(request, ctx.params.path);
 }

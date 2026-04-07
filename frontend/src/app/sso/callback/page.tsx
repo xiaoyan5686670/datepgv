@@ -2,12 +2,11 @@
 
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import { setStoredAccessToken } from "@/lib/api";
 
 function SsoCallbackInner() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
 
@@ -27,8 +26,10 @@ function SsoCallbackInner() {
     }
 
     setStoredAccessToken(token);
-    router.replace(next);
-  }, [router, searchParams]);
+    // Full navigation remounts providers so `/auth/me` runs again with the new token.
+    // Client router.replace alone leaves AuthProvider without a second refreshUser().
+    window.location.assign(next);
+  }, [searchParams]);
 
   if (error) {
     return (

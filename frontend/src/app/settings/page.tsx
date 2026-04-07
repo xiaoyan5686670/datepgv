@@ -82,6 +82,8 @@ function SettingsPageInner() {
     try {
       const data = await fetchConfigs("all");
       setConfigs(data);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "加载配置失败");
     } finally {
       setLoading(false);
     }
@@ -139,8 +141,21 @@ function SettingsPageInner() {
       ...prev,
       [id]: { result: prev[id]?.result ?? ({ success: false, message: "" } as LLMConfigTestResult), loading: true },
     }));
-    const result = await testConfig(id);
-    setTestResults((prev) => ({ ...prev, [id]: { result, loading: false } }));
+    try {
+      const result = await testConfig(id);
+      setTestResults((prev) => ({ ...prev, [id]: { result, loading: false } }));
+    } catch (err) {
+      setTestResults((prev) => ({
+        ...prev,
+        [id]: {
+          result: {
+            success: false,
+            message: err instanceof Error ? err.message : "测试失败",
+          },
+          loading: false,
+        },
+      }));
+    }
   };
 
   const handleModalSuccess = (cfg: LLMConfig) => {
