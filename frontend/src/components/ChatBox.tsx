@@ -96,7 +96,7 @@ const MessageList = memo(function MessageList({
         <div
           key={msg.id}
           className={cn(
-            "flex gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300",
+            "flex gap-2 sm:gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300",
             msg.role === "user" ? "flex-row-reverse" : "flex-row"
           )}
           style={{ animationDelay: `${idx * 50}ms` }}
@@ -117,7 +117,7 @@ const MessageList = memo(function MessageList({
           <div
             className={cn(
               "flex flex-col gap-3",
-              msg.role === "user" ? "items-end max-w-[80%]" : "items-start w-full max-w-[90%]"
+              msg.role === "user" ? "items-end max-w-[88%] sm:max-w-[80%]" : "items-start w-full max-w-[95%] sm:max-w-[90%]"
             )}
           >
             {msg.role === "user" ? (
@@ -475,7 +475,7 @@ export function ChatBox({
   return (
     <div className="flex flex-col h-full">
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-8 space-y-8">
+      <div className="flex-1 overflow-y-auto px-3 sm:px-8 py-4 sm:py-8 space-y-6 sm:space-y-8">
         <MessageList
           messages={messages}
           loadingHistory={loadingHistory}
@@ -487,9 +487,9 @@ export function ChatBox({
       </div>
 
       {/* Input area */}
-      <div className="border-t bg-background/80 backdrop-blur-md p-4 sm:p-6">
+      <div className="border-t bg-background/80 backdrop-blur-md p-3 sm:p-6">
         <div className="max-w-4xl mx-auto space-y-4">
-          <div className="flex items-center justify-between px-1">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-1">
             <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors">
               <input
                 type="checkbox"
@@ -524,7 +524,7 @@ export function ChatBox({
             )}
           </div>
 
-          <div className="relative flex items-end gap-3 bg-card border shadow-sm rounded-2xl p-2 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/50 transition-all duration-200">
+          <div className="relative flex items-end gap-2 sm:gap-3 bg-card border shadow-sm rounded-2xl p-2 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/50 transition-all duration-200">
             <textarea
               ref={textareaRef}
               value={input}
@@ -540,7 +540,7 @@ export function ChatBox({
                   : "Oracle"
               } 模式)`}
               rows={1}
-              className="flex-1 bg-transparent text-sm px-3 py-2.5 min-h-[44px] max-h-40 resize-none outline-none placeholder:text-muted-foreground/60"
+              className="flex-1 bg-transparent text-sm px-2 sm:px-3 py-2.5 min-h-[44px] max-h-40 resize-none outline-none placeholder:text-muted-foreground/60"
               style={{ lineHeight: "1.6" }}
               disabled={isLoading}
               suppressHydrationWarning

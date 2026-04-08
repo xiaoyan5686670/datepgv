@@ -3,10 +3,12 @@
 import {
   Database,
   LogOut,
+  Menu,
   MessageSquarePlus,
   Settings,
   Table,
   Trash2,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -42,6 +44,7 @@ function HomePageInner() {
   const [activeSessionId, setActiveSessionId] = useState<string>(getOrCreateSessionId);
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // Load sessions on mount and whenever refreshKey changes
   useEffect(() => {
@@ -70,6 +73,7 @@ function HomePageInner() {
     const id = uuidv4();
     persistSessionId(id);
     setActiveSessionId(id);
+    setMobileSidebarOpen(false);
   }, []);
 
   const handleSelectSession = useCallback(
@@ -77,6 +81,7 @@ function HomePageInner() {
       if (sid === activeSessionId) return;
       persistSessionId(sid);
       setActiveSessionId(sid);
+      setMobileSidebarOpen(false);
     },
     [activeSessionId]
   );
@@ -100,8 +105,16 @@ function HomePageInner() {
   return (
     <div className="flex flex-col h-screen bg-app-bg">
       {/* Top nav */}
-      <header className="flex items-center justify-between px-6 py-3 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
+      <header className="flex flex-wrap items-center gap-3 justify-between px-3 sm:px-6 py-3 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setMobileSidebarOpen(true)}
+            className="md:hidden p-2 rounded-lg border bg-background hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
+            aria-label="打开历史会话"
+          >
+            <Menu size={16} />
+          </button>
           <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shadow-sm border border-primary/20">
             <Database size={18} className="text-primary" />
           </div>
@@ -113,14 +126,14 @@ function HomePageInner() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="w-full lg:w-auto flex flex-wrap items-center justify-end gap-2 sm:gap-3">
           {/* SQL type toggle */}
-          <div className="flex flex-col items-end gap-1">
-          <div className="flex items-center bg-muted/50 border rounded-full p-1">
+          <div className="flex flex-col items-end gap-1 ml-auto">
+          <div className="flex items-center bg-muted/50 border rounded-full p-1 max-w-full overflow-x-auto">
             <button
               onClick={() => setSqlType("hive")}
               className={cn(
-                "px-4 py-1 rounded-full text-[11px] font-semibold transition-all",
+                "px-3 sm:px-4 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
                 sqlType === "hive"
                   ? "bg-amber-500 text-white shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
@@ -131,7 +144,7 @@ function HomePageInner() {
             <button
               onClick={() => setSqlType("postgresql")}
               className={cn(
-                "px-4 py-1 rounded-full text-[11px] font-semibold transition-all",
+                "px-3 sm:px-4 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
                 sqlType === "postgresql"
                   ? "bg-blue-500 text-white shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
@@ -142,7 +155,7 @@ function HomePageInner() {
             <button
               onClick={() => setSqlType("mysql")}
               className={cn(
-                "px-4 py-1 rounded-full text-[11px] font-semibold transition-all",
+                "px-3 sm:px-4 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
                 sqlType === "mysql"
                   ? "bg-orange-500 text-white shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
@@ -153,7 +166,7 @@ function HomePageInner() {
             <button
               onClick={() => setSqlType("oracle")}
               className={cn(
-                "px-4 py-1 rounded-full text-[11px] font-semibold transition-all",
+                "px-3 sm:px-4 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
                 sqlType === "oracle"
                   ? "bg-emerald-500 text-white shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
@@ -167,12 +180,12 @@ function HomePageInner() {
           </span>
           </div>
 
-          <div className="h-8 w-px bg-border mx-1" />
+          <div className="hidden md:block h-8 w-px bg-border mx-1" />
 
           <ThemeToggle className="p-2 rounded-full border bg-background hover:bg-accent text-muted-foreground hover:text-foreground transition-all" />
           
           {user?.roles.includes("admin") ? (
-            <div className="flex items-center gap-2">
+            <div className="hidden sm:flex items-center gap-2">
               <Link
                 href="/admin"
                 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground px-3 py-2 rounded-full border bg-background hover:bg-accent transition-all"
@@ -190,8 +203,8 @@ function HomePageInner() {
             </div>
           ) : null}
           
-          <div className="flex items-center gap-3 pl-2">
-            <div className="flex flex-col items-end">
+          <div className="flex items-center gap-2 sm:gap-3 pl-1 sm:pl-2">
+            <div className="hidden sm:flex flex-col items-end">
               <span className="text-xs font-semibold max-w-[100px] truncate" title={user?.username}>
                 {user?.username}
               </span>
@@ -205,6 +218,13 @@ function HomePageInner() {
             <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-bold text-xs">
               {user?.username?.[0]?.toUpperCase() || "U"}
             </div>
+            <button
+              onClick={() => logout()}
+              className="sm:hidden p-2 rounded-lg border bg-background hover:bg-accent text-muted-foreground hover:text-destructive transition-colors"
+              aria-label="退出登录"
+            >
+              <LogOut size={14} />
+            </button>
           </div>
         </div>
       </header>
@@ -275,6 +295,85 @@ function HomePageInner() {
             )}
           </div>
         </aside>
+
+        {mobileSidebarOpen && (
+          <div className="fixed inset-0 z-40 md:hidden">
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/40"
+              onClick={() => setMobileSidebarOpen(false)}
+              aria-label="关闭历史会话面板"
+            />
+            <aside className="relative z-10 w-[86vw] max-w-xs h-full flex flex-col border-r bg-background">
+              <div className="flex items-center justify-between p-4 border-b">
+                <div className="text-sm font-semibold">历史会话</div>
+                <button
+                  type="button"
+                  onClick={() => setMobileSidebarOpen(false)}
+                  className="p-2 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                  aria-label="关闭"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="p-4">
+                <button
+                  onClick={handleNewSession}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2.5 text-sm font-semibold text-white bg-primary hover:bg-primary/90 rounded-xl shadow-sm transition-all active:scale-[0.98]"
+                >
+                  <MessageSquarePlus size={16} />
+                  开启新对话
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-2 pb-4">
+                {sessions.length === 0 ? (
+                  <div className="px-4 py-8 text-xs text-muted-foreground text-center italic">
+                    暂无历史记录
+                  </div>
+                ) : (
+                  <ul className="space-y-1">
+                    {sessions.map((s) => (
+                      <li key={s.session_id} className="group">
+                        <div
+                          className={cn(
+                            "relative w-full rounded-xl text-sm transition-all flex items-center group",
+                            activeSessionId === s.session_id
+                              ? "bg-muted shadow-sm border ring-1 ring-primary/10"
+                              : "hover:bg-muted/60 border-transparent"
+                          )}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleSelectSession(s.session_id)}
+                            className={cn(
+                              "flex-1 min-w-0 text-left px-4 py-3 rounded-xl",
+                              activeSessionId === s.session_id
+                                ? "font-semibold text-foreground"
+                                : "text-muted-foreground hover:text-foreground"
+                            )}
+                          >
+                            <div className="truncate pr-6">{s.title}</div>
+                            <div className="text-[10px] text-muted-foreground/60 mt-1 font-medium">
+                              {new Date(s.last_message_at).toLocaleDateString()} · {new Date(s.last_message_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSession(s.session_id)}
+                            className="absolute right-2 p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all"
+                            title="删除会话"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </aside>
+          </div>
+        )}
 
         {/* Chat area */}
         <section className="flex-1 overflow-hidden">
