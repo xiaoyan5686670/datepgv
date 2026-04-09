@@ -1,5 +1,15 @@
 export type SqlType = "hive" | "postgresql" | "oracle" | "mysql";
 
+/** 与通讯录推导的组织层级一致（同步 / 管理端） */
+export type EmployeeOrgLevel =
+  | "admin"
+  | "region_executive"
+  | "province_executive"
+  | "area_executive"
+  | "province_manager"
+  | "area_manager"
+  | "staff";
+
 /** 当前登录用户（GET /auth/me） */
 export interface AuthUser {
   id: number;
@@ -7,6 +17,7 @@ export interface AuthUser {
   is_active: boolean;
   roles: string[];
   province?: string | null;
+  org_region?: string | null;
   employee_level: string;
   district?: string | null;
   full_name?: string | null;
@@ -18,7 +29,8 @@ export interface User {
   username: string;
   is_active: boolean;
   province?: string | null;
-  employee_level: "admin" | "province_manager" | "staff";
+  org_region?: string | null;
+  employee_level: EmployeeOrgLevel;
   district?: string | null;
   full_name?: string | null;
   roles: string[];
@@ -31,7 +43,8 @@ export interface UserCreate {
   password: string;
   is_active?: boolean;
   province?: string | null;
-  employee_level?: "admin" | "province_manager" | "staff";
+  org_region?: string | null;
+  employee_level?: EmployeeOrgLevel;
   district?: string | null;
   full_name?: string | null;
 }
@@ -39,7 +52,8 @@ export interface UserCreate {
 export interface UserUpdate {
   is_active?: boolean;
   province?: string | null;
-  employee_level?: "admin" | "province_manager" | "staff";
+  org_region?: string | null;
+  employee_level?: EmployeeOrgLevel;
   district?: string | null;
   full_name?: string | null;
   password?: string;
@@ -50,7 +64,8 @@ export interface UserImportRow {
   password?: string;
   full_name?: string;
   province?: string;
-  employee_level?: "admin" | "province_manager" | "staff";
+  org_region?: string;
+  employee_level?: EmployeeOrgLevel;
   district?: string;
   is_active?: boolean;
 }

@@ -15,7 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.metadata import TableMetadata, TableMetadataEdge
+from app.models.user import User
 from app.services.embedding import EmbeddingService
+from app.services.viewer_sql_context import build_viewer_sql_context
 
 SQLType = Literal["hive", "postgresql", "oracle", "mysql"]
 RetrieveSQLType = Literal["hive", "postgresql", "oracle", "mysql", "all"]
@@ -372,6 +374,7 @@ class RAGEngine:
         tables: list[TableMetadata],
         sql_type: SQLType,
         join_paths: list[str] | None = None,
+        current_user: User | None = None,
     ) -> list[dict[str, str]]:
         """Construct the messages list for the LLM."""
         if sql_type == "hive":
@@ -389,6 +392,13 @@ class RAGEngine:
         if join_paths:
             path_str = "\n\n已知表之间的关联路径参考：\n" + "\n".join(f"- {p}" for p in join_paths)
 
+        viewer_block = ""
+        if current_user is not None:
+            viewer_block = (
+                "\n---\n【当前登录用户与数据范围（服务端注入，须遵守）】\n"
+                f"{build_viewer_sql_context(current_user)}\n"
+            )
+
         system_prompt = f"""你是一个专业的数据仓库工程师，只生成 {sql_type.upper()} SQL。
 
 {rules}
@@ -402,9 +412,7 @@ class RAGEngine:
 
         user_prompt = f"""可用的表结构：
 
-{schemas}{path_str}
-
----
+{schemas}{path_str}{viewer_block}---
 用户需求：{query}
 
 请生成 {sql_type.upper()} SQL（列名必须与上表完全一致）："""

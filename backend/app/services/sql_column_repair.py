@@ -22,6 +22,7 @@ async def repair_sql_unknown_columns(
     sql_type: str,
     llm: LLMService,
     db: AsyncSession,
+    viewer_context: str | None = None,
 ) -> str:
     """Ask LLM to rewrite SQL using only columns present in metadata."""
     schemas = "\n\n".join(_format_table_schema(t) for t in tables)
@@ -29,6 +30,13 @@ async def repair_sql_unknown_columns(
     if join_path_lines:
         jp = "\n".join(f"- {p}" for p in join_path_lines)
     unknown_s = ", ".join(f"'{u}'" for u in unknown)
+
+    viewer_block = ""
+    if viewer_context and viewer_context.strip():
+        viewer_block = (
+            "\n---\n【当前登录用户与数据范围（须继续遵守，修正后 SQL 不得无故去掉相关条件）】\n"
+            f"{viewer_context.strip()}\n"
+        )
 
     system = (
         "你是 SQL 纠错助手。给定表的真实字段列表后，把 SQL 里「不在表结构中的列名」"
@@ -42,8 +50,7 @@ async def repair_sql_unknown_columns(
 
 可用表结构:
 
-{schemas}
-
+{schemas}{viewer_block}
 已知表之间的关联路径参考:
 {jp if jp else "（无）"}
 

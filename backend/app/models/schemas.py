@@ -216,6 +216,7 @@ class UserMeResponse(BaseModel):
     is_active: bool
     roles: list[str]
     province: str | None = None
+    org_region: str | None = None
     employee_level: str = "staff"
     district: str | None = None
     full_name: str | None = None
@@ -223,12 +224,23 @@ class UserMeResponse(BaseModel):
 
 # ── User Management ───────────────────────────────────────────────────────────
 
+EmployeeOrgLevel = Literal[
+    "admin",
+    "region_executive",
+    "province_executive",
+    "area_executive",
+    "province_manager",
+    "area_manager",
+    "staff",
+]
+
 
 class UserBase(BaseModel):
     username: str = Field(..., min_length=1, max_length=100)
     is_active: bool = True
     province: str | None = None
-    employee_level: Literal["admin", "province_manager", "staff"] = "staff"
+    org_region: str | None = Field(None, description="大区(daqua)")
+    employee_level: EmployeeOrgLevel = "staff"
     district: str | None = None
     full_name: str | None = None
 
@@ -240,7 +252,8 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     is_active: bool | None = None
     province: str | None = Field(None, description="省份")
-    employee_level: Literal["admin", "province_manager", "staff"] | None = None
+    org_region: str | None = None
+    employee_level: EmployeeOrgLevel | None = None
     district: str | None = None
     full_name: str | None = None
     password: str | None = Field(None, min_length=6, description="如果提供则更新密码")
@@ -269,7 +282,8 @@ class UserImportRow(BaseModel):
     password: str | None = None  # if omitted, use default or skip
     full_name: str | None = None
     province: str | None = None
-    employee_level: Literal["admin", "province_manager", "staff"] = "staff"
+    org_region: str | None = None
+    employee_level: EmployeeOrgLevel = "staff"
     district: str | None = None
     is_active: bool = True
 

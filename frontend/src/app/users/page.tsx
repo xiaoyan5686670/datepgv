@@ -32,6 +32,7 @@ import {
   updateUser,
 } from "@/lib/api";
 import type {
+  EmployeeOrgLevel,
   OrgGraphNode,
   User,
   UserCreate,
@@ -40,22 +41,44 @@ import type {
   SyncOrgCsvResponse,
 } from "@/types";
 
-const EMPLOYEE_LEVELS = [
-  { value: "admin", label: "管理员" },
-  { value: "province_manager", label: "省管理" },
-  { value: "staff", label: "普通员工" },
+const EMPLOYEE_LEVEL_VALUES: readonly EmployeeOrgLevel[] = [
+  "admin",
+  "region_executive",
+  "province_executive",
+  "area_executive",
+  "province_manager",
+  "area_manager",
+  "staff",
 ] as const;
+
+const EMPLOYEE_LEVELS: { value: EmployeeOrgLevel; label: string }[] = [
+  { value: "admin", label: "管理员" },
+  { value: "region_executive", label: "大区总" },
+  { value: "province_executive", label: "省总" },
+  { value: "area_executive", label: "区域总" },
+  { value: "province_manager", label: "省区经理" },
+  { value: "area_manager", label: "区域经理" },
+  { value: "staff", label: "业务经理 / 基层" },
+];
 
 const LEVEL_COLORS: Record<string, string> = {
   admin: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  region_executive: "bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-300",
+  province_executive: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300",
+  area_executive: "bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300",
   province_manager: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+  area_manager: "bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300",
   staff: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",
 };
 
 const LEVEL_LABELS: Record<string, string> = {
   admin: "管理员",
-  province_manager: "省管理",
-  staff: "普通员工",
+  region_executive: "大区总",
+  province_executive: "省总",
+  area_executive: "区域总",
+  province_manager: "省区经理",
+  area_manager: "区域经理",
+  staff: "业务经理",
 };
 
 // ── Create / Edit Modal ──────────────────────────────────────────────────────
@@ -66,14 +89,22 @@ interface UserFormModalProps {
   onSaved: () => void;
 }
 
+function normalizeEmployeeLevel(v: string | undefined): EmployeeOrgLevel {
+  if (v && (EMPLOYEE_LEVEL_VALUES as readonly string[]).includes(v)) {
+    return v as EmployeeOrgLevel;
+  }
+  return "staff";
+}
+
 function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
   const [username, setUsername] = useState(editUser?.username ?? "");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState(editUser?.full_name ?? "");
   const [province, setProvince] = useState(editUser?.province ?? "");
+  const [orgRegion, setOrgRegion] = useState(editUser?.org_region ?? "");
   const [district, setDistrict] = useState(editUser?.district ?? "");
-  const [employeeLevel, setEmployeeLevel] = useState<"admin" | "province_manager" | "staff">(
-    editUser?.employee_level ?? "staff"
+  const [employeeLevel, setEmployeeLevel] = useState<EmployeeOrgLevel>(
+    normalizeEmployeeLevel(editUser?.employee_level)
   );
   const [isActive, setIsActive] = useState(editUser?.is_active ?? true);
   const [saving, setSaving] = useState(false);
@@ -90,6 +121,7 @@ function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
         const payload: UserUpdate = {
           full_name: fullName || null,
           province: province || null,
+          org_region: orgRegion || null,
           district: district || null,
           employee_level: employeeLevel,
           is_active: isActive,
@@ -107,6 +139,7 @@ function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
           password,
           full_name: fullName || null,
           province: province || null,
+          org_region: orgRegion || null,
           district: district || null,
           employee_level: employeeLevel,
           is_active: isActive,
@@ -187,6 +220,16 @@ function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
+              <label className="text-sm font-medium">大区</label>
+              <input
+                type="text"
+                value={orgRegion}
+                onChange={(e) => setOrgRegion(e.target.value)}
+                className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                placeholder="如: 西部大区（通讯录 daqua）"
+              />
+            </div>
+            <div className="space-y-1.5">
               <label className="text-sm font-medium">省份</label>
               <input
                 type="text"
@@ -196,16 +239,16 @@ function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
                 placeholder="如: 浙江省"
               />
             </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">区县市</label>
-              <input
-                type="text"
-                value={district}
-                onChange={(e) => setDistrict(e.target.value)}
-                className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
-                placeholder="如: 杭州市西湖区"
-              />
-            </div>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">区域/片区</label>
+            <input
+              type="text"
+              value={district}
+              onChange={(e) => setDistrict(e.target.value)}
+              className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+              placeholder="如: 烟威、上海一区（通讯录 quyud）"
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -213,9 +256,7 @@ function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
               <label className="text-sm font-medium">员工等级</label>
               <select
                 value={employeeLevel}
-                onChange={(e) =>
-                  setEmployeeLevel(e.target.value as "admin" | "province_manager" | "staff")
-                }
+                onChange={(e) => setEmployeeLevel(e.target.value as EmployeeOrgLevel)}
                 className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
                 {EMPLOYEE_LEVELS.map((l) => (
@@ -389,7 +430,7 @@ function ImportModal({ onClose, onDone }: ImportModalProps) {
             <div className="space-y-3">
               <p className="text-xs text-muted-foreground leading-relaxed">
                 CSV 必须包含 <code className="px-1 py-0.5 bg-muted rounded text-[11px]">username</code> 列。
-                可选列：<code className="px-1 py-0.5 bg-muted rounded text-[11px]">password, full_name, province, employee_level, district, is_active</code>
+                可选列：<code className="px-1 py-0.5 bg-muted rounded text-[11px]">password, full_name, province, org_region, employee_level, district, is_active</code>
               </p>
               <div className="flex items-center gap-3">
                 <input
@@ -511,7 +552,8 @@ function SyncOrgModal({ onClose, onDone }: SyncModalProps) {
           </div>
           <div className="text-xs text-muted-foreground bg-muted/30 rounded-lg p-3 border border-dashed leading-relaxed">
             将从后端读取 <code className="px-1 py-0.5 bg-muted rounded text-[11px]">业务经理通讯录.csv</code>，
-            自动创建/更新大区总、省总、区域总、业务经理账号。
+            按大区/省/区域/职务自动推断员工等级（大区总、省总、区域总、省区经理、区域经理、业务经理等），
+            username 优先人员编码。
           </div>
           <div className="flex justify-end gap-2">
             <button
@@ -546,12 +588,30 @@ type OrgNode = OrgGraphNode & {
 
 function inferScopeLabel(
   user: ReturnType<typeof useAuth>["user"]
-): "全量数据（管理员）" | "省内范围" | "下级链路范围" | "仅本人" {
+):
+  | "全量数据（管理员）"
+  | "大区内范围"
+  | "省总管辖范围"
+  | "区域总管辖范围"
+  | "省内范围"
+  | "下级链路范围"
+  | "仅本人" {
   if (!user) return "仅本人";
   if (user.roles.includes("admin")) return "全量数据（管理员）";
-  if (user.employee_level === "province_manager") return "省内范围";
-  if (user.full_name) return "下级链路范围";
-  return "仅本人";
+  switch (user.employee_level) {
+    case "region_executive":
+      return "大区内范围";
+    case "province_executive":
+      return "省总管辖范围";
+    case "area_executive":
+      return "区域总管辖范围";
+    case "province_manager":
+      return "省内范围";
+    case "area_manager":
+      return "下级链路范围";
+    default:
+      return "仅本人";
+  }
 }
 
 function buildOrgForest(nodes: OrgGraphNode[], edges: Array<{ from: string; to: string }>): OrgNode[] {
@@ -763,12 +823,14 @@ function UsersPageInner() {
       u.username.toLowerCase().startsWith(q) ||
       (u.full_name || "").toLowerCase().includes(q) ||
       (u.province || "").toLowerCase().includes(q) ||
+      (u.org_region || "").toLowerCase().includes(q) ||
       (u.district || "").toLowerCase().includes(q)
     );
   });
 
   const handleDownloadTemplate = () => {
-    const csv = "username,password,full_name,province,employee_level,district,is_active\nzhangsan,123456,张三,浙江省,staff,杭州市,true\nlisi,123456,李四,浙江省,province_manager,,true\n";
+    const csv =
+      "username,password,full_name,province,org_region,employee_level,district,is_active\nzhangsan,123456,张三,浙江省,东部大区,staff,杭州市,true\nlisi,123456,李四,山东省,东部大区,province_manager,,true\n";
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -1013,8 +1075,9 @@ function UsersPageInner() {
                       <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">工号</th>
                       <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">姓名</th>
                       <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">员工等级</th>
+                      <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">大区</th>
                       <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">省份</th>
-                      <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">区县市</th>
+                      <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">区域/片区</th>
                       <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">状态</th>
                       <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">创建时间</th>
                       {isAdmin && (
@@ -1043,6 +1106,9 @@ function UsersPageInner() {
                           )}>
                             {LEVEL_LABELS[u.employee_level] || u.employee_level}
                           </span>
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {u.org_region || <span className="text-muted-foreground/50">-</span>}
                         </td>
                         <td className="px-4 py-3 text-muted-foreground">
                           {u.province || <span className="text-muted-foreground/50">-</span>}

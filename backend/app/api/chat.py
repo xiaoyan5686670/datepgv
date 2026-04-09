@@ -33,6 +33,7 @@ from app.services.org_hierarchy import filter_rows_by_scope, get_user_scope_code
 from app.services.rag import RAGEngine
 from app.services.sql_generator import process_llm_output
 from app.services.sql_column_repair import repair_sql_unknown_columns
+from app.services.viewer_sql_context import build_viewer_sql_context
 from app.services.sql_metadata_guard import find_unknown_columns
 
 router = APIRouter(
@@ -274,7 +275,13 @@ async def chat_stream(
     history_ms = (time.perf_counter() - t) * 1000
 
     t = time.perf_counter()
-    messages = rag.build_prompt(request.query, tables, request.sql_type, join_paths)
+    messages = rag.build_prompt(
+        request.query,
+        tables,
+        request.sql_type,
+        join_paths,
+        current_user=current_user,
+    )
     if history:
         messages = [messages[0]] + history + [messages[1]]
     prompt_ms = (time.perf_counter() - t) * 1000
@@ -363,6 +370,7 @@ async def chat_stream(
             answer = exec_error
         else:
             try:
+                viewer_ctx = build_viewer_sql_context(current_user)
                 for repair_round in range(_SQL_COLUMN_REPAIR_MAX_ROUNDS):
                     unknown = find_unknown_columns(
                         clean_sql, tables, request.sql_type
@@ -382,6 +390,7 @@ async def chat_stream(
                         request.sql_type,
                         llm,
                         db,
+                        viewer_context=viewer_ctx,
                     )
                     clean_sql = process_llm_output(fixed_raw, request.sql_type)
                 still = find_unknown_columns(clean_sql, tables, request.sql_type)

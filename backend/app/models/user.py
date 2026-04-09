@@ -53,11 +53,16 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Hierarchical access control fields
     province: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True, comment="省份（省管理可查看本省区县市数据）")
+    org_region: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="大区(daqua)，通讯录同步",
+    )
     employee_level: Mapped[str] = mapped_column(
         String(20),
         nullable=False,
         default="staff",
-        comment="员工等级: admin, province_manager, staff",
+        comment="组织层级: region_executive, province_executive, area_executive, province_manager, area_manager, staff, admin",
     )
     district: Mapped[str | None] = mapped_column(
         String(100), nullable=True, comment="区县市（普通员工仅查看自己所在区县）"
