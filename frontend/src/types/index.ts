@@ -6,6 +6,96 @@ export interface AuthUser {
   username: string;
   is_active: boolean;
   roles: string[];
+  province?: string | null;
+  employee_level: string;
+  district?: string | null;
+  full_name?: string | null;
+}
+
+/** 用户管理 */
+export interface User {
+  id: number;
+  username: string;
+  is_active: boolean;
+  province?: string | null;
+  employee_level: "admin" | "province_manager" | "staff";
+  district?: string | null;
+  full_name?: string | null;
+  roles: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserCreate {
+  username: string;
+  password: string;
+  is_active?: boolean;
+  province?: string | null;
+  employee_level?: "admin" | "province_manager" | "staff";
+  district?: string | null;
+  full_name?: string | null;
+}
+
+export interface UserUpdate {
+  is_active?: boolean;
+  province?: string | null;
+  employee_level?: "admin" | "province_manager" | "staff";
+  district?: string | null;
+  full_name?: string | null;
+  password?: string;
+}
+
+export interface UserImportRow {
+  username: string;
+  password?: string;
+  full_name?: string;
+  province?: string;
+  employee_level?: "admin" | "province_manager" | "staff";
+  district?: string;
+  is_active?: boolean;
+}
+
+export interface UserImportRequest {
+  users: UserImportRow[];
+  overwrite_existing?: boolean;
+}
+
+export interface UserImportResponse {
+  total: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: string[];
+}
+
+export interface SyncOrgCsvResponse {
+  total: number;
+  created: number;
+  updated: number;
+  skipped: number;
+}
+
+export interface OrgGraphNode {
+  name: string;
+  employee_code?: string | null;
+  title?: string | null;
+  region?: string | null;
+  province?: string | null;
+  district?: string | null;
+}
+
+export interface OrgGraphEdge {
+  from: string;
+  to: string;
+  relation: "daquzong_to_shengzong" | "shengzong_to_quyuzong" | "quyuzong_to_manager" | string;
+}
+
+export interface OrgGraphResponse {
+  source_csv: string;
+  node_count: number;
+  edge_count: number;
+  nodes: OrgGraphNode[];
+  edges: OrgGraphEdge[];
 }
 
 export interface ColumnInfo {
@@ -59,10 +149,12 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  created_at?: string;
   sql?: string;
   sql_type?: SqlType;
   referenced_tables?: string[];
   isStreaming?: boolean;
+  elapsed_ms?: number;
   /** 服务端是否已执行 SQL（PostgreSQL / MySQL） */
   executed?: boolean;
   exec_error?: string | null;

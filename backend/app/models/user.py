@@ -51,6 +51,18 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Hierarchical access control fields
+    province: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True, comment="省份（省管理可查看本省区县市数据）")
+    employee_level: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="staff",
+        comment="员工等级: admin, province_manager, staff",
+    )
+    district: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, comment="区县市（普通员工仅查看自己所在区县）"
+    )
+    full_name: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="姓名")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

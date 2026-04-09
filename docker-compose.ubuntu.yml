@@ -1,0 +1,58 @@
+# Ubuntu / 生产环境：一体化部署 PostgreSQL(pgvector) + FastAPI + Next.js 生产镜像
+# 使用：cp .env.example .env && 编辑 .env 后执行：
+#   docker compose -f docker-compose.ubuntu.yml up -d --build
+
+version: "3.9"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: datepgv-postgres
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-datepgv}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-datepgv123}
+      POSTGRES_DB: ${POSTGRES_DB:-datepgv}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-datepgv} -d ${POSTGRES_DB:-datepgv}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: datepgv-backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # 覆盖 .env 中的 localhost，使容器内指向 postgres 服务
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-datepgv}:${POSTGRES_PASSWORD:-datepgv123}@postgres:5432/${POSTGRES_DB:-datepgv}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: datepgv-frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

@@ -27,6 +27,24 @@ SqlEngine = Literal["postgresql", "mysql"]
 
 logger = logging.getLogger(__name__)
 
+_SCOPE_CODE_COLUMNS = (
+    "renyuanbianma",
+    "employee_code",
+    "owner_code",
+    "sales_code",
+    "manager_code",
+    "user_code",
+)
+_SCOPE_NAME_COLUMNS = (
+    "yewujingli",
+    "full_name",
+    "owner",
+    "sales_name",
+    "manager_name",
+    "username",
+)
+_SCOPE_COLUMNS = _SCOPE_CODE_COLUMNS + _SCOPE_NAME_COLUMNS
+
 
 class QueryExecutorError(Exception):
     """User-facing execution error (safe message)."""
@@ -126,7 +144,61 @@ def _parse_mysql_url(url: str) -> dict[str, Any]:
     }
 
 
-async def _run_postgresql(dsn: str, sql: str) -> QueryResult:
+def _quote_pg_ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _quote_mysql_ident(name: str) -> str:
+    return "`" + name.replace("`", "``") + "`"
+
+
+def _quote_sql_str(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _build_scoped_wrapped_sql(
+    engine: SqlEngine,
+    sql: str,
+    visible_columns: list[str],
+    scope_values: set[str] | None,
+) -> str:
+    if scope_values is None:
+        return sql
+
+    values = sorted({v for v in scope_values if str(v).strip()})
+    if not values:
+        # No visible identity means no rows should be readable.
+        return f"SELECT * FROM ({sql}) __scope_base WHERE 1=0"
+
+    visible_lower_to_raw = {c.lower(): c for c in visible_columns}
+    matched_raw_cols = [
+        visible_lower_to_raw[c] for c in _SCOPE_COLUMNS if c in visible_lower_to_raw
+    ]
+    if not matched_raw_cols:
+        # Query result doesn't expose identity columns; block data by default.
+        return f"SELECT * FROM ({sql}) __scope_base WHERE 1=0"
+
+    in_list = ", ".join(_quote_sql_str(v) for v in values)
+    if engine == "postgresql":
+        predicates = [
+            f"CAST({_quote_pg_ident(col)} AS TEXT) IN ({in_list})"
+            for col in matched_raw_cols
+        ]
+    else:
+        predicates = [
+            f"CAST({_quote_mysql_ident(col)} AS CHAR) IN ({in_list})"
+            for col in matched_raw_cols
+        ]
+    where_expr = " OR ".join(predicates)
+    return f"SELECT * FROM ({sql}) __scope_base WHERE ({where_expr})"
+
+
+async def _probe_postgresql_columns(conn: asyncpg.Connection, sql: str) -> list[str]:
+    stmt = await conn.prepare(f"SELECT * FROM ({sql}) __scope_probe LIMIT 0")
+    return [a.name for a in stmt.get_attributes()]
+
+
+async def _run_postgresql(dsn: str, sql: str, scope_values: set[str] | None = None) -> QueryResult:
     dsn = _normalize_postgres_dsn(dsn)
     timeout = float(settings.ANALYTICS_QUERY_TIMEOUT_SEC)
     max_rows = settings.ANALYTICS_MAX_ROWS
@@ -135,9 +207,13 @@ async def _run_postgresql(dsn: str, sql: str) -> QueryResult:
         async with conn.transaction(readonly=True):
             ms = max(1000, int(timeout * 1000))
             await conn.execute(f"SET LOCAL statement_timeout = {ms}")
+            probe_columns = await _probe_postgresql_columns(conn, sql)
+            scoped_sql = _build_scoped_wrapped_sql(
+                "postgresql", sql, probe_columns, scope_values
+            )
             rows_out: list[dict[str, Any]] = []
             truncated = False
-            async for rec in conn.cursor(sql, timeout=timeout):
+            async for rec in conn.cursor(scoped_sql, timeout=timeout):
                 if len(rows_out) >= max_rows:
                     truncated = True
                     break
@@ -236,7 +312,12 @@ def _require_aiomysql():
     return aiomysql
 
 
-async def _run_mysql(dsn: str, sql: str) -> QueryResult:
+async def _probe_mysql_columns(cur: Any, sql: str, timeout: float) -> list[str]:
+    await asyncio.wait_for(cur.execute(f"SELECT * FROM ({sql}) __scope_probe LIMIT 0"), timeout=timeout)
+    return [str(d[0]) for d in (cur.description or [])]
+
+
+async def _run_mysql(dsn: str, sql: str, scope_values: set[str] | None = None) -> QueryResult:
     aiomysql = _require_aiomysql()
 
     params = _parse_mysql_url(dsn)
@@ -264,7 +345,15 @@ async def _run_mysql(dsn: str, sql: str) -> QueryResult:
             except Exception:
                 pass
             try:
-                await asyncio.wait_for(cur.execute(sql), timeout=timeout)
+                probe_columns = await _probe_mysql_columns(cur, sql, timeout)
+                scoped_sql = _build_scoped_wrapped_sql(
+                    "mysql", sql, probe_columns, scope_values
+                )
+            except Exception as e:
+                hint = _friendly_mysql_access_error(e)
+                raise QueryExecutorError(hint or str(e)) from e
+            try:
+                await asyncio.wait_for(cur.execute(scoped_sql), timeout=timeout)
             except Exception as e:
                 hint = _friendly_mysql_access_error(e)
                 raise QueryExecutorError(hint or str(e)) from e
@@ -287,7 +376,7 @@ async def _run_mysql(dsn: str, sql: str) -> QueryResult:
 
 
 async def run_analytics_query(
-    engine: SqlEngine, sql: str, db: AsyncSession
+    engine: SqlEngine, sql: str, db: AsyncSession, scope_values: set[str] | None = None
 ) -> QueryResult:
     safe_sql = assert_single_read_statement(sql)
     threshold_ms = float(settings.ANALYTICS_SLOW_QUERY_LOG_MS)
@@ -300,13 +389,13 @@ async def run_analytics_query(
                     "无法连接 PostgreSQL 业务库：请在「设置 → 数据连接」配置，"
                     "或设置 DATABASE_URL / ANALYTICS_POSTGRES_URL。"
                 )
-            return await _run_postgresql(dsn, safe_sql)
+            return await _run_postgresql(dsn, safe_sql, scope_values)
         dsn = await effective_mysql_execute_url(db)
         if not dsn:
             raise QueryExecutorError(
                 "未配置 MySQL 连接：请在「设置 → 数据连接」填写，或设置 ANALYTICS_MYSQL_URL。"
             )
-        return await _run_mysql(dsn, safe_sql)
+        return await _run_mysql(dsn, safe_sql, scope_values)
     finally:
         elapsed_ms = (time.perf_counter() - t0) * 1000
         if elapsed_ms >= threshold_ms:

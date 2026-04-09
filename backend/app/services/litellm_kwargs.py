@@ -54,6 +54,39 @@ def is_ollama_family(model: str) -> bool:
     return m.startswith("ollama/") or m.startswith("ollama_chat/")
 
 
+def _looks_like_ollama_api_base(api_base: str | None) -> bool:
+    """
+    Heuristic for user-entered Ollama endpoint, e.g. http://127.0.0.1:11434.
+    """
+    raw = (api_base or "").strip().lower()
+    if not raw:
+        return False
+    return "11434" in raw or "ollama" in raw
+
+
+def _normalize_model_for_cfg(cfg: LiteLLMConfigParams) -> str:
+    """
+    Normalize model string with provider hints from config context.
+
+    - Keep existing provider/model unchanged.
+    - Keep existing DashScope bare-id normalization behavior.
+    - Auto-prefix bare Ollama-style ids (e.g. gemma4:latest) to ollama/<id>
+      when api_base points to Ollama or model looks like an Ollama tag.
+    """
+    normalized = normalize_litellm_model(cfg.model)
+    if not normalized or "/" in normalized:
+        return normalized
+
+    raw = (cfg.model or "").strip()
+    api_base = (cfg.extra_params or {}).get("api_base") or cfg.api_base
+    if (
+        ":" in raw  # common Ollama tag form, e.g. llama3.2:latest
+        or _looks_like_ollama_api_base(str(api_base) if api_base is not None else None)
+    ):
+        return f"ollama/{normalized}"
+    return normalized
+
+
 def normalize_litellm_model(model: str) -> str:
     """
     LiteLLM requires provider/model. Users often paste DashScope console ids without
@@ -177,13 +210,14 @@ def resolve_api_base(cfg: LiteLLMConfigParams) -> str | None:
 
 def build_completion_kwargs(cfg: LiteLLMConfigParams) -> dict:
     """Kwargs for litellm.acompletion (merge messages, temperature, stream separately)."""
-    kw: dict = {"model": normalize_litellm_model(cfg.model)}
+    normalized_model = _normalize_model_for_cfg(cfg)
+    kw: dict = {"model": normalized_model}
     if cfg.api_key:
         kw["api_key"] = cfg.api_key
     api_base = resolve_api_base(cfg)
     if api_base:
         kw["api_base"] = api_base
-    if is_ollama_family(cfg.model):
+    if is_ollama_family(normalized_model):
         kw["drop_params"] = True
     return kw
 
@@ -196,13 +230,14 @@ def build_embedding_kwargs(cfg: LiteLLMConfigParams) -> dict:
         suffix = _dashscope_openai_compat_embedding_bare_id(cfg)
         kw = {"model": f"openai/{suffix}"}
     else:
-        kw = {"model": normalize_litellm_model(cfg.model)}
+        normalized_model = _normalize_model_for_cfg(cfg)
+        kw = {"model": normalized_model}
     if cfg.api_key:
         kw["api_key"] = cfg.api_key
     api_base = resolve_api_base(cfg)
     if api_base:
         kw["api_base"] = api_base
-    if is_ollama_family(cfg.model):
+    if is_ollama_family(kw["model"]):
         kw["drop_params"] = True
 
     # DashScope 嵌入走 openai/ + 百炼 api_base；LiteLLM 在 custom_llm_provider=openai 时若传入

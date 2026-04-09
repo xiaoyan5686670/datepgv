@@ -48,6 +48,15 @@ interface MessageListProps {
   send: (query: string) => void;
 }
 
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const totalSec = Math.floor(ms / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (min <= 0) return `${totalSec}s`;
+  return `${min}m ${String(sec).padStart(2, "0")}s`;
+}
+
 const MessageList = memo(function MessageList({
   messages,
   loadingHistory,
@@ -157,6 +166,11 @@ const MessageList = memo(function MessageList({
                     <span>思考中，正在生成 SQL...</span>
                   </div>
                 )}
+                {msg.role === "assistant" && msg.elapsed_ms ? (
+                  <div className="text-[11px] text-muted-foreground/80 px-1">
+                    本轮耗时: {formatDuration(msg.elapsed_ms)}
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
@@ -181,10 +195,20 @@ export function ChatBox({
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const requestStartedAtRef = useRef<number | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    if (!isLoading) return;
+    const id = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 300);
+    return () => window.clearInterval(id);
+  }, [isLoading]);
 
   // Load history when sessionId changes
   useEffect(() => {
@@ -200,7 +224,12 @@ export function ChatBox({
         }
         const mapped: ChatMessage[] = history.map((h) => {
           if (h.role === "user") {
-            return { id: String(h.id), role: "user", content: h.content };
+            return {
+              id: String(h.id),
+              role: "user",
+              content: h.content,
+              created_at: h.created_at,
+            };
           }
           const savedSql = h.generated_sql ?? null;
           if (savedSql) {
@@ -208,6 +237,7 @@ export function ChatBox({
               id: String(h.id),
               role: "assistant",
               content: h.content,
+              created_at: h.created_at,
               sql: savedSql,
               sql_type: (h.sql_type as SqlType) ?? sqlType,
               referenced_tables: [],
@@ -221,6 +251,7 @@ export function ChatBox({
             id: String(h.id),
             role: "assistant",
             content: "",
+            created_at: h.created_at,
             sql: h.content,
             sql_type: (h.sql_type as SqlType) ?? sqlType,
             referenced_tables: [],
@@ -256,21 +287,35 @@ export function ChatBox({
     abortRef.current?.abort();
   }, []);
 
+  const elapsedCompletedMs = messages.reduce(
+    (sum, msg) => sum + (msg.role === "assistant" ? msg.elapsed_ms ?? 0 : 0),
+    0
+  );
+  const elapsedOngoingMs =
+    isLoading && requestStartedAtRef.current
+      ? Math.max(0, Math.round(nowMs - requestStartedAtRef.current))
+      : 0;
+  const sessionElapsedMs = elapsedCompletedMs + elapsedOngoingMs;
+
   const send = useCallback(
     async (query: string) => {
       if (!query.trim() || isLoading) return;
       setInput("");
+      const requestStartAt = Date.now();
+      requestStartedAtRef.current = requestStartAt;
 
       const userMsg: ChatMessage = {
         id: uuidv4(),
         role: "user",
         content: query,
+        created_at: new Date().toISOString(),
       };
       const assistantMsgId = uuidv4();
       const assistantMsg: ChatMessage = {
         id: assistantMsgId,
         role: "assistant",
         content: "",
+        created_at: new Date().toISOString(),
         sql: "",
         sql_type: sqlType,
         isStreaming: true,
@@ -407,6 +452,10 @@ export function ChatBox({
                         sql: doneEvt.sql,
                         content: doneEvt.answer ?? "",
                         isStreaming: false,
+                        elapsed_ms: Math.max(
+                          0,
+                          Math.round(Date.now() - requestStartAt)
+                        ),
                         executed: doneEvt.executed,
                         exec_error: doneEvt.exec_error ?? undefined,
                         result_preview: doneEvt.result_preview ?? undefined,
@@ -427,6 +476,10 @@ export function ChatBox({
                         ...m,
                         content: `错误: ${(event as { type: "error"; message: string }).message}`,
                         isStreaming: false,
+                        elapsed_ms: Math.max(
+                          0,
+                          Math.round(Date.now() - requestStartAt)
+                        ),
                       }
                     : m
                 )
@@ -440,7 +493,15 @@ export function ChatBox({
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantMsgId
-                ? { ...m, content: "已停止生成", isStreaming: false }
+                ? {
+                    ...m,
+                    content: "已停止生成",
+                    isStreaming: false,
+                    elapsed_ms: Math.max(
+                      0,
+                      Math.round(Date.now() - requestStartAt)
+                    ),
+                  }
                 : m
             )
           );
@@ -452,6 +513,10 @@ export function ChatBox({
                     ...m,
                     content: `请求失败: ${err instanceof Error ? err.message : "未知错误"}`,
                     isStreaming: false,
+                        elapsed_ms: Math.max(
+                          0,
+                          Math.round(Date.now() - requestStartAt)
+                        ),
                   }
                 : m
             )
@@ -459,6 +524,7 @@ export function ChatBox({
         }
       } finally {
         setIsLoading(false);
+        requestStartedAtRef.current = null;
         abortRef.current = null;
       }
     },
@@ -501,6 +567,9 @@ export function ChatBox({
               />
               <span>生成后尝试执行查询（仅 PostgreSQL / MySQL）</span>
             </label>
+            <div className="text-[11px] text-muted-foreground/80 font-medium">
+              会话累计耗时: {formatDuration(sessionElapsedMs)}
+            </div>
             
             {messages.length > 0 && (
               <div className="flex items-center gap-4">

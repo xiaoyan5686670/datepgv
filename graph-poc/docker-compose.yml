@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  neo4j:
+    image: neo4j:5.18.0-community
+    container_name: neo4j-community
+    restart: unless-stopped
+    ports:
+      - "7474:7474" # HTTP Browser
+      - "7687:7687" # Bolt Protocol
+    environment:
+      - NEO4J_AUTH=neo4j/password123
+      - NEO4J_server_memory_pagecache_size=1G
+      - NEO4J_server_memory_heap_initial__size=1G
+      - NEO4J_server_memory_heap_max__size=2G
+    volumes:
+      - ./neo4j/data:/data
+      - ./neo4j/logs:/logs
+      - ./neo4j/import:/var/lib/neo4j/import
+      - ./neo4j/plugins:/plugins
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  memgraph:
+    image: memgraph/memgraph-platform:latest
+    container_name: memgraph
+    restart: unless-stopped
+    ports:
+      - "7688:7687" # Bolt Protocol (Mapped to 7688 to avoid conflict with Neo4j)
+      - "3000:3000" # Memgraph Lab (Browser)
+    environment:
+      - MEMGRAPH_PORT=7687
+    volumes:
+      - ./memgraph/lib:/var/lib/memgraph
+      - ./memgraph/log:/var/log/memgraph
+      - ./memgraph/etc:/etc/memgraph

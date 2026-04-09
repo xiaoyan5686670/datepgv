@@ -51,11 +51,13 @@ class TableMetadata(Base):
         "TableMetadataEdge",
         foreign_keys="TableMetadataEdge.from_metadata_id",
         back_populates="from_table",
+        passive_deletes=True,
     )
     edges_to: Mapped[list["TableMetadataEdge"]] = relationship(
         "TableMetadataEdge",
         foreign_keys="TableMetadataEdge.to_metadata_id",
         back_populates="to_table",
+        passive_deletes=True,
     )
 
     __table_args__ = (

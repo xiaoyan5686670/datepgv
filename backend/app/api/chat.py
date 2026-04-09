@@ -27,7 +27,9 @@ from app.services.analytics_db_settings_service import (
     effective_postgres_execute_url,
 )
 from app.core.config import settings
+from app.models.user import User
 from app.services.query_executor import QueryExecutorError, QueryResult, run_analytics_query
+from app.services.org_hierarchy import filter_rows_by_scope, get_user_scope_codes
 from app.services.rag import RAGEngine
 from app.services.sql_generator import process_llm_output
 from app.services.sql_column_repair import repair_sql_unknown_columns
@@ -196,6 +198,7 @@ async def _save_messages(
 async def chat_stream(
     request: ChatRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ) -> StreamingResponse:
     """
     SSE streaming chat endpoint.
@@ -348,7 +351,20 @@ async def chat_stream(
                         _SQL_COLUMN_REPAIR_MAX_ROUNDS,
                         still,
                     )
-                qres = await run_analytics_query(request.sql_type, clean_sql, db)
+                user_scope_codes = get_user_scope_codes(current_user)
+                qres = await run_analytics_query(
+                    request.sql_type,
+                    clean_sql,
+                    db,
+                    scope_values=user_scope_codes,
+                )
+                if user_scope_codes is not None:
+                    scoped_rows = filter_rows_by_scope(qres.rows, user_scope_codes)
+                    qres = QueryResult(
+                        columns=qres.columns,
+                        rows=scoped_rows,
+                        truncated=qres.truncated or (len(scoped_rows) < len(qres.rows)),
+                    )
                 executed = True
                 result_preview = {
                     "columns": qres.columns,

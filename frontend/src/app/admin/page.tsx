@@ -16,6 +16,7 @@ import {
   Table,
   Trash2,
   Upload,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -137,6 +138,13 @@ function AdminPageInner() {
                 表关系
               </button>
             </div>
+            <Link
+              href="/users"
+              className="flex items-center gap-1.5 text-xs text-app-muted hover:text-app-text px-2.5 py-1 rounded-lg border border-app-border hover:border-app-accent/50 transition-all"
+            >
+              <Users size={12} />
+              用户管理
+            </Link>
             <Link
               href="/settings"
               className="flex items-center gap-1.5 text-xs text-app-muted hover:text-app-text px-2.5 py-1 rounded-lg border border-app-border hover:border-app-accent/50 transition-all"

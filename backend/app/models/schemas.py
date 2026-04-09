@@ -215,3 +215,65 @@ class UserMeResponse(BaseModel):
     username: str
     is_active: bool
     roles: list[str]
+    province: str | None = None
+    employee_level: str = "staff"
+    district: str | None = None
+    full_name: str | None = None
+
+
+# ── User Management ───────────────────────────────────────────────────────────
+
+
+class UserBase(BaseModel):
+    username: str = Field(..., min_length=1, max_length=100)
+    is_active: bool = True
+    province: str | None = None
+    employee_level: Literal["admin", "province_manager", "staff"] = "staff"
+    district: str | None = None
+    full_name: str | None = None
+
+
+class UserCreate(UserBase):
+    password: str = Field(..., min_length=6)
+
+
+class UserUpdate(BaseModel):
+    is_active: bool | None = None
+    province: str | None = Field(None, description="省份")
+    employee_level: Literal["admin", "province_manager", "staff"] | None = None
+    district: str | None = None
+    full_name: str | None = None
+    password: str | None = Field(None, min_length=6, description="如果提供则更新密码")
+
+
+class UserResponse(UserBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    roles: list[str] = Field(default_factory=list)
+
+    model_config = {"from_attributes": True}
+
+
+class UserImportResponse(BaseModel):
+    total: int
+    created: int
+    updated: int
+    skipped: int
+    errors: list[str] = Field(default_factory=list)
+
+
+class UserImportRow(BaseModel):
+    """For bulk import from CSV/Excel."""
+    username: str
+    password: str | None = None  # if omitted, use default or skip
+    full_name: str | None = None
+    province: str | None = None
+    employee_level: Literal["admin", "province_manager", "staff"] = "staff"
+    district: str | None = None
+    is_active: bool = True
+
+
+class UserImportRequest(BaseModel):
+    users: list[UserImportRow]
+    overwrite_existing: bool = False

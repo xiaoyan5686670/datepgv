@@ -8,6 +8,7 @@ import {
   Settings,
   Table,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -186,6 +187,13 @@ function HomePageInner() {
           
           {user?.roles.includes("admin") ? (
             <div className="hidden sm:flex items-center gap-2">
+              <Link
+                href="/users"
+                className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground px-3 py-2 rounded-full border bg-background hover:bg-accent transition-all"
+              >
+                <Users size={14} />
+                用户
+              </Link>
               <Link
                 href="/admin"
                 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground px-3 py-2 rounded-full border bg-background hover:bg-accent transition-all"

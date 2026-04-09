@@ -1,10 +1,17 @@
 import type {
   AuthUser,
   ChatSessionSummary,
+  OrgGraphResponse,
   SqlType,
+  SyncOrgCsvResponse,
   TableMetadata,
   TableMetadataEdge,
   TableRelationType,
+  User,
+  UserCreate,
+  UserUpdate,
+  UserImportRequest,
+  UserImportResponse,
 } from "@/types";
 
 export const ACCESS_TOKEN_KEY = "datepgv_access_token";
@@ -441,4 +448,113 @@ export async function fetchOllamaModels(apiBase: string): Promise<string[]> {
   }
   const data = (await res.json()) as { models?: string[] };
   return data.models ?? [];
+}
+
+// ── User Management ───────────────────────────────────────────────────────────
+
+export async function fetchUsers(
+  province?: string,
+  employeeLevel?: string,
+  skip = 0,
+  limit = 50
+): Promise<User[]> {
+  const params = new URLSearchParams({
+    skip: String(skip),
+    limit: String(limit),
+  });
+  if (province) params.append("province", province);
+  if (employeeLevel) params.append("employee_level", employeeLevel);
+
+  const res = await apiFetch(`${apiV1Prefix()}/users/?${params}`);
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "加载用户列表失败"));
+  }
+  return res.json();
+}
+
+export async function createUser(payload: UserCreate): Promise<User> {
+  const res = await apiFetch(`${apiV1Prefix()}/users/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "创建用户失败"));
+  }
+  return res.json();
+}
+
+export async function updateUser(id: number, payload: UserUpdate): Promise<User> {
+  const res = await apiFetch(`${apiV1Prefix()}/users/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "更新用户失败"));
+  }
+  return res.json();
+}
+
+export async function deleteUser(id: number): Promise<void> {
+  const res = await apiFetch(`${apiV1Prefix()}/users/${id}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) {
+    throw new Error(await readErrorMessage(res, "删除用户失败"));
+  }
+}
+
+export async function importUsers(payload: UserImportRequest): Promise<UserImportResponse> {
+  const res = await apiFetch(`${apiV1Prefix()}/users/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "用户导入失败"));
+  }
+  return res.json();
+}
+
+export async function importUsersCsv(
+  file: File,
+  overwriteExisting = false
+): Promise<UserImportResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await apiFetch(
+    `${apiV1Prefix()}/users/import/csv?overwrite_existing=${overwriteExisting}`,
+    {
+      method: "POST",
+      body: form,
+    }
+  );
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "CSV 导入失败"));
+  }
+  return res.json();
+}
+
+export async function syncUsersFromOrgCsv(
+  overwriteExisting = false,
+  defaultPassword?: string
+): Promise<SyncOrgCsvResponse> {
+  const params = new URLSearchParams();
+  if (overwriteExisting) params.set("overwrite_existing", "true");
+  if (defaultPassword?.trim()) params.set("default_password", defaultPassword.trim());
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const res = await apiFetch(`${apiV1Prefix()}/users/sync/org-csv${suffix}`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "同步通讯录失败"));
+  }
+  return res.json();
+}
+
+export async function fetchOrgGraph(): Promise<OrgGraphResponse> {
+  const res = await apiFetch(`${apiV1Prefix()}/users/org-graph`);
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "加载组织架构失败"));
+  }
+  return res.json();
 }

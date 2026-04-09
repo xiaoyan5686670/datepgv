@@ -56,6 +56,10 @@ async def read_me(
         username=current.username,
         is_active=current.is_active,
         roles=[r.name for r in current.roles],
+        province=current.province,
+        employee_level=current.employee_level,
+        district=current.district,
+        full_name=current.full_name,
     )
 
 

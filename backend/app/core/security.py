@@ -18,6 +18,13 @@ def verify_password(plain: str, password_hash: str) -> bool:
         return False
 
 
+def get_password_hash(password: str) -> str:
+    """Hash a password for storing."""
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
+    return hashed.decode("utf-8")
+
+
 def create_access_token(subject: str, expires_delta: timedelta | None = None) -> str:
     expire = datetime.now(timezone.utc) + (
         expires_delta

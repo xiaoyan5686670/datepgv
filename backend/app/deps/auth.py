@@ -61,3 +61,16 @@ async def require_admin(
             detail="需要管理员角色",
         )
     return user
+
+
+async def require_province_manager_or_admin(
+    user: Annotated[User, Depends(get_current_active_user)],
+) -> User:
+    """Province managers and admins can manage users in their province."""
+    names = {r.name for r in user.roles}
+    if "admin" in names or "province_manager" in names:
+        return user
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="需要管理员或省管理角色",
+    )
