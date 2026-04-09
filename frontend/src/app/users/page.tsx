@@ -684,13 +684,23 @@ function UsersPageInner() {
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchUsers(
-        filterProvince || undefined,
-        filterLevel || undefined,
-        0,
-        200
-      );
-      setUsers(data);
+      const pageSize = 200;
+      let skip = 0;
+      const all: User[] = [];
+      while (true) {
+        const chunk = await fetchUsers(
+          filterProvince || undefined,
+          filterLevel || undefined,
+          skip,
+          pageSize
+        );
+        all.push(...chunk);
+        if (chunk.length < pageSize) break;
+        skip += pageSize;
+        // Safety guard for unexpected backend paging behavior.
+        if (skip > 20000) break;
+      }
+      setUsers(all);
     } catch {
       // ignore
     } finally {
