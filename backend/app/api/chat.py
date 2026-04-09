@@ -42,6 +42,33 @@ router = APIRouter(
 )
 logger = logging.getLogger(__name__)
 
+
+def _user_is_admin(user: User) -> bool:
+    return any(r.name == "admin" for r in user.roles)
+
+
+def _session_visible_to_user(session: ChatSession, user: User) -> bool:
+    if session.user_id is not None:
+        return session.user_id == user.id
+    return _user_is_admin(user)
+
+
+async def _get_session_for_user(
+    session_id: str,
+    db: AsyncSession,
+    user: User,
+) -> ChatSession:
+    result = await db.execute(
+        select(ChatSession).where(ChatSession.session_id == session_id)
+    )
+    session = result.scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
+    if not _session_visible_to_user(session, user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该会话")
+    return session
+
+
 # 首轮 SQL 若含元数据外列名，最多调用 LLM 纠错几次再执行分析库
 _SQL_COLUMN_REPAIR_MAX_ROUNDS = 2
 
@@ -83,15 +110,24 @@ async def _summarize_query_result(
     return await llm.chat(messages, db)
 
 
-async def _ensure_session(session_id: str | None, db: AsyncSession) -> str:
+async def _ensure_session(
+    session_id: str | None, db: AsyncSession, user: User
+) -> str:
     """Create a chat session row if it doesn't exist; return the session_id."""
     sid = session_id or str(uuid.uuid4())
     existing = await db.execute(
         select(ChatSession).where(ChatSession.session_id == sid)
     )
-    if not existing.scalar_one_or_none():
-        db.add(ChatSession(session_id=sid))
-        await db.commit()
+    row = existing.scalar_one_or_none()
+    if row:
+        if not _session_visible_to_user(row, user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="无权访问该会话",
+            )
+        return sid
+    db.add(ChatSession(session_id=sid, user_id=user.id))
+    await db.commit()
     return sid
 
 
@@ -110,7 +146,10 @@ async def _load_history(
 
 
 @router.get("/sessions", response_model=list[ChatSessionSummary])
-async def list_sessions(db: AsyncSession = Depends(get_db)) -> list[ChatSessionSummary]:
+async def list_sessions(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> list[ChatSessionSummary]:
     """
     List chat sessions ordered by most recent activity.
     Uses a single aggregate query to fetch title and last_message_at.
@@ -151,6 +190,7 @@ async def list_sessions(db: AsyncSession = Depends(get_db)) -> list[ChatSessionS
         .group_by(ChatSession.session_id, ChatSession.created_at, title_msg.c.title)
         .order_by(func.coalesce(func.max(ChatMessage.created_at), ChatSession.created_at).desc())
     )
+    stmt = stmt.where(ChatSession.user_id == current_user.id)
 
     result = await db.execute(stmt)
     rows = result.all()
@@ -213,7 +253,7 @@ async def chat_stream(
     timing_rid = uuid.uuid4().hex[:10]
 
     t0 = time.perf_counter()
-    session_id = await _ensure_session(request.session_id, db)
+    session_id = await _ensure_session(request.session_id, db, current_user)
     ensure_ms = (time.perf_counter() - t0) * 1000
 
     emb_svc = get_embedding_service()
@@ -440,8 +480,10 @@ async def chat_stream(
 async def get_history(
     session_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ) -> list[dict]:
     """Fetch full chat history for a session."""
+    await _get_session_for_user(session_id, db, current_user)
     result = await db.execute(
         select(ChatMessage)
         .where(ChatMessage.session_id == session_id)
@@ -472,14 +514,10 @@ async def get_history(
 async def delete_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
 ) -> Response:
     """Delete a chat session and all its messages."""
-    result = await db.execute(
-        select(ChatSession).where(ChatSession.session_id == session_id)
-    )
-    session = result.scalar_one_or_none()
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = await _get_session_for_user(session_id, db, current_user)
     await db.delete(session)
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
