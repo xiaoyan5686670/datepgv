@@ -162,12 +162,13 @@ def _build_users_from_org_rows() -> list[dict[str, Any]]:
                 "is_active": active,
             }
             return
+        # 合并时只更新非空值
         cur["employee_level"] = merge_employee_level(cur["employee_level"], employee_level)
-        if not cur.get("province") and province:
+        if province and not cur.get("province"):
             cur["province"] = province
-        if not cur.get("district") and district:
+        if district and not cur.get("district"):
             cur["district"] = district
-        if not cur.get("org_region") and org_region:
+        if org_region and not cur.get("org_region"):
             cur["org_region"] = org_region
         cur["is_active"] = bool(cur["is_active"] and active)
 
@@ -199,16 +200,43 @@ def _build_users_from_org_rows() -> list[dict[str, Any]]:
             if not leader_name:
                 continue
             level = infer_employee_level_for_name(leader_name, org)
-            upsert_candidate(
-                candidates,
-                key=leader_name,
-                full_name=leader_name,
-                province=province,
-                district=district,
-                org_region=daqua,
-                employee_level=level,
-                active=True,
-            )
+            # 根据领导层级设置不同的地理范围字段
+            if leader_col == "daquzong":
+                # 大区总不应有 province，只保留 org_region
+                upsert_candidate(
+                    candidates,
+                    key=leader_name,
+                    full_name=leader_name,
+                    province="",
+                    district="",
+                    org_region=daqua,
+                    employee_level=level,
+                    active=True,
+                )
+            elif leader_col == "shengzong":
+                # 省总应有 province
+                upsert_candidate(
+                    candidates,
+                    key=leader_name,
+                    full_name=leader_name,
+                    province=province,
+                    district="",
+                    org_region=daqua,
+                    employee_level=level,
+                    active=True,
+                )
+            else:  # quyuzong
+                # 区域总应有 province 和 district
+                upsert_candidate(
+                    candidates,
+                    key=leader_name,
+                    full_name=leader_name,
+                    province=province,
+                    district=district,
+                    org_region=daqua,
+                    employee_level=level,
+                    active=True,
+                )
 
     return list(candidates.values())
 

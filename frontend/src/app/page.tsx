@@ -22,30 +22,40 @@ import { cn } from "@/lib/utils";
 import { deleteChatSession, fetchChatSessions } from "@/lib/api";
 import type { ChatSessionSummary, SqlType } from "@/types";
 
-const LS_KEY = "datepgv_chat_session_id";
+function lsKey(userId: number): string {
+  return `datepgv_chat_session_id_${userId}`;
+}
 
-function getOrCreateSessionId(): string {
+function getOrCreateSessionId(userId: number): string {
   if (typeof window === "undefined") return uuidv4();
-  const saved = window.localStorage.getItem(LS_KEY);
+  const key = lsKey(userId);
+  const saved = window.localStorage.getItem(key);
   if (saved) return saved;
   const id = uuidv4();
-  window.localStorage.setItem(LS_KEY, id);
+  window.localStorage.setItem(key, id);
   return id;
 }
 
-function persistSessionId(id: string) {
+function persistSessionId(id: string, userId: number) {
   if (typeof window !== "undefined") {
-    window.localStorage.setItem(LS_KEY, id);
+    window.localStorage.setItem(lsKey(userId), id);
   }
 }
 
 function HomePageInner() {
   const { user, logout } = useAuth();
   const [sqlType, setSqlType] = useState<SqlType>("mysql");
-  const [activeSessionId, setActiveSessionId] = useState<string>(getOrCreateSessionId);
+  // AuthGuard guarantees user is non-null before this component renders.
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => getOrCreateSessionId(user!.id));
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  // Reset session when the logged-in account changes (same browser, different user).
+  useEffect(() => {
+    if (!user) return;
+    setActiveSessionId(getOrCreateSessionId(user.id));
+  }, [user?.id]);
 
   // Load sessions on mount and whenever refreshKey changes
   useEffect(() => {
@@ -66,25 +76,25 @@ function HomePageInner() {
   }, []);
 
   const handleSessionChange = useCallback((newId: string) => {
-    persistSessionId(newId);
+    persistSessionId(newId, user!.id);
     setActiveSessionId(newId);
-  }, []);
+  }, [user?.id]);
 
   const handleNewSession = useCallback(() => {
     const id = uuidv4();
-    persistSessionId(id);
+    persistSessionId(id, user!.id);
     setActiveSessionId(id);
     setMobileSidebarOpen(false);
-  }, []);
+  }, [user?.id]);
 
   const handleSelectSession = useCallback(
     (sid: string) => {
       if (sid === activeSessionId) return;
-      persistSessionId(sid);
+      persistSessionId(sid, user!.id);
       setActiveSessionId(sid);
       setMobileSidebarOpen(false);
     },
-    [activeSessionId]
+    [activeSessionId, user?.id]
   );
 
   const handleDeleteSession = useCallback(
