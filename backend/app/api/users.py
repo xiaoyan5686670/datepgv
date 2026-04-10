@@ -30,6 +30,7 @@ from app.models.schemas import (
 from app.models.user import Role, User
 from app.services.org_hierarchy import (
     OrgData,
+    _split_leader_names,
     get_org_graph_payload,
     infer_employee_level_for_name,
     load_org_data,
@@ -177,7 +178,8 @@ def _build_users_from_org_rows() -> list[dict[str, Any]]:
         province = clean(r.get("shengfen"))
         district = clean(r.get("quyud"))
         daqua = clean(r.get("daqua"))
-        active = clean(r.get("shifoulizhi")) != "是"
+        # disable=0 且未离职 才算在职；disable=1/2 是系统软删除，强制置为不在职
+        active = r.get("disable", "0") == "0" and clean(r.get("shifoulizhi")) != "是"
 
         manager_name = clean(r.get("yewujingli"))
         manager_code = clean(r.get("renyuanbianma"))
@@ -195,48 +197,48 @@ def _build_users_from_org_rows() -> list[dict[str, Any]]:
                 active=active,
             )
 
+        # 领导列支持斜杠分隔多人（如「崔露露/何宾」），并按层级设置地理范围
         for leader_col in ("daquzong", "shengzong", "quyuzong"):
-            leader_name = clean(r.get(leader_col))
-            if not leader_name:
-                continue
-            level = infer_employee_level_for_name(leader_name, org)
-            # 根据领导层级设置不同的地理范围字段
-            if leader_col == "daquzong":
-                # 大区总不应有 province，只保留 org_region
-                upsert_candidate(
-                    candidates,
-                    key=leader_name,
-                    full_name=leader_name,
-                    province="",
-                    district="",
-                    org_region=daqua,
-                    employee_level=level,
-                    active=True,
-                )
-            elif leader_col == "shengzong":
-                # 省总应有 province
-                upsert_candidate(
-                    candidates,
-                    key=leader_name,
-                    full_name=leader_name,
-                    province=province,
-                    district="",
-                    org_region=daqua,
-                    employee_level=level,
-                    active=True,
-                )
-            else:  # quyuzong
-                # 区域总应有 province 和 district
-                upsert_candidate(
-                    candidates,
-                    key=leader_name,
-                    full_name=leader_name,
-                    province=province,
-                    district=district,
-                    org_region=daqua,
-                    employee_level=level,
-                    active=True,
-                )
+            raw_leader = clean(r.get(leader_col, ""))
+            leader_names = _split_leader_names(raw_leader)
+            for leader_name in leader_names:
+                level = infer_employee_level_for_name(leader_name, org)
+                if leader_col == "daquzong":
+                    # 大区总：只保留 org_region，不绑定具体省份
+                    upsert_candidate(
+                        candidates,
+                        key=leader_name,
+                        full_name=leader_name,
+                        province="",
+                        district="",
+                        org_region=daqua,
+                        employee_level=level,
+                        active=True,
+                    )
+                elif leader_col == "shengzong":
+                    # 省总：绑定省份，不绑定区域
+                    upsert_candidate(
+                        candidates,
+                        key=leader_name,
+                        full_name=leader_name,
+                        province=province,
+                        district="",
+                        org_region=daqua,
+                        employee_level=level,
+                        active=True,
+                    )
+                else:  # quyuzong
+                    # 区域总：绑定省份和区域
+                    upsert_candidate(
+                        candidates,
+                        key=leader_name,
+                        full_name=leader_name,
+                        province=province,
+                        district=district,
+                        org_region=daqua,
+                        employee_level=level,
+                        active=True,
+                    )
 
     return list(candidates.values())
 

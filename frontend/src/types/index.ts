@@ -1,12 +1,16 @@
 export type SqlType = "hive" | "postgresql" | "oracle" | "mysql";
 
-/** 与通讯录推导的组织层级一致（同步 / 管理端） */
+/**
+ * 与通讯录推导的组织层级一致（同步 / 管理端）。
+ * 从高到低：admin > region_executive > province_executive
+ *           > province_manager > area_executive > area_manager > staff
+ */
 export type EmployeeOrgLevel =
   | "admin"
   | "region_executive"
   | "province_executive"
-  | "area_executive"
   | "province_manager"
+  | "area_executive"
   | "area_manager"
   | "staff";
 

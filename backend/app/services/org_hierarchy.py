@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -11,15 +12,43 @@ from app.models.user import User
 CSV_PATH = Path(__file__).resolve().parents[3] / "业务经理通讯录.csv"
 INVALID_TOKENS = {"", "/", "-", "无", "null", "none", "nan"}
 
-# 数值越大权限层级越高（同步合并时取较高）
+# 数值越大权限层级越高（同步合并时取较高）。
+# 正确业务层级（从高到低）：
+#   大区总 > 省总 > 省区经理（zhiwu 省级但非省总）> 区域总 > 区域经理 > 基层
 EMPLOYEE_LEVEL_RANK: dict[str, int] = {
-    "region_executive": 60,
-    "province_executive": 50,
-    "area_executive": 40,
-    "province_manager": 30,
-    "area_manager": 20,
+    "region_executive": 60,   # 大区总
+    "province_executive": 50, # 省总（shengzong 列）
+    "province_manager": 45,   # 省区经理（zhiwu，非 shengzong）
+    "area_executive": 40,     # 区域总（quyuzong 列）
+    "area_manager": 20,       # 区域经理（zhiwu，非 quyuzong）
     "staff": 10,
 }
+
+# 不是真实人名的领导列垃圾值（超出 INVALID_TOKENS 的补充）
+_GARBAGE_NAMES: frozenset[str] = frozenset({"测试", "、"})
+_EMPLOYEE_CODE_RE = re.compile(r"^XY\d+$", re.IGNORECASE)
+
+
+def _is_valid_person_name(s: str) -> bool:
+    """判断字符串是否像真实人名（过滤数字、工号、垃圾值）。"""
+    if not s or len(s) < 2:
+        return False
+    if s.isdigit():
+        return False
+    if _EMPLOYEE_CODE_RE.match(s):
+        return False
+    if s in _GARBAGE_NAMES:
+        return False
+    return True
+
+
+def _split_leader_names(raw: str) -> list[str]:
+    """
+    把领导列中斜杠分隔的多人值拆分为独立姓名列表。
+    例：「崔露露/何宾」→ ['崔露露', '何宾']
+    """
+    parts = [p.strip() for p in raw.split("/") if p.strip()]
+    return [p for p in parts if _is_valid_person_name(p)]
 
 
 @dataclass
@@ -79,21 +108,27 @@ def _build_org() -> OrgData:
         district = _pick(raw, "quyud")
         code = _pick(raw, "renyuanbianma")
         manager = _pick(raw, "yewujingli")
-        daquzong = _pick(raw, "daquzong")
-        shengzong = _pick(raw, "shengzong")
-        quyuzong = _pick(raw, "quyuzong")
         title = _pick(raw, "zhiwu")
+
+        # 领导列支持斜杠分隔多人（如「崔露露/何宾」），并过滤垃圾值
+        daquzong_names = _split_leader_names(_pick(raw, "daquzong"))
+        shengzong_names = _split_leader_names(_pick(raw, "shengzong"))
+        quyuzong_names  = _split_leader_names(_pick(raw, "quyuzong"))
+        # 取第一个有效名字用于边关系（多人共担时取首位）
+        daquzong = daquzong_names[0] if daquzong_names else ""
+        shengzong = shengzong_names[0] if shengzong_names else ""
+        quyuzong  = quyuzong_names[0]  if quyuzong_names  else ""
 
         if code and manager:
             by_name_codes.setdefault(manager, set()).add(code)
 
-        for role, name in (
-            ("daquzong", daquzong),
-            ("shengzong", shengzong),
-            ("quyuzong", quyuzong),
-            ("yewujingli", manager),
+        for role, names in (
+            ("daquzong", daquzong_names),
+            ("shengzong", shengzong_names),
+            ("quyuzong", quyuzong_names),
+            ("yewujingli", [manager] if manager else []),
         ):
-            if name:
+            for name in names:
                 by_role_names[role].add(name)
 
         if manager:
@@ -141,14 +176,52 @@ def load_org_data() -> OrgData:
     return _cached_org(mtime)
 
 
+def _remove_cycle_edges(edges: list[dict[str, str]]) -> list[dict[str, str]]:
+    """
+    Iterative DFS that identifies back-edges (edges that close a cycle) and
+    removes them so the returned edge list forms a DAG.
+    """
+    adj: dict[str, list[str]] = {}
+    for e in edges:
+        adj.setdefault(e["from"], []).append(e["to"])
+
+    visited: set[str] = set()
+    in_stack: set[str] = set()
+    back_edges: set[tuple[str, str]] = set()
+
+    for start in list(adj.keys()):
+        if start in visited:
+            continue
+        visited.add(start)
+        in_stack.add(start)
+        # Stack holds (node, iterator-over-children)
+        stack: list[tuple[str, Any]] = [(start, iter(adj.get(start, [])))]
+        while stack:
+            node, children = stack[-1]
+            try:
+                child = next(children)
+                if child in in_stack:
+                    back_edges.add((node, child))
+                elif child not in visited:
+                    visited.add(child)
+                    in_stack.add(child)
+                    stack.append((child, iter(adj.get(child, []))))
+            except StopIteration:
+                stack.pop()
+                in_stack.discard(node)
+
+    return [e for e in edges if (e["from"], e["to"]) not in back_edges]
+
+
 def get_org_graph_payload() -> dict[str, Any]:
     org = load_org_data()
+    acyclic_edges = _remove_cycle_edges(org.edges)
     return {
         "source_csv": str(CSV_PATH),
         "node_count": len(org.nodes),
-        "edge_count": len(org.edges),
+        "edge_count": len(acyclic_edges),
         "nodes": list(org.nodes.values()),
-        "edges": org.edges,
+        "edges": acyclic_edges,
     }
 
 
@@ -209,8 +282,9 @@ def org_primary_name(user: User, org: OrgData) -> str:
 
 def infer_employee_level_for_name(name: str, org: OrgData) -> str:
     """
-    Infer level from 通讯录: leader columns (daquzong/shengzong/quyuzong) override zhiwu.
-    省区* / 公立省区经理等 -> province_manager；区域经理 -> area_manager；其余 staff。
+    按通讯录推断层级，领导列优先（daquzong > shengzong > quyuzong），
+    然后按 zhiwu 关键词推断（大区经理→region_executive，省区*→province_manager，
+    区域经理→area_executive，其余→staff）。
     """
     if not _norm(name):
         return "staff"
@@ -222,6 +296,9 @@ def infer_employee_level_for_name(name: str, org: OrgData) -> str:
         return "area_executive"
     titles = {_pick(r, "zhiwu") for r in org.rows if _pick(r, "yewujingli") == name}
     for t in titles:
+        if t and "大区经理" in t:
+            return "region_executive"
+    for t in titles:
         if t and "省区" in t:
             return "province_manager"
     for t in titles:
@@ -230,10 +307,15 @@ def infer_employee_level_for_name(name: str, org: OrgData) -> str:
     return "staff"
 
 
+def _name_matches_field(name: str, raw_field: str) -> bool:
+    """Check if *name* is one of the (possibly slash-separated) values in *raw_field*."""
+    return name in _split_leader_names(raw_field)
+
+
 def _scope_from_leader_column(org: OrgData, col: str, leader_name: str) -> set[str]:
     out: set[str] = {leader_name}
     for r in org.rows:
-        if _pick(r, col) != leader_name:
+        if not _name_matches_field(leader_name, _pick(r, col)):
             continue
         for key in ("renyuanbianma", "yewujingli"):
             v = _pick(r, key)
@@ -260,7 +342,7 @@ def provinces_for_region_executive(full_name: str, org: OrgData) -> set[str]:
     regions = {
         _pick(r, "daqua")
         for r in org.rows
-        if _pick(r, "daquzong") == full_name and _pick(r, "daqua")
+        if _name_matches_field(full_name, _pick(r, "daquzong")) and _pick(r, "daqua")
     }
     if not regions:
         return set()
@@ -275,7 +357,7 @@ def provinces_for_province_executive(full_name: str, org: OrgData) -> set[str]:
     return {
         _pick(r, "shengfen")
         for r in org.rows
-        if _pick(r, "shengzong") == full_name and _pick(r, "shengfen")
+        if _name_matches_field(full_name, _pick(r, "shengzong")) and _pick(r, "shengfen")
     }
 
 
@@ -283,7 +365,7 @@ def province_district_pairs_for_area_executive(full_name: str, org: OrgData) -> 
     pairs: list[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
     for r in org.rows:
-        if _pick(r, "quyuzong") != full_name:
+        if not _name_matches_field(full_name, _pick(r, "quyuzong")):
             continue
         p, d = _pick(r, "shengfen"), _pick(r, "quyud")
         if not p:

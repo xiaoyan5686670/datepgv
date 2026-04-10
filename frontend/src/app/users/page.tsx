@@ -41,12 +41,13 @@ import type {
   SyncOrgCsvResponse,
 } from "@/types";
 
+// 层级从高到低：大区总 > 省总 > 省区经理 > 区域总 > 区域经理 > 基层
 const EMPLOYEE_LEVEL_VALUES: readonly EmployeeOrgLevel[] = [
   "admin",
   "region_executive",
   "province_executive",
-  "area_executive",
   "province_manager",
+  "area_executive",
   "area_manager",
   "staff",
 ] as const;
@@ -55,8 +56,8 @@ const EMPLOYEE_LEVELS: { value: EmployeeOrgLevel; label: string }[] = [
   { value: "admin", label: "管理员" },
   { value: "region_executive", label: "大区总" },
   { value: "province_executive", label: "省总" },
-  { value: "area_executive", label: "区域总" },
   { value: "province_manager", label: "省区经理" },
+  { value: "area_executive", label: "区域总" },
   { value: "area_manager", label: "区域经理" },
   { value: "staff", label: "业务经理 / 基层" },
 ];
@@ -844,7 +845,10 @@ function UsersPageInner() {
   const selectedOrgNode = (() => {
     const map = new Map(forest.flatMap((r) => {
       const acc: OrgNode[] = [];
+      const seen = new Set<string>();
       const visit = (n: OrgNode) => {
+        if (seen.has(n.name)) return;
+        seen.add(n.name);
         acc.push(n);
         n.children.forEach(visit);
       };
