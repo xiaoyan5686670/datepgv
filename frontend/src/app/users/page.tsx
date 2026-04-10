@@ -15,6 +15,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { UserChip } from "@/components/UserChip";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AuthGuard } from "@/components/AuthGuard";
@@ -915,6 +916,7 @@ function UsersPageInner() {
             </div>
           )}
           <ThemeToggle className="p-2 rounded-full border bg-background hover:bg-accent text-muted-foreground hover:text-foreground transition-all" />
+          <UserChip />
         </div>
       </header>
 

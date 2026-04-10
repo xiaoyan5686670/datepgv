@@ -2,7 +2,6 @@
 
 import {
   Database,
-  LogOut,
   Menu,
   MessageSquarePlus,
   Settings,
@@ -17,6 +16,7 @@ import { v4 as uuidv4 } from "uuid";
 import { AuthGuard } from "@/components/AuthGuard";
 import { ChatBox } from "@/components/ChatBox";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { UserChip } from "@/components/UserChip";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { deleteChatSession, fetchChatSessions } from "@/lib/api";
@@ -221,29 +221,7 @@ function HomePageInner() {
             </div>
           ) : null}
           
-          <div className="flex items-center gap-2 sm:gap-3 pl-1 sm:pl-2">
-            <div className="hidden sm:flex flex-col items-end">
-              <span className="text-xs font-semibold max-w-[100px] truncate" title={user?.username}>
-                {user?.username}
-              </span>
-              <button
-                onClick={() => logout()}
-                className="text-[10px] font-medium text-muted-foreground hover:text-destructive transition-colors"
-              >
-                退出登录
-              </button>
-            </div>
-            <div className="w-8 h-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-bold text-xs">
-              {user?.username?.[0]?.toUpperCase() || "U"}
-            </div>
-            <button
-              onClick={() => logout()}
-              className="sm:hidden p-2 rounded-lg border bg-background hover:bg-accent text-muted-foreground hover:text-destructive transition-colors"
-              aria-label="退出登录"
-            >
-              <LogOut size={14} />
-            </button>
-          </div>
+          <UserChip />
         </div>
       </header>
 
