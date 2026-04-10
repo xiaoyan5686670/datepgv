@@ -332,14 +332,17 @@ export function ChatBox({
       let metaAt: number | null = null;
       let firstTokenAt: number | null = null;
 
-      try {
-        const res = await fetch(
+      // 当前使用的 sessionId（403 时会替换为新 UUID 重试）
+      let effectiveSessionId = sessionId;
+
+      const doFetch = (sid: string) =>
+        fetch(
           buildChatStreamUrl(),
           authFetchInit({
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              session_id: sessionId,
+              session_id: sid,
               query,
               sql_type: sqlType,
               top_k: 5,
@@ -348,7 +351,19 @@ export function ChatBox({
             signal: controller.signal,
           })
         );
+
+      try {
+        let res = await doFetch(effectiveSessionId);
         responseAt = performance.now();
+
+        // session 归属冲突时自动生成新 session 并重试一次
+        // 注意：不在这里调用 onSessionChange，避免触发父组件 key 变化导致组件重新挂载
+        if (res.status === 403) {
+          const newSid = uuidv4();
+          effectiveSessionId = newSid;
+          res = await doFetch(newSid);
+          responseAt = performance.now();
+        }
 
         if (!res.ok || !res.body) {
           let msg = `HTTP ${res.status}`;
@@ -487,6 +502,10 @@ export function ChatBox({
             }
           }
         }
+        // 流完成后，如果因 403 替换了 session，通知父组件更新（避免在流中途触发重渲染）
+        if (effectiveSessionId !== sessionId) {
+          onSessionChange?.(effectiveSessionId);
+        }
         onMessageSent?.();
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
@@ -528,7 +547,7 @@ export function ChatBox({
         abortRef.current = null;
       }
     },
-    [isLoading, sessionId, sqlType, executeQuery, onMessageSent]
+    [isLoading, sessionId, sqlType, executeQuery, onMessageSent, onSessionChange] // onSessionChange 在流结束时调用，保留在依赖中
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

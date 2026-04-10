@@ -121,7 +121,11 @@ async def _ensure_session(
     )
     row = existing.scalar_one_or_none()
     if row:
-        if not _session_visible_to_user(row, user):
+        if row.user_id is None:
+            # 无主会话（用户隔离前遗留）：自动归属当前用户
+            row.user_id = user.id
+            await db.commit()
+        elif row.user_id != user.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="无权访问该会话",

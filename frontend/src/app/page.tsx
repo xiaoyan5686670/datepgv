@@ -374,7 +374,6 @@ function HomePageInner() {
         {/* Chat area */}
         <section className="flex-1 overflow-hidden">
           <ChatBox
-            key={activeSessionId}
             sqlType={sqlType}
             sessionId={activeSessionId}
             onSessionChange={handleSessionChange}
