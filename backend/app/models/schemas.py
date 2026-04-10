@@ -250,6 +250,7 @@ class UserCreate(UserBase):
 
 
 class UserUpdate(BaseModel):
+    username: str | None = Field(None, min_length=1, max_length=100, description="工号/登录账号")
     is_active: bool | None = None
     province: str | None = Field(None, description="省份")
     org_region: str | None = None

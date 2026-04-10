@@ -54,6 +54,7 @@ export interface UserCreate {
 }
 
 export interface UserUpdate {
+  username?: string;
   is_active?: boolean;
   province?: string | null;
   org_region?: string | null;

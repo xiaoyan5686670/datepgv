@@ -6,7 +6,7 @@ import {
   normalizePathSegments,
   readBufferedBody,
   resolveRedirectUrl,
-} from "./route";
+} from "./proxy-helpers";
 
 test("normalizePathSegments encodes reserved characters", () => {
   const out = normalizePathSegments(["a b", "x/y", "q?z"]);

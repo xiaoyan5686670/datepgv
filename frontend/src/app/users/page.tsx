@@ -128,6 +128,10 @@ function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
           is_active: isActive,
         };
         if (password.trim()) payload.password = password;
+        // 仅在用户名实际发生变更时才提交，避免不必要的覆盖
+        if (username.trim() && username.trim() !== editUser.username) {
+          payload.username = username.trim();
+        }
         await updateUser(editUser.id, payload);
       } else {
         if (!password.trim()) {
@@ -180,17 +184,23 @@ function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
           )}
 
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">用户名 *</label>
+            <label className="text-sm font-medium">
+              用户名（工号）{!isEdit && " *"}
+            </label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              disabled={isEdit}
               required
               minLength={3}
-              className="w-full px-3 py-2 text-sm border rounded-lg bg-background disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-primary/20"
-              placeholder="登录用户名"
+              className="w-full px-3 py-2 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+              placeholder="登录用户名 / 工号"
             />
+            {isEdit && (
+              <p className="text-xs text-muted-foreground">
+                修改工号将同步更新登录账号，请谨慎操作。
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">

@@ -411,7 +411,10 @@ async def get_user(
     current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> UserResponse:
     """Get user by ID with access control."""
-    user = await db.get(User, user_id)
+    result = await db.execute(
+        select(User).where(User.id == user_id).options(selectinload(User.roles))
+    )
+    user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
 
@@ -432,7 +435,10 @@ async def update_user(
     current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> UserResponse:
     """Update user (self or admin)."""
-    user = await db.get(User, user_id)
+    result = await db.execute(
+        select(User).where(User.id == user_id).options(selectinload(User.roles))
+    )
+    user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
 
@@ -447,13 +453,26 @@ async def update_user(
         user.password_hash = get_password_hash(update_data["password"])
         del update_data["password"]
 
+    # Username uniqueness check (only when actually changing it)
+    new_username = update_data.get("username")
+    if new_username and new_username != user.username:
+        dup = await db.execute(
+            select(User).where(User.username == new_username, User.id != user_id)
+        )
+        if dup.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail=f"用户名 '{new_username}' 已被占用")
+
     for field, value in update_data.items():
         if value is not None:
             setattr(user, field, value)
 
     await db.commit()
-    await db.refresh(user)
-    return _user_to_response(user)
+
+    # 重新加载（含 roles），避免懒加载触发 MissingGreenlet
+    refreshed = await db.execute(
+        select(User).where(User.id == user_id).options(selectinload(User.roles))
+    )
+    return _user_to_response(refreshed.scalar_one())
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
