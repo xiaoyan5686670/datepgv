@@ -25,7 +25,7 @@ EMPLOYEE_LEVEL_RANK: dict[str, int] = {
 }
 
 # 不是真实人名的领导列垃圾值（超出 INVALID_TOKENS 的补充）
-_GARBAGE_NAMES: frozenset[str] = frozenset({"测试", "、"})
+_GARBAGE_NAMES: frozenset[str] = frozenset({"测试", "、", "张三"})
 _EMPLOYEE_CODE_RE = re.compile(r"^XY\d+$", re.IGNORECASE)
 
 
@@ -93,6 +93,7 @@ def _read_csv_rows() -> list[dict[str, str]]:
 def _build_org() -> OrgData:
     rows = _read_csv_rows()
     edges: list[dict[str, str]] = []
+    _seen_edges: set[tuple[str, str]] = set()   # 去重：同一对 (parent, child) 只保留一条边
     nodes: dict[str, dict[str, Any]] = {}
     by_name_codes: dict[str, set[str]] = {}
     by_role_names: dict[str, set[str]] = {
@@ -149,6 +150,10 @@ def _build_org() -> OrgData:
         def add_edge(parent: str, child: str, rel: str) -> None:
             if not parent or not child or parent == child:
                 return
+            key = (parent, child)
+            if key in _seen_edges:
+                return
+            _seen_edges.add(key)
             edges.append({"from": parent, "to": child, "relation": rel})
             nodes.setdefault(parent, {"name": parent})
             nodes.setdefault(child, {"name": child})
@@ -156,6 +161,12 @@ def _build_org() -> OrgData:
         add_edge(daquzong, shengzong, "daquzong_to_shengzong")
         add_edge(shengzong, quyuzong, "shengzong_to_quyuzong")
         add_edge(quyuzong, manager, "quyuzong_to_manager")
+        # 当区域总缺失时，直接从省总连到业务经理
+        if shengzong and not quyuzong and manager and manager != shengzong:
+            add_edge(shengzong, manager, "shengzong_to_manager")
+        # 当省总也缺失时，直接从大区总连到业务经理
+        if daquzong and not shengzong and manager and manager != daquzong:
+            add_edge(daquzong, manager, "daquzong_to_manager")
 
     return OrgData(
         rows=rows,
@@ -215,7 +226,10 @@ def _remove_cycle_edges(edges: list[dict[str, str]]) -> list[dict[str, str]]:
 
 def get_org_graph_payload() -> dict[str, Any]:
     org = load_org_data()
-    acyclic_edges = _remove_cycle_edges(org.edges)
+    # 大区总是顶级节点，不应出现为任何人的子节点；过滤掉此类边后再去环
+    dq_names = org.by_role_names["daquzong"]
+    top_protected_edges = [e for e in org.edges if e["to"] not in dq_names]
+    acyclic_edges = _remove_cycle_edges(top_protected_edges)
     return {
         "source_csv": str(CSV_PATH),
         "node_count": len(org.nodes),

@@ -178,8 +178,11 @@ def _build_users_from_org_rows() -> list[dict[str, Any]]:
         province = clean(r.get("shengfen"))
         district = clean(r.get("quyud"))
         daqua = clean(r.get("daqua"))
-        # disable=0 且未离职 才算在职；disable=1/2 是系统软删除，强制置为不在职
-        active = r.get("disable", "0") == "0" and clean(r.get("shifoulizhi")) != "是"
+        # 清洗后的通讯录已去除无效行，所有行视为在职
+        # 若原始 CSV 仍含 disable/shifoulizhi 字段则兼容处理
+        _disable = r.get("disable", "")
+        _lizhi   = clean(r.get("shifoulizhi", ""))
+        active   = (_disable == "" or _disable == "0") and _lizhi != "是"
 
         manager_name = clean(r.get("yewujingli"))
         manager_code = clean(r.get("renyuanbianma"))

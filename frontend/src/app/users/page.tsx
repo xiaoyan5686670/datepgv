@@ -621,15 +621,19 @@ function buildOrgForest(nodes: OrgGraphNode[], edges: Array<{ from: string; to: 
     base.set(n.name, { ...n, children: [], depth: 0 });
   }
   const childNames = new Set<string>();
+  // 用 Set 追踪每对 (parent, child) 避免重复添加（防御后端残余重复边）
+  const addedEdges = new Set<string>();
   for (const e of edges) {
     const p = base.get(e.from);
     const c = base.get(e.to);
     if (!p || !c) continue;
+    const key = `${e.from}\0${e.to}`;
+    if (addedEdges.has(key)) continue;
+    addedEdges.add(key);
     p.children.push(c);
     childNames.add(c.name);
   }
   let roots = Array.from(base.values()).filter((n) => !childNames.has(n.name));
-  // If all nodes are in a cycle, fallback to all nodes to avoid empty render.
   if (roots.length === 0) roots = Array.from(base.values());
   const setDepth = (node: OrgNode, d: number, visiting: Set<string>) => {
     if (visiting.has(node.name)) return;
