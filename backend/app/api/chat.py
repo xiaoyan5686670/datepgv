@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response, StreamingResponse
 
 from app.deps.auth import get_current_active_user
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -48,12 +48,6 @@ def _user_is_admin(user: User) -> bool:
     return any(r.name == "admin" for r in user.roles)
 
 
-def _session_visible_to_user(session: ChatSession, user: User) -> bool:
-    if session.user_id is not None:
-        return session.user_id == user.id
-    return _user_is_admin(user)
-
-
 async def _get_session_for_user(
     session_id: str,
     db: AsyncSession,
@@ -65,7 +59,11 @@ async def _get_session_for_user(
     session = result.scalar_one_or_none()
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="会话不存在")
-    if not _session_visible_to_user(session, user):
+    if session.user_id is None:
+        # 认领无主遗留会话（用户隔离前创建），避免 403
+        session.user_id = user.id
+        await db.flush()
+    elif session.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该会话")
     return session
 
@@ -197,20 +195,37 @@ async def list_sessions(
         .group_by(ChatSession.session_id, ChatSession.created_at, title_msg.c.title)
         .order_by(func.coalesce(func.max(ChatMessage.created_at), ChatSession.created_at).desc())
     )
-    stmt = stmt.where(ChatSession.user_id == current_user.id)
-
-    result = await db.execute(stmt)
-    rows = result.all()
-
-    return [
-        ChatSessionSummary(
-            session_id=row.session_id,
-            title=row.title[:40] + "..." if len(row.title) > 40 else row.title,
-            created_at=row.created_at,
-            last_message_at=row.last_message_at,
+    if _user_is_admin(current_user):
+        # Admin sees their own sessions AND any unclaimed (NULL) legacy sessions
+        stmt = stmt.where(
+            or_(
+                ChatSession.user_id == current_user.id,
+                ChatSession.user_id.is_(None),
+            )
         )
-        for row in rows
-    ]
+    else:
+        stmt = stmt.where(ChatSession.user_id == current_user.id)
+
+    try:
+        result = await db.execute(stmt)
+        rows = result.all()
+    except Exception as exc:
+        logger.exception("list_sessions query failed for user_id=%s: %s", current_user.id, exc)
+        raise HTTPException(status_code=500, detail=f"查询会话列表失败：{exc}") from exc
+
+    try:
+        return [
+            ChatSessionSummary(
+                session_id=row.session_id,
+                title=(row.title or "新会话")[:40] + ("..." if len(row.title or "") > 40 else ""),
+                created_at=row.created_at,
+                last_message_at=row.last_message_at,
+            )
+            for row in rows
+        ]
+    except Exception as exc:
+        logger.exception("list_sessions serialization failed for user_id=%s: %s", current_user.id, exc)
+        raise HTTPException(status_code=500, detail=f"会话列表序列化失败：{exc}") from exc
 
 
 async def _save_messages(

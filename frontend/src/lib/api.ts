@@ -301,6 +301,16 @@ export async function fetchChatSessions(): Promise<ChatSessionSummary[]> {
   return res.json();
 }
 
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 export async function fetchChatHistory(
   sessionId: string
 ): Promise<
@@ -321,7 +331,7 @@ export async function fetchChatHistory(
   }[]
 > {
   const res = await apiFetch(`${apiV1Prefix()}/chat/sessions/${sessionId}/history`);
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new ApiError(res.status, await res.text());
   return res.json();
 }
 

@@ -11,6 +11,7 @@ import {
 import { v4 as uuidv4 } from "uuid";
 import { cn } from "@/lib/utils";
 import {
+  ApiError,
   authFetchInit,
   buildChatStreamUrl,
   deleteChatSession,
@@ -269,14 +270,22 @@ export function ChatBox({
           };
         });
         setMessages(mapped);
-      } catch {
-        setMessages([]);
+      } catch (err) {
+        if (!cancelled) {
+          if (err instanceof ApiError && err.status === 403) {
+            // session 属于其他用户，自动切换新 session
+            onSessionChange?.(uuidv4());
+          } else {
+            // 404 = session 尚未入库（新会话，正常）；其他错误同理：清空消息，等用户发第一条时自动创建
+            setMessages([]);
+          }
+        }
       } finally {
         if (!cancelled) setLoadingHistory(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [sessionId, sqlType]);
+  }, [sessionId, sqlType, onSessionChange]);
 
   const clearSession = useCallback(async () => {
     try {
