@@ -205,12 +205,17 @@ def _build_users_from_org_rows() -> list[dict[str, Any]]:
             raw_leader = clean(r.get(leader_col, ""))
             leader_names = _split_leader_names(raw_leader)
             for leader_name in leader_names:
+                # 优先用该人在通讯录中的工号作为 username key，
+                # 避免用中文姓名当账号；找不到工号才退回姓名
+                leader_codes = org.by_name_codes.get(leader_name, set())
+                leader_key = next(iter(sorted(leader_codes))) if leader_codes else leader_name
+
                 level = infer_employee_level_for_name(leader_name, org)
                 if leader_col == "daquzong":
                     # 大区总：只保留 org_region，不绑定具体省份
                     upsert_candidate(
                         candidates,
-                        key=leader_name,
+                        key=leader_key,
                         full_name=leader_name,
                         province="",
                         district="",
@@ -222,7 +227,7 @@ def _build_users_from_org_rows() -> list[dict[str, Any]]:
                     # 省总：绑定省份，不绑定区域
                     upsert_candidate(
                         candidates,
-                        key=leader_name,
+                        key=leader_key,
                         full_name=leader_name,
                         province=province,
                         district="",
@@ -234,7 +239,7 @@ def _build_users_from_org_rows() -> list[dict[str, Any]]:
                     # 区域总：绑定省份和区域
                     upsert_candidate(
                         candidates,
-                        key=leader_name,
+                        key=leader_key,
                         full_name=leader_name,
                         province=province,
                         district=district,
