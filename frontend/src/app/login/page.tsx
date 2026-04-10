@@ -8,13 +8,37 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 
+const REMEMBER_KEY = "datepgv_remember_cred";
+
+function loadSavedCredentials(): { username: string; password: string } | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(REMEMBER_KEY);
+    if (!raw) return null;
+    const decoded = JSON.parse(atob(raw));
+    if (decoded?.username && decoded?.password) return decoded;
+  } catch { /* corrupted */ }
+  return null;
+}
+
+function saveCredentials(username: string, password: string) {
+  localStorage.setItem(REMEMBER_KEY, btoa(JSON.stringify({ username, password })));
+}
+
+function clearSavedCredentials() {
+  localStorage.removeItem(REMEMBER_KEY);
+}
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnUrl = searchParams.get("returnUrl") || "/";
   const { user, loading, login } = useAuth();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+
+  const saved = loadSavedCredentials();
+  const [username, setUsername] = useState(saved?.username ?? "");
+  const [password, setPassword] = useState(saved?.password ?? "");
+  const [remember, setRemember] = useState(!!saved);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,6 +54,11 @@ function LoginForm() {
     setSubmitting(true);
     try {
       await login(username.trim(), password);
+      if (remember) {
+        saveCredentials(username.trim(), password);
+      } else {
+        clearSavedCredentials();
+      }
       router.replace(returnUrl.startsWith("/") ? returnUrl : "/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "登录失败");
@@ -93,6 +122,18 @@ function LoginForm() {
                 required
               />
             </div>
+
+            <label className="flex items-center gap-2 select-none cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+                className="h-4 w-4 rounded border-app-border text-app-accent focus:ring-app-accent/30 accent-app-accent cursor-pointer"
+              />
+              <span className="text-xs text-app-muted group-hover:text-app-text transition-colors">
+                记住密码
+              </span>
+            </label>
 
             {error ? (
               <p className="text-xs text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2">

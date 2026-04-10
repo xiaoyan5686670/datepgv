@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { AuthGuard } from "@/components/AuthGuard";
 import { ChatBox } from "@/components/ChatBox";
+import { ModelSwitcher } from "@/components/ModelSwitcher";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserChip } from "@/components/UserChip";
 import { useAuth } from "@/contexts/AuthContext";
@@ -190,6 +191,10 @@ function HomePageInner() {
             PostgreSQL / MySQL: 可执行 · Hive / Oracle: 仅生成
           </span>
           </div>
+
+          <div className="hidden md:block h-8 w-px bg-border mx-1" />
+
+          <ModelSwitcher />
 
           <div className="hidden md:block h-8 w-px bg-border mx-1" />
 

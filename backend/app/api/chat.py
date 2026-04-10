@@ -14,11 +14,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response, StreamingResponse
 
 from app.deps.auth import get_current_active_user
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.chat import ChatMessage, ChatSession
+from app.models.llm_config import LLMConfig
 from app.models.schemas import ChatRequest, ChatSessionSummary
 from app.services.embedding import get_embedding_service
 from app.services.llm import LLMService, get_llm_service
@@ -551,3 +552,51 @@ async def delete_session(
     await db.delete(session)
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ── LLM model list / switch (accessible to all authenticated users) ───────────
+
+
+@router.get("/models")
+async def list_llm_models(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> list[dict]:
+    """Return available LLM configs (type='llm') with id, name, model, is_active."""
+    result = await db.execute(
+        select(LLMConfig)
+        .where(LLMConfig.config_type == "llm")
+        .order_by(LLMConfig.is_active.desc(), LLMConfig.name)
+    )
+    rows = result.scalars().all()
+    return [
+        {
+            "id": r.id,
+            "name": r.name,
+            "model": r.model,
+            "is_active": r.is_active,
+        }
+        for r in rows
+    ]
+
+
+@router.post("/models/{config_id}/activate")
+async def activate_llm_model(
+    config_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> dict:
+    """Switch the active LLM model. Deactivates others of same type."""
+    row = await db.get(LLMConfig, config_id)
+    if not row or row.config_type != "llm":
+        raise HTTPException(status_code=404, detail="模型配置不存在")
+    await db.execute(
+        update(LLMConfig)
+        .where(LLMConfig.config_type == "llm")
+        .where(LLMConfig.id != config_id)
+        .values(is_active=False)
+    )
+    row.is_active = True
+    await db.commit()
+    await db.refresh(row)
+    return {"id": row.id, "name": row.name, "model": row.model, "is_active": True}

@@ -340,6 +340,27 @@ export async function deleteChatSession(sessionId: string): Promise<void> {
   if (!res.ok && res.status !== 204) throw new Error(await res.text());
 }
 
+// ── Chat LLM model list / switch ─────────────────────────────────────────────
+
+export interface LLMModelOption {
+  id: number;
+  name: string;
+  model: string;
+  is_active: boolean;
+}
+
+export async function fetchLLMModels(): Promise<LLMModelOption[]> {
+  const res = await apiFetch(`${apiV1Prefix()}/chat/models`);
+  if (!res.ok) throw new Error(await readErrorMessage(res, "加载模型列表失败"));
+  return res.json();
+}
+
+export async function activateLLMModel(configId: number): Promise<LLMModelOption> {
+  const res = await apiFetch(`${apiV1Prefix()}/chat/models/${configId}/activate`, { method: "POST" });
+  if (!res.ok) throw new Error(await readErrorMessage(res, "切换模型失败"));
+  return res.json();
+}
+
 // ── LLM Config ────────────────────────────────────────────────────────────────
 
 import type {
