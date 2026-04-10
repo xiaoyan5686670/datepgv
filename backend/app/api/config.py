@@ -13,14 +13,20 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.deps.auth import require_admin
 from app.models.llm_config import LLMConfig
+from app.models.data_scope_policy import DataScopePolicy
+from app.models.user import User
 from app.models.schemas import (
     AnalyticsDbSettingsResponse,
     AnalyticsDbSettingsWrite,
     AnalyticsDbTestRequest,
+    DataScopePolicyCreate,
+    DataScopePolicyResponse,
+    DataScopePolicyUpdate,
     LLMConfigCreate,
     LLMConfigResponse,
     LLMConfigTestResult,
@@ -31,12 +37,37 @@ from app.services.litellm_kwargs import (
     build_completion_kwargs,
     build_embedding_kwargs,
 )
+from app.services.scope_policy_service import resolve_user_scope
 
 router = APIRouter(
     prefix="/config",
     tags=["config"],
     dependencies=[Depends(require_admin)],
 )
+
+
+def _normalize_scope_policy_payload(data: dict) -> dict:
+    if data.get("subject_type") == "user":
+        data["subject_type"] = "user_id"
+    if isinstance(data.get("allowed_values"), list):
+        data["allowed_values"] = [str(v).strip() for v in data["allowed_values"] if str(v).strip()]
+    if isinstance(data.get("deny_values"), list):
+        data["deny_values"] = [str(v).strip() for v in data["deny_values"] if str(v).strip()]
+    if isinstance(data.get("subject_key"), str):
+        data["subject_key"] = data["subject_key"].strip()
+    if data.get("subject_type") == "user_id":
+        data["subject_key"] = str(data.get("subject_key") or "").strip()
+        if data["subject_key"] and not data["subject_key"].isdigit():
+            raise HTTPException(status_code=422, detail="subject_type=user_id 时 subject_key 必须是数字")
+    allow = set(data.get("allowed_values") or [])
+    deny = set(data.get("deny_values") or [])
+    overlap = sorted(allow & deny)
+    if overlap:
+        raise HTTPException(
+            status_code=422,
+            detail=f"allowed_values 与 deny_values 不能重叠: {overlap}",
+        )
+    return data
 
 
 def _to_response(row: LLMConfig) -> LLMConfigResponse:
@@ -125,6 +156,118 @@ async def get_analytics_db_settings(
         postgres_effective_configured=bool(eff_pg),
         mysql_effective_configured=bool(eff_my),
     )
+
+
+@router.get("/scope-policies", response_model=list[DataScopePolicyResponse])
+async def list_scope_policies(
+    db: AsyncSession = Depends(get_db),
+) -> list[DataScopePolicyResponse]:
+    rows = await db.execute(
+        select(DataScopePolicy).order_by(
+            DataScopePolicy.enabled.desc(),
+            DataScopePolicy.priority.asc(),
+            DataScopePolicy.id.asc(),
+        )
+    )
+    return [DataScopePolicyResponse.model_validate(r) for r in rows.scalars().all()]
+
+
+@router.post("/scope-policies", response_model=DataScopePolicyResponse, status_code=201)
+async def create_scope_policy(
+    payload: DataScopePolicyCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> DataScopePolicyResponse:
+    data = _normalize_scope_policy_payload(payload.model_dump())
+    data["updated_by"] = current_user.username
+    row = DataScopePolicy(**data)
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return DataScopePolicyResponse.model_validate(row)
+
+
+@router.put("/scope-policies/{policy_id}", response_model=DataScopePolicyResponse)
+async def update_scope_policy(
+    policy_id: int,
+    payload: DataScopePolicyUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> DataScopePolicyResponse:
+    row = await db.get(DataScopePolicy, policy_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="策略不存在")
+    data = _normalize_scope_policy_payload(payload.model_dump(exclude_unset=True))
+    data["updated_by"] = current_user.username
+    for k, v in data.items():
+        setattr(row, k, v)
+    await db.commit()
+    await db.refresh(row)
+    return DataScopePolicyResponse.model_validate(row)
+
+
+@router.delete("/scope-policies/{policy_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+async def delete_scope_policy(
+    policy_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    row = await db.get(DataScopePolicy, policy_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="策略不存在")
+    await db.delete(row)
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/scope-policies/bulk-set-enabled", response_model=list[DataScopePolicyResponse])
+async def bulk_set_scope_policies_enabled(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> list[DataScopePolicyResponse]:
+    ids = payload.get("ids")
+    enabled = payload.get("enabled")
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(status_code=422, detail="ids 不能为空")
+    if not isinstance(enabled, bool):
+        raise HTTPException(status_code=422, detail="enabled 必须是布尔值")
+    cast_ids = [int(i) for i in ids if str(i).isdigit()]
+    if not cast_ids:
+        raise HTTPException(status_code=422, detail="ids 无有效策略ID")
+    rows = await db.execute(select(DataScopePolicy).where(DataScopePolicy.id.in_(cast_ids)))
+    policies = rows.scalars().all()
+    for row in policies:
+        row.enabled = enabled
+        row.updated_by = current_user.username
+    await db.commit()
+    for row in policies:
+        await db.refresh(row)
+    return [DataScopePolicyResponse.model_validate(r) for r in policies]
+
+
+@router.get("/scope-policies/preview/{user_id}")
+async def preview_scope_for_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    row = await db.execute(
+        select(User).where(User.id == user_id).options(selectinload(User.roles))
+    )
+    user = row.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    scope = await resolve_user_scope(user, db)
+    return {
+        "user_id": user_id,
+        "username": user.username,
+        "source": scope.source,
+        "policy_ids": scope.policy_ids,
+        "unrestricted": scope.unrestricted,
+        "province_values": sorted(scope.province_values),
+        "employee_values": sorted(scope.employee_values),
+        "region_values": sorted(scope.region_values),
+        "district_values": sorted(scope.district_values),
+    }
 
 
 @router.put("/analytics-db", response_model=AnalyticsDbSettingsResponse)

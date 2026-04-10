@@ -22,6 +22,7 @@ from app.services.analytics_db_settings_service import (
     effective_mysql_execute_url,
     effective_postgres_execute_url,
 )
+from app.services.scope_types import ResolvedScope
 
 SqlEngine = Literal["postgresql", "mysql"]
 
@@ -43,7 +44,24 @@ _SCOPE_NAME_COLUMNS = (
     "manager_name",
     "username",
 )
-_SCOPE_COLUMNS = _SCOPE_CODE_COLUMNS + _SCOPE_NAME_COLUMNS
+_SCOPE_PROVINCE_COLUMNS = (
+    "shengfen",
+    "province",
+    "province_name",
+    "prov",
+)
+_SCOPE_REGION_COLUMNS = (
+    "daqua",
+    "org_region",
+    "region",
+    "region_name",
+)
+_SCOPE_DISTRICT_COLUMNS = (
+    "quyud",
+    "district",
+    "district_name",
+    "area_name",
+)
 
 
 class QueryExecutorError(Exception):
@@ -160,35 +178,79 @@ def _build_scoped_wrapped_sql(
     engine: SqlEngine,
     sql: str,
     visible_columns: list[str],
-    scope_values: set[str] | None,
+    scope: ResolvedScope | None,
 ) -> str:
-    if scope_values is None:
+    if scope is None or scope.unrestricted:
         return sql
 
-    values = sorted({v for v in scope_values if str(v).strip()})
-    if not values:
+    if not scope.has_any_constraint:
         # No visible identity means no rows should be readable.
         return f"SELECT * FROM ({sql}) __scope_base WHERE 1=0"
 
     visible_lower_to_raw = {c.lower(): c for c in visible_columns}
-    matched_raw_cols = [
-        visible_lower_to_raw[c] for c in _SCOPE_COLUMNS if c in visible_lower_to_raw
-    ]
-    if not matched_raw_cols:
+    predicates: list[str] = []
+
+    def _add_predicates(
+        columns: tuple[str, ...], values: set[str], *, is_pg: bool
+    ) -> None:
+        scoped_values = sorted({v for v in values if str(v).strip()})
+        if not scoped_values:
+            return
+        matched_cols = [visible_lower_to_raw[c] for c in columns if c in visible_lower_to_raw]
+        if not matched_cols:
+            return
+        in_list = ", ".join(_quote_sql_str(v) for v in scoped_values)
+        for col in matched_cols:
+            if is_pg:
+                predicates.append(f"CAST({_quote_pg_ident(col)} AS TEXT) IN ({in_list})")
+            else:
+                predicates.append(f"CAST({_quote_mysql_ident(col)} AS CHAR) IN ({in_list})")
+
+    if engine == "postgresql":
+        _add_predicates(
+            _SCOPE_CODE_COLUMNS + _SCOPE_NAME_COLUMNS,
+            set(scope.employee_values),
+            is_pg=True,
+        )
+        _add_predicates(
+            _SCOPE_PROVINCE_COLUMNS,
+            set(scope.province_values),
+            is_pg=True,
+        )
+        _add_predicates(
+            _SCOPE_REGION_COLUMNS,
+            set(scope.region_values),
+            is_pg=True,
+        )
+        _add_predicates(
+            _SCOPE_DISTRICT_COLUMNS,
+            set(scope.district_values),
+            is_pg=True,
+        )
+    else:
+        _add_predicates(
+            _SCOPE_CODE_COLUMNS + _SCOPE_NAME_COLUMNS,
+            set(scope.employee_values),
+            is_pg=False,
+        )
+        _add_predicates(
+            _SCOPE_PROVINCE_COLUMNS,
+            set(scope.province_values),
+            is_pg=False,
+        )
+        _add_predicates(
+            _SCOPE_REGION_COLUMNS,
+            set(scope.region_values),
+            is_pg=False,
+        )
+        _add_predicates(
+            _SCOPE_DISTRICT_COLUMNS,
+            set(scope.district_values),
+            is_pg=False,
+        )
+    if not predicates:
         # Query result doesn't expose identity columns; block data by default.
         return f"SELECT * FROM ({sql}) __scope_base WHERE 1=0"
-
-    in_list = ", ".join(_quote_sql_str(v) for v in values)
-    if engine == "postgresql":
-        predicates = [
-            f"CAST({_quote_pg_ident(col)} AS TEXT) IN ({in_list})"
-            for col in matched_raw_cols
-        ]
-    else:
-        predicates = [
-            f"CAST({_quote_mysql_ident(col)} AS CHAR) IN ({in_list})"
-            for col in matched_raw_cols
-        ]
     where_expr = " OR ".join(predicates)
     return f"SELECT * FROM ({sql}) __scope_base WHERE ({where_expr})"
 
@@ -203,7 +265,9 @@ async def _probe_postgresql_columns(conn: asyncpg.Connection, sql: str) -> list[
         ) from e
 
 
-async def _run_postgresql(dsn: str, sql: str, scope_values: set[str] | None = None) -> QueryResult:
+async def _run_postgresql(
+    dsn: str, sql: str, scope: ResolvedScope | None = None
+) -> QueryResult:
     dsn = _normalize_postgres_dsn(dsn)
     timeout = float(settings.ANALYTICS_QUERY_TIMEOUT_SEC)
     max_rows = settings.ANALYTICS_MAX_ROWS
@@ -214,7 +278,7 @@ async def _run_postgresql(dsn: str, sql: str, scope_values: set[str] | None = No
             await conn.execute(f"SET LOCAL statement_timeout = {ms}")
             probe_columns = await _probe_postgresql_columns(conn, sql)
             scoped_sql = _build_scoped_wrapped_sql(
-                "postgresql", sql, probe_columns, scope_values
+                "postgresql", sql, probe_columns, scope
             )
             rows_out: list[dict[str, Any]] = []
             truncated = False
@@ -322,7 +386,9 @@ async def _probe_mysql_columns(cur: Any, sql: str, timeout: float) -> list[str]:
     return [str(d[0]) for d in (cur.description or [])]
 
 
-async def _run_mysql(dsn: str, sql: str, scope_values: set[str] | None = None) -> QueryResult:
+async def _run_mysql(
+    dsn: str, sql: str, scope: ResolvedScope | None = None
+) -> QueryResult:
     aiomysql = _require_aiomysql()
 
     params = _parse_mysql_url(dsn)
@@ -352,7 +418,7 @@ async def _run_mysql(dsn: str, sql: str, scope_values: set[str] | None = None) -
             try:
                 probe_columns = await _probe_mysql_columns(cur, sql, timeout)
                 scoped_sql = _build_scoped_wrapped_sql(
-                    "mysql", sql, probe_columns, scope_values
+                    "mysql", sql, probe_columns, scope
                 )
             except Exception as e:
                 hint = _friendly_mysql_access_error(e)
@@ -381,7 +447,7 @@ async def _run_mysql(dsn: str, sql: str, scope_values: set[str] | None = None) -
 
 
 async def run_analytics_query(
-    engine: SqlEngine, sql: str, db: AsyncSession, scope_values: set[str] | None = None
+    engine: SqlEngine, sql: str, db: AsyncSession, scope: ResolvedScope | None = None
 ) -> QueryResult:
     safe_sql = assert_single_read_statement(sql)
     threshold_ms = float(settings.ANALYTICS_SLOW_QUERY_LOG_MS)
@@ -394,13 +460,13 @@ async def run_analytics_query(
                     "无法连接 PostgreSQL 业务库：请在「设置 → 数据连接」配置，"
                     "或设置 DATABASE_URL / ANALYTICS_POSTGRES_URL。"
                 )
-            return await _run_postgresql(dsn, safe_sql, scope_values)
+            return await _run_postgresql(dsn, safe_sql, scope)
         dsn = await effective_mysql_execute_url(db)
         if not dsn:
             raise QueryExecutorError(
                 "未配置 MySQL 连接：请在「设置 → 数据连接」填写，或设置 ANALYTICS_MYSQL_URL。"
             )
-        return await _run_mysql(dsn, safe_sql, scope_values)
+        return await _run_mysql(dsn, safe_sql, scope)
     finally:
         elapsed_ms = (time.perf_counter() - t0) * 1000
         if elapsed_ms >= threshold_ms:

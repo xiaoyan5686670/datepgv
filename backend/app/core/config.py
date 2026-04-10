@@ -79,6 +79,12 @@ class Settings(BaseSettings):
     CHAT_STREAM_TIMING_LOG: bool = False
     # If analytics SELECT exceeds this many ms, log WARNING with SQL preview and EXPLAIN hint.
     ANALYTICS_SLOW_QUERY_LOG_MS: int = 2000
+    SCOPE_REWRITE_ENABLED: bool = True
+    # Temporary rollback flag: when true, users without policy rows can still
+    # resolve scope from org CSV. Default false for policy-as-source-of-truth.
+    SCOPE_POLICY_CSV_FALLBACK_ENABLED: bool = False
+    # Bootstrap baseline scope policies from existing users profile fields.
+    SCOPE_POLICY_AUTO_BACKFILL_ON_STARTUP: bool = True
 
     def effective_analytics_postgres_url(self) -> str | None:
         """Sync postgres DSN for asyncpg execute; explicit override or derived from DATABASE_URL."""

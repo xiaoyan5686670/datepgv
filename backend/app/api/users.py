@@ -28,6 +28,8 @@ from app.models.schemas import (
     UserUpdate,
 )
 from app.models.user import Role, User
+from app.services.scope_policy_service import canonical_province_name
+from app.services.scope_types import ResolvedScope
 from app.services.org_hierarchy import (
     OrgData,
     _split_leader_names,
@@ -42,6 +44,7 @@ from app.services.org_hierarchy import (
     provinces_for_province_executive,
     provinces_for_region_executive,
 )
+from app.services.scope_policy_service import resolve_user_scope
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -97,6 +100,47 @@ def _list_users_scope_clause(viewer: User, org: OrgData) -> Any | None:
         return or_(*conds) if len(conds) > 1 else conds[0]
 
     return User.id == viewer.id
+
+
+def _build_user_visibility_clause(scope: ResolvedScope, viewer_user_id: int) -> Any:
+    if scope.unrestricted:
+        return None
+    conds: list[Any] = [User.id == viewer_user_id]
+
+    if scope.employee_values:
+        conds.append(User.username.in_(sorted(scope.employee_values)))
+        conds.append(User.full_name.in_(sorted(scope.employee_values)))
+        employee_id_values = [int(v) for v in scope.employee_values if str(v).isdigit()]
+        if employee_id_values:
+            conds.append(User.id.in_(sorted(set(employee_id_values))))
+    if scope.province_values:
+        conds.append(User.province.in_(sorted(scope.province_values)))
+    if scope.region_values:
+        conds.append(User.org_region.in_(sorted(scope.region_values)))
+    if scope.district_values:
+        conds.append(User.district.in_(sorted(scope.district_values)))
+
+    if not conds:
+        return User.id == -1
+    return or_(*conds)
+
+
+def _user_matches_scope(user: User, scope: ResolvedScope) -> bool:
+    if scope.unrestricted:
+        return True
+    if str(user.id) in scope.employee_values:
+        return True
+    if user.username and user.username in scope.employee_values:
+        return True
+    if user.full_name and user.full_name in scope.employee_values:
+        return True
+    if user.province and canonical_province_name(user.province) in scope.province_values:
+        return True
+    if user.org_region and user.org_region in scope.region_values:
+        return True
+    if user.district and user.district in scope.district_values:
+        return True
+    return False
 
 
 def _user_to_response(user: User, roles: list[str] | None = None) -> UserResponse:
@@ -333,16 +377,16 @@ async def list_users(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
 ) -> list[UserResponse]:
-    """List users. Admins see all; 其余按 employee_level + 通讯录推导可见范围。"""
+    """List users. Admins see all; non-admins are filtered by policy scope."""
     current_roles = {r.name for r in current_user.roles} if current_user.roles else set()
 
     stmt = select(User).options(selectinload(User.roles))
 
     if "admin" not in current_roles:
-        org = load_org_data()
-        scope = _list_users_scope_clause(current_user, org)
-        if scope is not None:
-            stmt = stmt.where(scope)
+        scope = await resolve_user_scope(current_user, db)
+        visibility_clause = _build_user_visibility_clause(scope, current_user.id)
+        if visibility_clause is not None:
+            stmt = stmt.where(visibility_clause)
 
     if province:
         stmt = stmt.where(User.province == province)
@@ -420,8 +464,8 @@ async def get_user(
 
     current_roles = {r.name for r in current_user.roles} if current_user.roles else set()
     if user.id != current_user.id and "admin" not in current_roles:
-        org = load_org_data()
-        if not management_can_view_user(current_user, user, org):
+        scope = await resolve_user_scope(current_user, db)
+        if not _user_matches_scope(user, scope):
             raise HTTPException(status_code=403, detail="无权查看此用户")
 
     return _user_to_response(user)

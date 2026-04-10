@@ -7,7 +7,6 @@ import {
   normalizePathSegments,
   readBufferedBody,
   resolveRedirectUrl,
-  MAX_BUFFERED_BODY_BYTES,
 } from "./proxy-helpers";
 
 export const dynamic = "force-dynamic";

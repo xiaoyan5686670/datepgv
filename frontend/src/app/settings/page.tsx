@@ -6,9 +6,12 @@ import {
   Database,
   Edit2,
   Loader2,
+  Search,
   Plus,
   RefreshCw,
   Settings,
+  Shield,
+  Users,
   Trash2,
   Wifi,
   XCircle,
@@ -28,15 +31,23 @@ import {
   testAnalyticsDbConnection,
   testConfig,
   updateAnalyticsDbSettings,
+  fetchScopePolicies,
+  createScopePolicy,
+  updateScopePolicy,
+  deleteScopePolicy,
+  bulkSetScopePoliciesEnabled,
+  previewScopeForUser,
 } from "@/lib/api";
 import type {
   AnalyticsDbSettings,
   AnalyticsDbSettingsWrite,
   LLMConfig,
   LLMConfigTestResult,
+  DataScopePolicy,
+  DataScopePreview,
 } from "@/types";
 
-type TabType = "llm" | "embedding" | "analytics";
+type TabType = "llm" | "embedding" | "analytics" | "scope";
 
 function SettingsPageInner() {
   const [activeTab, setActiveTab] = useState<TabType>("llm");
@@ -58,6 +69,37 @@ function SettingsPageInner() {
     loading: boolean;
     result?: LLMConfigTestResult;
   }>({ loading: false });
+  const [scopePolicies, setScopePolicies] = useState<DataScopePolicy[]>([]);
+  const [scopeLoading, setScopeLoading] = useState(false);
+  const [scopeSaving, setScopeSaving] = useState(false);
+  const [scopeBulkLoading, setScopeBulkLoading] = useState(false);
+  const [editingPolicyId, setEditingPolicyId] = useState<number | null>(null);
+  const [showScopeEditor, setShowScopeEditor] = useState(false);
+  const [scopeQuery, setScopeQuery] = useState("");
+  const [scopeDimensionFilter, setScopeDimensionFilter] = useState<
+    "all" | DataScopePolicy["dimension"]
+  >("all");
+  const [scopeSubjectFilter, setScopeSubjectFilter] = useState<
+    "all" | DataScopePolicy["subject_type"]
+  >("all");
+  const [scopeEnabledFilter, setScopeEnabledFilter] = useState<"all" | "enabled" | "disabled">(
+    "all"
+  );
+  const [selectedPolicyIds, setSelectedPolicyIds] = useState<number[]>([]);
+  const [previewUserIdInput, setPreviewUserIdInput] = useState("");
+  const [scopePreviewLoading, setScopePreviewLoading] = useState(false);
+  const [scopePreview, setScopePreview] = useState<DataScopePreview | null>(null);
+  const [scopeForm, setScopeForm] = useState({
+    subject_type: "level" as DataScopePolicy["subject_type"],
+    subject_key: "",
+    dimension: "province" as DataScopePolicy["dimension"],
+    allowed_values: "",
+    deny_values: "",
+    merge_mode: "union" as DataScopePolicy["merge_mode"],
+    priority: 100,
+    enabled: true,
+    note: "",
+  });
   const [mysqlTest, setMysqlTest] = useState<{
     loading: boolean;
     result?: LLMConfigTestResult;
@@ -89,6 +131,32 @@ function SettingsPageInner() {
     }
   }, []);
 
+  const resetScopeEditor = useCallback(() => {
+    setEditingPolicyId(null);
+    setScopeForm({
+      subject_type: "level",
+      subject_key: "",
+      dimension: "province",
+      allowed_values: "",
+      deny_values: "",
+      merge_mode: "union",
+      priority: 100,
+      enabled: true,
+      note: "",
+    });
+  }, []);
+
+  const loadScopePolicies = useCallback(async () => {
+    setScopeLoading(true);
+    try {
+      setScopePolicies(await fetchScopePolicies());
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "加载权限策略失败");
+    } finally {
+      setScopeLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     load();
   }, [load]);
@@ -96,8 +164,10 @@ function SettingsPageInner() {
   useEffect(() => {
     if (activeTab === "analytics") {
       loadAnalytics();
+    } else if (activeTab === "scope") {
+      loadScopePolicies();
     }
-  }, [activeTab, loadAnalytics]);
+  }, [activeTab, loadAnalytics, loadScopePolicies]);
 
   const displayed =
     activeTab === "analytics"
@@ -107,6 +177,7 @@ function SettingsPageInner() {
     activeTab === "analytics"
       ? undefined
       : displayed.find((c) => c.is_active);
+  const isModelTab = activeTab === "llm" || activeTab === "embedding";
 
   const handleActivate = async (id: number) => {
     setActivating(id);
@@ -253,6 +324,71 @@ function SettingsPageInner() {
     }
   };
 
+  const filteredScopePolicies = scopePolicies.filter((p) => {
+    const q = scopeQuery.trim().toLowerCase();
+    const matchesQuery =
+      !q ||
+      `${p.subject_type}:${p.subject_key}`.toLowerCase().includes(q) ||
+      (p.note ?? "").toLowerCase().includes(q) ||
+      p.allowed_values.join(",").toLowerCase().includes(q) ||
+      p.deny_values.join(",").toLowerCase().includes(q);
+    const matchesDimension =
+      scopeDimensionFilter === "all" || p.dimension === scopeDimensionFilter;
+    const matchesSubject =
+      scopeSubjectFilter === "all" || p.subject_type === scopeSubjectFilter;
+    const matchesEnabled =
+      scopeEnabledFilter === "all" ||
+      (scopeEnabledFilter === "enabled" ? p.enabled : !p.enabled);
+    return matchesQuery && matchesDimension && matchesSubject && matchesEnabled;
+  });
+
+  const allFilteredSelected =
+    filteredScopePolicies.length > 0 &&
+    filteredScopePolicies.every((p) => selectedPolicyIds.includes(p.id));
+
+  const toggleSelectFiltered = () => {
+    if (allFilteredSelected) {
+      const filteredIds = new Set(filteredScopePolicies.map((p) => p.id));
+      setSelectedPolicyIds((prev) => prev.filter((id) => !filteredIds.has(id)));
+      return;
+    }
+    setSelectedPolicyIds((prev) => {
+      const out = new Set(prev);
+      filteredScopePolicies.forEach((p) => out.add(p.id));
+      return [...out];
+    });
+  };
+
+  const applyBulkEnabled = async (enabled: boolean) => {
+    if (!selectedPolicyIds.length) return;
+    setScopeBulkLoading(true);
+    try {
+      await bulkSetScopePoliciesEnabled(selectedPolicyIds, enabled);
+      await loadScopePolicies();
+      setSelectedPolicyIds([]);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "批量更新策略失败");
+    } finally {
+      setScopeBulkLoading(false);
+    }
+  };
+
+  const runScopePreview = async () => {
+    const userId = Number(previewUserIdInput.trim());
+    if (!Number.isFinite(userId) || userId <= 0) {
+      alert("请输入有效的用户ID");
+      return;
+    }
+    setScopePreviewLoading(true);
+    try {
+      setScopePreview(await previewScopeForUser(userId));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "预览失败");
+    } finally {
+      setScopePreviewLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-app-bg text-app-text">
       {/* Header */}
@@ -267,12 +403,12 @@ function SettingsPageInner() {
             </Link>
             <Settings size={18} className="text-app-accent" />
             <span className="font-semibold">
-              {activeTab === "analytics" ? "数据连接" : "模型配置"}
+              {activeTab === "analytics" ? "数据连接" : activeTab === "scope" ? "数据权限策略" : "模型配置"}
             </span>
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle className="p-2 rounded-lg border border-app-border text-app-muted hover:text-app-text hover:border-app-accent/50 transition-all" />
-            {activeTab !== "analytics" && (
+            {activeTab !== "analytics" && activeTab !== "scope" && (
               <button
                 onClick={() => {
                   setEditTarget(undefined);
@@ -302,10 +438,15 @@ function SettingsPageInner() {
             <code className="text-app-accent">ANALYTICS_MYSQL_URL</code> /
             <code className="text-app-accent">ANALYTICS_POSTGRES_URL</code>。
           </div>
+        ) : activeTab === "scope" ? (
+          <div className="mb-6 bg-app-accent/5 border border-app-accent/20 rounded-xl px-5 py-4 text-sm text-app-muted">
+            这里维护 <strong className="text-app-text">SQL 范围策略表</strong>（唯一权限事实源）。
+            生效顺序：按 priority 从小到大；支持 union/replace。值请用逗号分隔（例如：广西,广东）。
+          </div>
         ) : (
           <div className="mb-6 bg-app-accent/5 border border-app-accent/20 rounded-xl px-5 py-4 text-sm text-app-muted">
             在这里管理所有 LLM 和 Embedding 模型配置。
-            <span className="text-app-text">将任意配置设为"活跃"</span>
+            <span className="text-app-text">将任意配置设为“活跃”</span>
             后，整个系统立即切换到该模型，无需重启服务。
             支持 OpenAI、Gemini、DeepSeek、Anthropic、Ollama
             等所有 LiteLLM 兼容的 Provider。
@@ -314,7 +455,7 @@ function SettingsPageInner() {
 
         {/* Tabs */}
         <div className="flex gap-1 mb-6 bg-app-surface border border-app-border rounded-xl p-1 w-fit flex-wrap">
-          {(["llm", "embedding", "analytics"] as TabType[]).map((tab) => {
+          {(["llm", "embedding", "analytics", "scope"] as TabType[]).map((tab) => {
             const active =
               tab !== "analytics" &&
               configs.find((c) => c.config_type === tab && c.is_active);
@@ -333,7 +474,9 @@ function SettingsPageInner() {
                   ? "LLM 模型"
                   : tab === "embedding"
                     ? "Embedding 模型"
-                    : "数据连接"}
+                    : tab === "analytics"
+                      ? "数据连接"
+                      : "权限策略"}
                 {active && (
                   <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
                 )}
@@ -341,7 +484,13 @@ function SettingsPageInner() {
             );
           })}
           <button
-            onClick={() => (activeTab === "analytics" ? loadAnalytics() : load())}
+            onClick={() => (
+              activeTab === "analytics"
+                ? loadAnalytics()
+                : activeTab === "scope"
+                  ? loadScopePolicies()
+                  : load()
+            )}
             className="ml-2 px-2 text-app-muted hover:text-app-text transition-colors"
             title="刷新"
           >
@@ -350,7 +499,7 @@ function SettingsPageInner() {
         </div>
 
         {/* Active config callout */}
-        {activeTab !== "analytics" && activeConfig && (
+        {isModelTab && activeConfig && (
           <div className="mb-4 flex items-center gap-3 bg-green-500/5 border border-green-500/20 rounded-xl px-4 py-3">
             <CheckCircle size={16} className="text-green-400 flex-shrink-0" />
             <span className="text-sm text-app-text">
@@ -363,7 +512,7 @@ function SettingsPageInner() {
           </div>
         )}
 
-        {activeTab !== "analytics" && !activeConfig && !loading && (
+        {isModelTab && !activeConfig && !loading && (
           <div className="mb-4 flex items-center gap-3 bg-amber-500/5 border border-amber-500/20 rounded-xl px-4 py-3">
             <XCircle size={16} className="text-amber-400 flex-shrink-0" />
             <span className="text-sm text-amber-300">
@@ -541,8 +690,372 @@ function SettingsPageInner() {
           </div>
         )}
 
+        {activeTab === "scope" && (
+          <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr] mb-8">
+            <div className="space-y-4">
+              <div className="bg-app-surface border border-app-border rounded-xl p-3 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 min-w-64">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-app-subtle" />
+                    <input
+                      value={scopeQuery}
+                      onChange={(e) => setScopeQuery(e.target.value)}
+                      placeholder="搜索主体/备注/allow/deny"
+                      className="w-full rounded-lg bg-app-input border border-app-border pl-8 pr-3 py-2 text-xs"
+                    />
+                  </div>
+                  <select
+                    className="rounded-lg bg-app-input border border-app-border px-2 py-2 text-xs"
+                    value={scopeDimensionFilter}
+                    onChange={(e) =>
+                      setScopeDimensionFilter(e.target.value as "all" | DataScopePolicy["dimension"])
+                    }
+                  >
+                    <option value="all">全部维度</option>
+                    <option value="province">province</option>
+                    <option value="employee">employee</option>
+                    <option value="region">region</option>
+                    <option value="district">district</option>
+                  </select>
+                  <select
+                    className="rounded-lg bg-app-input border border-app-border px-2 py-2 text-xs"
+                    value={scopeSubjectFilter}
+                    onChange={(e) =>
+                      setScopeSubjectFilter(e.target.value as "all" | DataScopePolicy["subject_type"])
+                    }
+                  >
+                    <option value="all">全部主体</option>
+                    <option value="level">level</option>
+                    <option value="role">role</option>
+                    <option value="user_id">user_id</option>
+                    <option value="user_name">user_name</option>
+                  </select>
+                  <select
+                    className="rounded-lg bg-app-input border border-app-border px-2 py-2 text-xs"
+                    value={scopeEnabledFilter}
+                    onChange={(e) =>
+                      setScopeEnabledFilter(e.target.value as "all" | "enabled" | "disabled")
+                    }
+                  >
+                    <option value="all">全部状态</option>
+                    <option value="enabled">仅启用</option>
+                    <option value="disabled">仅禁用</option>
+                  </select>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <button
+                    onClick={() => {
+                      resetScopeEditor();
+                      setShowScopeEditor(true);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-app-accent text-white"
+                  >
+                    新增策略
+                  </button>
+                  <button
+                    onClick={toggleSelectFiltered}
+                    className="px-3 py-1.5 rounded-lg border border-app-border text-app-muted hover:text-app-text"
+                  >
+                    {allFilteredSelected ? "取消全选筛选结果" : "全选筛选结果"}
+                  </button>
+                  <button
+                    disabled={!selectedPolicyIds.length || scopeBulkLoading}
+                    onClick={() => applyBulkEnabled(true)}
+                    className="px-3 py-1.5 rounded-lg border border-green-500/30 text-green-400 disabled:opacity-40"
+                  >
+                    批量启用({selectedPolicyIds.length})
+                  </button>
+                  <button
+                    disabled={!selectedPolicyIds.length || scopeBulkLoading}
+                    onClick={() => applyBulkEnabled(false)}
+                    className="px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 disabled:opacity-40"
+                  >
+                    批量禁用({selectedPolicyIds.length})
+                  </button>
+                </div>
+              </div>
+
+              {scopeLoading ? (
+                <div className="flex justify-center py-10">
+                  <Loader2 size={20} className="animate-spin text-app-accent" />
+                </div>
+              ) : (
+                <div className="bg-app-surface border border-app-border rounded-xl overflow-hidden">
+                  <div className="grid grid-cols-[40px_80px_1.2fr_90px_90px_110px_130px] gap-2 px-3 py-2 border-b border-app-border text-[11px] text-app-subtle">
+                    <span />
+                    <span>ID</span>
+                    <span>主体</span>
+                    <span>维度</span>
+                    <span>优先级</span>
+                    <span>状态</span>
+                    <span>操作</span>
+                  </div>
+                  <div className="max-h-[560px] overflow-y-auto">
+                    {filteredScopePolicies.map((p) => (
+                      <div
+                        key={p.id}
+                        className="grid grid-cols-[40px_80px_1.2fr_90px_90px_110px_130px] gap-2 px-3 py-2 border-b border-app-border text-xs items-center"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedPolicyIds.includes(p.id)}
+                          onChange={(e) =>
+                            setSelectedPolicyIds((prev) =>
+                              e.target.checked
+                                ? [...new Set([...prev, p.id])]
+                                : prev.filter((id) => id !== p.id)
+                            )
+                          }
+                        />
+                        <span className="text-app-subtle">#{p.id}</span>
+                        <div className="min-w-0">
+                          <p className="text-app-text truncate">
+                            {p.subject_type}:{p.subject_key}
+                          </p>
+                          <p className="text-app-subtle truncate">
+                            allow=[{p.allowed_values.join(", ")}] deny=[{p.deny_values.join(", ")}]
+                          </p>
+                        </div>
+                        <span>{p.dimension}</span>
+                        <span>{p.priority}</span>
+                        <span className={p.enabled ? "text-green-400" : "text-amber-300"}>
+                          {p.enabled ? "enabled" : "disabled"}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            className="text-app-muted hover:text-app-text"
+                            onClick={() => {
+                              setEditingPolicyId(p.id);
+                              setScopeForm({
+                                subject_type: p.subject_type,
+                                subject_key: p.subject_key,
+                                dimension: p.dimension,
+                                allowed_values: p.allowed_values.join(","),
+                                deny_values: p.deny_values.join(","),
+                                merge_mode: p.merge_mode,
+                                priority: p.priority,
+                                enabled: p.enabled,
+                                note: p.note ?? "",
+                              });
+                              setShowScopeEditor(true);
+                            }}
+                          >
+                            编辑
+                          </button>
+                          <button
+                            className="text-red-400"
+                            onClick={async () => {
+                              if (!confirm(`确认删除策略 #${p.id} ?`)) return;
+                              await deleteScopePolicy(p.id);
+                              await loadScopePolicies();
+                            }}
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {filteredScopePolicies.length === 0 && (
+                      <div className="text-xs text-app-muted px-4 py-6">筛选结果为空</div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-app-surface border border-app-border rounded-xl p-4 space-y-3">
+                <div className="flex items-center gap-2 text-sm text-app-text">
+                  <Users size={16} className="text-app-accent" />
+                  策略生效预览
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    value={previewUserIdInput}
+                    onChange={(e) => setPreviewUserIdInput(e.target.value)}
+                    placeholder="输入用户ID"
+                    className="flex-1 rounded-lg bg-app-input border border-app-border px-3 py-2 text-xs"
+                  />
+                  <button
+                    onClick={runScopePreview}
+                    disabled={scopePreviewLoading}
+                    className="px-3 py-2 text-xs rounded-lg border border-app-border text-app-muted hover:text-app-text"
+                  >
+                    {scopePreviewLoading ? "预览中..." : "预览"}
+                  </button>
+                </div>
+                {scopePreview && (
+                  <div className="text-xs space-y-1 text-app-muted">
+                    <p className="text-app-text">
+                      {scopePreview.username} (#{scopePreview.user_id})
+                    </p>
+                    <p>source={scopePreview.source}</p>
+                    <p>policy_ids=[{scopePreview.policy_ids.join(", ")}]</p>
+                    <p>province=[{scopePreview.province_values.join(", ")}]</p>
+                    <p>employee=[{scopePreview.employee_values.join(", ")}]</p>
+                    <p>region=[{scopePreview.region_values.join(", ")}]</p>
+                    <p>district=[{scopePreview.district_values.join(", ")}]</p>
+                  </div>
+                )}
+              </div>
+
+              {showScopeEditor && (
+                <div className="bg-app-surface border border-app-border rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2 text-sm text-app-text">
+                    <div className="flex items-center gap-2">
+                      <Shield size={16} className="text-app-accent" />
+                      {editingPolicyId ? "编辑策略" : "新增策略"}
+                    </div>
+                    <button
+                      className="text-xs text-app-muted hover:text-app-text"
+                      onClick={() => {
+                        setShowScopeEditor(false);
+                        resetScopeEditor();
+                      }}
+                    >
+                      关闭
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      className="rounded-lg bg-app-input border border-app-border px-2 py-2 text-xs"
+                      value={scopeForm.subject_type}
+                      onChange={(e) =>
+                        setScopeForm((s) => ({
+                          ...s,
+                          subject_type: e.target.value as DataScopePolicy["subject_type"],
+                        }))
+                      }
+                    >
+                      <option value="level">level</option>
+                      <option value="role">role</option>
+                      <option value="user_id">user_id</option>
+                      <option value="user_name">user_name</option>
+                    </select>
+                    <input
+                      className="rounded-lg bg-app-input border border-app-border px-3 py-2 text-xs"
+                      placeholder="subject_key"
+                      value={scopeForm.subject_key}
+                      onChange={(e) =>
+                        setScopeForm((s) => ({ ...s, subject_key: e.target.value }))
+                      }
+                    />
+                    <select
+                      className="rounded-lg bg-app-input border border-app-border px-2 py-2 text-xs"
+                      value={scopeForm.dimension}
+                      onChange={(e) =>
+                        setScopeForm((s) => ({
+                          ...s,
+                          dimension: e.target.value as DataScopePolicy["dimension"],
+                        }))
+                      }
+                    >
+                      <option value="province">province</option>
+                      <option value="employee">employee</option>
+                      <option value="region">region</option>
+                      <option value="district">district</option>
+                    </select>
+                    <select
+                      className="rounded-lg bg-app-input border border-app-border px-2 py-2 text-xs"
+                      value={scopeForm.merge_mode}
+                      onChange={(e) =>
+                        setScopeForm((s) => ({
+                          ...s,
+                          merge_mode: e.target.value as DataScopePolicy["merge_mode"],
+                        }))
+                      }
+                    >
+                      <option value="union">union</option>
+                      <option value="replace">replace</option>
+                    </select>
+                  </div>
+                  <input
+                    className="rounded-lg bg-app-input border border-app-border px-3 py-2 text-xs"
+                    placeholder="allowed_values（逗号分隔）"
+                    value={scopeForm.allowed_values}
+                    onChange={(e) =>
+                      setScopeForm((s) => ({ ...s, allowed_values: e.target.value }))
+                    }
+                  />
+                  <input
+                    className="rounded-lg bg-app-input border border-app-border px-3 py-2 text-xs"
+                    placeholder="deny_values（逗号分隔）"
+                    value={scopeForm.deny_values}
+                    onChange={(e) =>
+                      setScopeForm((s) => ({ ...s, deny_values: e.target.value }))
+                    }
+                  />
+                  <div className="grid grid-cols-3 gap-2">
+                    <input
+                      type="number"
+                      className="rounded-lg bg-app-input border border-app-border px-3 py-2 text-xs"
+                      placeholder="priority"
+                      value={scopeForm.priority}
+                      onChange={(e) =>
+                        setScopeForm((s) => ({ ...s, priority: Number(e.target.value || 0) }))
+                      }
+                    />
+                    <input
+                      className="rounded-lg bg-app-input border border-app-border px-3 py-2 text-xs col-span-2"
+                      placeholder="note"
+                      value={scopeForm.note}
+                      onChange={(e) => setScopeForm((s) => ({ ...s, note: e.target.value }))}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-xs text-app-muted flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={scopeForm.enabled}
+                        onChange={(e) =>
+                          setScopeForm((s) => ({ ...s, enabled: e.target.checked }))
+                        }
+                      />
+                      启用
+                    </label>
+                    <button
+                      onClick={async () => {
+                        if (!scopeForm.subject_key.trim()) return alert("请填写 subject_key");
+                        setScopeSaving(true);
+                        try {
+                          const payload = {
+                            ...scopeForm,
+                            allowed_values: scopeForm.allowed_values
+                              .split(",")
+                              .map((s) => s.trim())
+                              .filter(Boolean),
+                            deny_values: scopeForm.deny_values
+                              .split(",")
+                              .map((s) => s.trim())
+                              .filter(Boolean),
+                          };
+                          if (editingPolicyId) {
+                            await updateScopePolicy(editingPolicyId, payload);
+                          } else {
+                            await createScopePolicy(payload);
+                          }
+                          await loadScopePolicies();
+                          resetScopeEditor();
+                        } catch (err) {
+                          alert(err instanceof Error ? err.message : "保存策略失败");
+                        } finally {
+                          setScopeSaving(false);
+                        }
+                      }}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-app-accent text-white disabled:opacity-50"
+                      disabled={scopeSaving}
+                    >
+                      {scopeSaving ? "保存中..." : editingPolicyId ? "更新策略" : "新增策略"}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Config cards */}
-        {activeTab !== "analytics" &&
+        {isModelTab &&
           (loading ? (
           <div className="flex justify-center py-20">
             <Loader2 size={24} className="animate-spin text-app-accent" />
@@ -550,7 +1063,7 @@ function SettingsPageInner() {
         ) : displayed.length === 0 ? (
           <div className="text-center py-20 text-app-subtle">
             <Settings size={40} className="mx-auto mb-3 opacity-40" />
-            <p>暂无配置，点击右上角"新增配置"</p>
+            <p>暂无配置，点击右上角“新增配置”</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -711,7 +1224,7 @@ function SettingsPageInner() {
         )}
 
         {/* LiteLLM model string reference */}
-        {activeTab !== "analytics" && (
+        {isModelTab && (
         <details className="mt-8 bg-app-surface border border-app-border rounded-xl overflow-hidden">
           <summary className="px-5 py-3 text-sm text-app-muted cursor-pointer hover:text-app-text select-none">
             常用 LiteLLM Model String 参考

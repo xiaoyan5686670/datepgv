@@ -490,6 +490,9 @@ export function ChatBox({
                         executed: doneEvt.executed,
                         exec_error: doneEvt.exec_error ?? undefined,
                         result_preview: doneEvt.result_preview ?? undefined,
+                        scope_applied: doneEvt.scope_applied ?? undefined,
+                        scope_rewrite_note: doneEvt.scope_rewrite_note ?? undefined,
+                        effective_sql: doneEvt.effective_sql ?? undefined,
                       }
                     : m
                 )

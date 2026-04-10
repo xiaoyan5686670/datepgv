@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from app.models.user import User
+from app.services.scope_types import ResolvedScope
 
 CSV_PATH = Path(__file__).resolve().parents[3] / "业务经理通讯录.csv"
 INVALID_TOKENS = {"", "/", "-", "无", "null", "none", "nan"}
@@ -27,6 +28,49 @@ EMPLOYEE_LEVEL_RANK: dict[str, int] = {
 # 不是真实人名的领导列垃圾值（超出 INVALID_TOKENS 的补充）
 _GARBAGE_NAMES: frozenset[str] = frozenset({"测试", "、", "张三"})
 _EMPLOYEE_CODE_RE = re.compile(r"^XY\d+$", re.IGNORECASE)
+_PROVINCE_ALIAS_TO_CANONICAL = {
+    "北京": "北京", "北京市": "北京",
+    "天津": "天津", "天津市": "天津",
+    "上海": "上海", "上海市": "上海",
+    "重庆": "重庆", "重庆市": "重庆",
+    "河北": "河北", "河北省": "河北",
+    "山西": "山西", "山西省": "山西",
+    "辽宁": "辽宁", "辽宁省": "辽宁",
+    "吉林": "吉林", "吉林省": "吉林",
+    "黑龙江": "黑龙江", "黑龙江省": "黑龙江",
+    "江苏": "江苏", "江苏省": "江苏",
+    "浙江": "浙江", "浙江省": "浙江",
+    "安徽": "安徽", "安徽省": "安徽",
+    "福建": "福建", "福建省": "福建",
+    "江西": "江西", "江西省": "江西",
+    "山东": "山东", "山东省": "山东",
+    "河南": "河南", "河南省": "河南",
+    "湖北": "湖北", "湖北省": "湖北",
+    "湖南": "湖南", "湖南省": "湖南",
+    "广东": "广东", "广东省": "广东",
+    "海南": "海南", "海南省": "海南",
+    "四川": "四川", "四川省": "四川",
+    "贵州": "贵州", "贵州省": "贵州",
+    "云南": "云南", "云南省": "云南",
+    "陕西": "陕西", "陕西省": "陕西",
+    "甘肃": "甘肃", "甘肃省": "甘肃",
+    "青海": "青海", "青海省": "青海",
+    "台湾": "台湾", "台湾省": "台湾",
+    "内蒙古": "内蒙古", "内蒙古自治区": "内蒙古",
+    "广西": "广西", "广西壮族自治区": "广西",
+    "西藏": "西藏", "西藏自治区": "西藏",
+    "宁夏": "宁夏", "宁夏回族自治区": "宁夏",
+    "新疆": "新疆", "新疆维吾尔自治区": "新疆",
+    "香港": "香港", "香港特别行政区": "香港",
+    "澳门": "澳门", "澳门特别行政区": "澳门",
+}
+
+
+def _canonical_province_name(raw: Any) -> str:
+    text = _norm(raw)
+    if not text:
+        return ""
+    return _PROVINCE_ALIAS_TO_CANONICAL.get(text, text)
 
 
 def _is_valid_person_name(s: str) -> bool:
@@ -475,7 +519,9 @@ def get_user_scope_codes(user: User) -> set[str] | None:
             for r in org.rows
             if _pick(r, "shengfen") == pv and _pick(r, "yewujingli")
         }
-        return province_codes | province_names | own_codes
+        # Include province literal itself so SQL-scope wrapper can constrain
+        # province-like columns when query output exposes them.
+        return province_codes | province_names | own_codes | {pv}
 
     # 3) 区域经理：本人 + 名下业务经理行
     mgr = primary if el == "area_manager" else ""
@@ -494,10 +540,12 @@ def _match_scope_value(value: Any, scope_codes: set[str]) -> bool:
     return text in scope_codes
 
 
-def filter_rows_by_scope(rows: list[dict[str, Any]], scope_codes: set[str] | None) -> list[dict[str, Any]]:
-    if scope_codes is None:
+def filter_rows_by_scope(
+    rows: list[dict[str, Any]], scope: ResolvedScope | None
+) -> list[dict[str, Any]]:
+    if scope is None or scope.unrestricted:
         return rows
-    if not scope_codes:
+    if not scope.has_any_constraint:
         return []
 
     code_columns = (
@@ -509,12 +557,37 @@ def filter_rows_by_scope(rows: list[dict[str, Any]], scope_codes: set[str] | Non
         "user_code",
     )
     name_columns = ("yewujingli", "full_name", "owner", "sales_name", "manager_name", "username")
+    province_columns = ("shengfen", "province", "province_name", "prov")
+    region_columns = ("daqua", "org_region", "region", "region_name")
+    district_columns = ("quyud", "district", "district_name", "area_name")
+    employee_scope = set(scope.employee_values)
+    province_scope = set(scope.province_values)
+    region_scope = set(scope.region_values)
+    district_scope = set(scope.district_values)
 
     filtered: list[dict[str, Any]] = []
     for row in rows:
-        hit = any(_match_scope_value(row.get(c), scope_codes) for c in code_columns)
+        hit = any(_match_scope_value(row.get(c), employee_scope) for c in code_columns)
         if not hit:
-            hit = any(_match_scope_value(row.get(c), scope_codes) for c in name_columns)
+            hit = any(_match_scope_value(row.get(c), employee_scope) for c in name_columns)
+        if not hit:
+            for c in province_columns:
+                val = _canonical_province_name(row.get(c))
+                if val and val in province_scope:
+                    hit = True
+                    break
+        if not hit:
+            for c in region_columns:
+                val = _norm(row.get(c))
+                if val and val in region_scope:
+                    hit = True
+                    break
+        if not hit:
+            for c in district_columns:
+                val = _norm(row.get(c))
+                if val and val in district_scope:
+                    hit = True
+                    break
         if hit:
             filtered.append(row)
     return filtered

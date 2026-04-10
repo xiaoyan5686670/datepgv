@@ -44,10 +44,11 @@ function persistSessionId(id: string, userId: number) {
 }
 
 function HomePageInner() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const userId = user!.id;
   const [sqlType, setSqlType] = useState<SqlType>("mysql");
   // AuthGuard guarantees user is non-null before this component renders.
-  const [activeSessionId, setActiveSessionId] = useState<string>(() => getOrCreateSessionId(user!.id));
+  const [activeSessionId, setActiveSessionId] = useState<string>(() => getOrCreateSessionId(userId));
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -55,8 +56,8 @@ function HomePageInner() {
   // Reset session when the logged-in account changes (same browser, different user).
   useEffect(() => {
     if (!user) return;
-    setActiveSessionId(getOrCreateSessionId(user.id));
-  }, [user?.id]);
+    setActiveSessionId(getOrCreateSessionId(userId));
+  }, [user, userId]);
 
   // Load sessions on mount and whenever refreshKey changes
   useEffect(() => {
@@ -77,25 +78,25 @@ function HomePageInner() {
   }, []);
 
   const handleSessionChange = useCallback((newId: string) => {
-    persistSessionId(newId, user!.id);
+    persistSessionId(newId, userId);
     setActiveSessionId(newId);
-  }, [user?.id]);
+  }, [userId]);
 
   const handleNewSession = useCallback(() => {
     const id = uuidv4();
-    persistSessionId(id, user!.id);
+    persistSessionId(id, userId);
     setActiveSessionId(id);
     setMobileSidebarOpen(false);
-  }, [user?.id]);
+  }, [userId]);
 
   const handleSelectSession = useCallback(
     (sid: string) => {
       if (sid === activeSessionId) return;
-      persistSessionId(sid, user!.id);
+      persistSessionId(sid, userId);
       setActiveSessionId(sid);
       setMobileSidebarOpen(false);
     },
-    [activeSessionId, user?.id]
+    [activeSessionId, userId]
   );
 
   const handleDeleteSession = useCallback(

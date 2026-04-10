@@ -12,6 +12,8 @@ import type {
   UserUpdate,
   UserImportRequest,
   UserImportResponse,
+  DataScopePolicy,
+  DataScopePreview,
 } from "@/types";
 
 export const ACCESS_TOKEN_KEY = "datepgv_access_token";
@@ -466,6 +468,65 @@ export async function testAnalyticsDbConnection(
   if (!res.ok) {
     throw new Error(await readErrorMessage(res, "测试请求失败"));
   }
+  return res.json();
+}
+
+export async function fetchScopePolicies(): Promise<DataScopePolicy[]> {
+  const res = await apiFetch(`${apiV1Prefix()}/config/scope-policies`);
+  if (!res.ok) throw new Error(await readErrorMessage(res, "加载权限策略失败"));
+  return res.json();
+}
+
+export async function createScopePolicy(
+  payload: Omit<DataScopePolicy, "id" | "created_at" | "updated_at">
+): Promise<DataScopePolicy> {
+  const res = await apiFetch(`${apiV1Prefix()}/config/scope-policies`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await readErrorMessage(res, "创建权限策略失败"));
+  return res.json();
+}
+
+export async function updateScopePolicy(
+  id: number,
+  payload: Partial<Omit<DataScopePolicy, "id" | "created_at" | "updated_at">>
+): Promise<DataScopePolicy> {
+  const res = await apiFetch(`${apiV1Prefix()}/config/scope-policies/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await readErrorMessage(res, "更新权限策略失败"));
+  return res.json();
+}
+
+export async function deleteScopePolicy(id: number): Promise<void> {
+  const res = await apiFetch(`${apiV1Prefix()}/config/scope-policies/${id}`, {
+    method: "DELETE",
+  });
+  if (!res.ok && res.status !== 204) {
+    throw new Error(await readErrorMessage(res, "删除权限策略失败"));
+  }
+}
+
+export async function bulkSetScopePoliciesEnabled(
+  ids: number[],
+  enabled: boolean
+): Promise<DataScopePolicy[]> {
+  const res = await apiFetch(`${apiV1Prefix()}/config/scope-policies/bulk-set-enabled`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids, enabled }),
+  });
+  if (!res.ok) throw new Error(await readErrorMessage(res, "批量更新策略失败"));
+  return res.json();
+}
+
+export async function previewScopeForUser(userId: number): Promise<DataScopePreview> {
+  const res = await apiFetch(`${apiV1Prefix()}/config/scope-policies/preview/${userId}`);
+  if (!res.ok) throw new Error(await readErrorMessage(res, "获取策略预览失败"));
   return res.json();
 }
 

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ── Column descriptor ─────────────────────────────────────────────────────────
@@ -200,6 +200,107 @@ class AnalyticsDbTestRequest(BaseModel):
         default=None,
         description="Explicit URL to test; if omitted, uses saved + env effective URL",
     )
+
+
+# ── Data Scope Policies ────────────────────────────────────────────────────────
+
+class DataScopePolicyBase(BaseModel):
+    subject_type: Literal["user", "user_id", "role", "level", "user_name"]
+    subject_key: str = Field(..., min_length=1, max_length=120)
+    dimension: Literal["province", "employee", "region", "district"]
+    allowed_values: list[str] = Field(default_factory=list)
+    deny_values: list[str] = Field(default_factory=list)
+    merge_mode: Literal["union", "replace"] = "union"
+    priority: int = Field(default=100, ge=0, le=10000)
+    enabled: bool = True
+    note: str | None = None
+    updated_by: str | None = None
+
+    @field_validator("subject_key")
+    @classmethod
+    def normalize_subject_key(cls, v: str) -> str:
+        out = v.strip()
+        if not out:
+            raise ValueError("subject_key 不能为空")
+        return out
+
+    @field_validator("allowed_values", "deny_values", mode="before")
+    @classmethod
+    def normalize_values(cls, v: Any) -> list[str]:
+        if v is None:
+            return []
+        if not isinstance(v, list):
+            raise ValueError("值必须为数组")
+        out: list[str] = []
+        seen: set[str] = set()
+        for item in v:
+            text = str(item or "").strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            out.append(text)
+        return out
+
+    @model_validator(mode="after")
+    def validate_policy_consistency(self) -> "DataScopePolicyBase":
+        if self.subject_type in ("user", "user_id") and not self.subject_key.isdigit():
+            raise ValueError("subject_type=user_id 时 subject_key 必须是数字用户ID")
+        overlap = set(self.allowed_values) & set(self.deny_values)
+        if overlap:
+            raise ValueError(f"allowed_values 与 deny_values 不能重叠: {sorted(overlap)}")
+        return self
+
+
+class DataScopePolicyCreate(DataScopePolicyBase):
+    pass
+
+
+class DataScopePolicyUpdate(BaseModel):
+    subject_type: Literal["user", "user_id", "role", "level", "user_name"] | None = None
+    subject_key: str | None = Field(default=None, min_length=1, max_length=120)
+    dimension: Literal["province", "employee", "region", "district"] | None = None
+    allowed_values: list[str] | None = None
+    deny_values: list[str] | None = None
+    merge_mode: Literal["union", "replace"] | None = None
+    priority: int | None = Field(default=None, ge=0, le=10000)
+    enabled: bool | None = None
+    note: str | None = None
+    updated_by: str | None = None
+
+    @field_validator("subject_key")
+    @classmethod
+    def normalize_subject_key(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        out = v.strip()
+        if not out:
+            raise ValueError("subject_key 不能为空")
+        return out
+
+    @field_validator("allowed_values", "deny_values", mode="before")
+    @classmethod
+    def normalize_values(cls, v: Any) -> list[str] | None:
+        if v is None:
+            return None
+        if not isinstance(v, list):
+            raise ValueError("值必须为数组")
+        out: list[str] = []
+        seen: set[str] = set()
+        for item in v:
+            text = str(item or "").strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            out.append(text)
+        return out
+
+
+class DataScopePolicyResponse(DataScopePolicyBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 # ── Auth ────────────────────────────────────────────────────────────────────────

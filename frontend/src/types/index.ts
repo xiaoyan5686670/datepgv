@@ -179,6 +179,9 @@ export interface ChatMessage {
   executed?: boolean;
   exec_error?: string | null;
   result_preview?: ResultPreview | null;
+  scope_applied?: boolean;
+  scope_rewrite_note?: string | null;
+  effective_sql?: string;
 }
 
 export interface ChatSession {
@@ -242,6 +245,34 @@ export interface AnalyticsDbSettingsWrite {
   clear_mysql?: boolean;
 }
 
+export interface DataScopePolicy {
+  id: number;
+  subject_type: "user" | "user_id" | "role" | "level" | "user_name";
+  subject_key: string;
+  dimension: "province" | "employee" | "region" | "district";
+  allowed_values: string[];
+  deny_values: string[];
+  merge_mode: "union" | "replace";
+  priority: number;
+  enabled: boolean;
+  note?: string | null;
+  updated_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DataScopePreview {
+  user_id: number;
+  username: string;
+  source: string;
+  policy_ids: number[];
+  unrestricted: boolean;
+  province_values: string[];
+  employee_values: string[];
+  region_values: string[];
+  district_values: string[];
+}
+
 // ── SSE Events ────────────────────────────────────────────────────────────────
 
 export interface MetaEvent {
@@ -260,10 +291,13 @@ export interface TokenEvent {
 export interface DoneEvent {
   type: "done";
   sql: string;
+  effective_sql?: string;
   answer?: string;
   executed?: boolean;
   exec_error?: string | null;
   result_preview?: ResultPreview | null;
+  scope_applied?: boolean;
+  scope_rewrite_note?: string | null;
 }
 
 export interface ErrorEvent {

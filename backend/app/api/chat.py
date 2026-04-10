@@ -30,12 +30,14 @@ from app.services.analytics_db_settings_service import (
 from app.core.config import settings
 from app.models.user import User
 from app.services.query_executor import QueryExecutorError, QueryResult, run_analytics_query
-from app.services.org_hierarchy import filter_rows_by_scope, get_user_scope_codes
+from app.services.org_hierarchy import filter_rows_by_scope
 from app.services.rag import RAGEngine
 from app.services.sql_generator import process_llm_output
 from app.services.sql_column_repair import repair_sql_unknown_columns
 from app.services.viewer_sql_context import build_viewer_sql_context
 from app.services.sql_metadata_guard import find_unknown_columns
+from app.services.scope_policy_service import resolve_user_scope
+from app.services.sql_scope_guard import rewrite_sql_with_scope
 
 router = APIRouter(
     prefix="/chat",
@@ -368,6 +370,9 @@ async def chat_stream(
         executed = False
         exec_error: str | None = None
         result_preview: dict | None = None
+        scope_applied = False
+        scope_rewrite_note: str | None = None
+        effective_sql = clean_sql
 
         t_exec_block = time.perf_counter()
         if not request.execute:
@@ -422,15 +427,32 @@ async def chat_stream(
                         _SQL_COLUMN_REPAIR_MAX_ROUNDS,
                         still,
                     )
-                user_scope_codes = get_user_scope_codes(current_user)
+                scope = await resolve_user_scope(current_user, db)
+                if settings.SCOPE_REWRITE_ENABLED:
+                    rewrite = rewrite_sql_with_scope(clean_sql, request.sql_type, scope)
+                    effective_sql = rewrite.sql
+                    scope_applied = rewrite.scope_applied
+                    scope_rewrite_note = rewrite.rewrite_note
+                    if scope_applied:
+                        logger.info(
+                            "scope_rewrite_applied user_id=%s source=%s policy_ids=%s note=%s original_sql=%s effective_sql=%s",
+                            current_user.id,
+                            scope.source,
+                            scope.policy_ids,
+                            scope_rewrite_note,
+                            clean_sql,
+                            effective_sql,
+                        )
+                else:
+                    effective_sql = clean_sql
                 qres = await run_analytics_query(
                     request.sql_type,
-                    clean_sql,
+                    effective_sql,
                     db,
-                    scope_values=user_scope_codes,
+                    scope=scope,
                 )
-                if user_scope_codes is not None:
-                    scoped_rows = filter_rows_by_scope(qres.rows, user_scope_codes)
+                if not scope.unrestricted:
+                    scoped_rows = filter_rows_by_scope(qres.rows, scope)
                     qres = QueryResult(
                         columns=qres.columns,
                         rows=scoped_rows,
@@ -458,15 +480,21 @@ async def chat_stream(
                 exec_error = str(e)
                 answer = f"执行过程出错：{exec_error}"
 
+        if scope_rewrite_note:
+            answer = (answer + "\n\n" + scope_rewrite_note).strip()
+
         exec_block_ms = (time.perf_counter() - t_exec_block) * 1000
 
         done = {
             "type": "done",
             "sql": clean_sql,
+            "effective_sql": effective_sql,
             "answer": answer,
             "executed": executed,
             "exec_error": exec_error,
             "result_preview": result_preview,
+            "scope_applied": scope_applied,
+            "scope_rewrite_note": scope_rewrite_note,
         }
         yield f"data: {json.dumps(done, ensure_ascii=False, default=str)}\n\n".encode()
 

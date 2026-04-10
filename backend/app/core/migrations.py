@@ -8,6 +8,7 @@ import logging
 
 from sqlalchemy import text
 
+from app.core.config import settings
 from app.core.database import engine
 
 logger = logging.getLogger(__name__)
@@ -20,6 +21,8 @@ async def run_migrations() -> None:
         await _migrate_orphaned_sessions(conn)
         await _enforce_session_user_id_not_null(conn)
         await _ensure_user_id_fk(conn)
+        await _ensure_data_scope_policy_table(conn)
+        await _backfill_scope_policies_from_users(conn)
 
 
 async def _fix_user_id_column_type(conn) -> None:  # type: ignore[type-arg]
@@ -130,3 +133,132 @@ async def _ensure_user_id_fk(conn) -> None:  # type: ignore[type-arg]
         )
     )
     logger.info("DB migration: added FK chat_sessions.user_id → users.id.")
+
+
+async def _ensure_data_scope_policy_table(conn) -> None:  # type: ignore[type-arg]
+    exists_row = await conn.execute(
+        text(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_name = 'data_scope_policies' LIMIT 1"
+        )
+    )
+    if exists_row.scalar() is not None:
+        return
+
+    await conn.execute(
+        text(
+            """
+            CREATE TABLE data_scope_policies (
+                id SERIAL PRIMARY KEY,
+                subject_type VARCHAR(20) NOT NULL,
+                subject_key VARCHAR(120) NOT NULL,
+                dimension VARCHAR(32) NOT NULL,
+                allowed_values JSONB NOT NULL DEFAULT '[]'::jsonb,
+                deny_values JSONB NOT NULL DEFAULT '[]'::jsonb,
+                merge_mode VARCHAR(16) NOT NULL DEFAULT 'union',
+                priority INTEGER NOT NULL DEFAULT 100,
+                enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                note TEXT NULL,
+                updated_by VARCHAR(100) NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                CONSTRAINT uq_data_scope_policy_subject_dimension
+                    UNIQUE(subject_type, subject_key, dimension)
+            )
+            """
+        )
+    )
+    await conn.execute(
+        text(
+            "CREATE INDEX idx_data_scope_policies_subject "
+            "ON data_scope_policies(subject_type, subject_key)"
+        )
+    )
+    await conn.execute(
+        text(
+            "CREATE INDEX idx_data_scope_policies_dim_enabled "
+            "ON data_scope_policies(dimension, enabled)"
+        )
+    )
+    logger.info("DB migration: created table data_scope_policies.")
+
+
+async def _backfill_scope_policies_from_users(conn) -> None:  # type: ignore[type-arg]
+    if not settings.SCOPE_POLICY_AUTO_BACKFILL_ON_STARTUP:
+        return
+    # Province baseline
+    province_res = await conn.execute(
+        text(
+            """
+            INSERT INTO data_scope_policies
+              (subject_type, subject_key, dimension, allowed_values, deny_values, merge_mode, priority, enabled, note, updated_by)
+            SELECT
+              'user_id',
+              CAST(u.id AS VARCHAR),
+              'province',
+              to_jsonb(ARRAY[u.province]),
+              '[]'::jsonb,
+              'replace',
+              100,
+              TRUE,
+              'startup baseline from users profile',
+              'startup-migration'
+            FROM users u
+            WHERE COALESCE(TRIM(u.province), '') <> ''
+            ON CONFLICT (subject_type, subject_key, dimension) DO NOTHING
+            """
+        )
+    )
+    # Region baseline
+    region_res = await conn.execute(
+        text(
+            """
+            INSERT INTO data_scope_policies
+              (subject_type, subject_key, dimension, allowed_values, deny_values, merge_mode, priority, enabled, note, updated_by)
+            SELECT
+              'user_id',
+              CAST(u.id AS VARCHAR),
+              'region',
+              to_jsonb(ARRAY[u.org_region]),
+              '[]'::jsonb,
+              'replace',
+              110,
+              TRUE,
+              'startup baseline from users profile',
+              'startup-migration'
+            FROM users u
+            WHERE COALESCE(TRIM(u.org_region), '') <> ''
+            ON CONFLICT (subject_type, subject_key, dimension) DO NOTHING
+            """
+        )
+    )
+    # District baseline
+    district_res = await conn.execute(
+        text(
+            """
+            INSERT INTO data_scope_policies
+              (subject_type, subject_key, dimension, allowed_values, deny_values, merge_mode, priority, enabled, note, updated_by)
+            SELECT
+              'user_id',
+              CAST(u.id AS VARCHAR),
+              'district',
+              to_jsonb(ARRAY[u.district]),
+              '[]'::jsonb,
+              'replace',
+              120,
+              TRUE,
+              'startup baseline from users profile',
+              'startup-migration'
+            FROM users u
+            WHERE COALESCE(TRIM(u.district), '') <> ''
+            ON CONFLICT (subject_type, subject_key, dimension) DO NOTHING
+            """
+        )
+    )
+    seeded = (
+        (province_res.rowcount or 0)
+        + (region_res.rowcount or 0)
+        + (district_res.rowcount or 0)
+    )
+    if seeded > 0:
+        logger.info("DB migration: seeded %d baseline scope policies from users.", seeded)
