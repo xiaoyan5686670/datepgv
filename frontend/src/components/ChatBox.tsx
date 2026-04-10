@@ -197,6 +197,8 @@ export function ChatBox({
   const abortRef = useRef<AbortController | null>(null);
   const requestStartedAtRef = useRef<number | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  // 当 session 因 403 重试而被替换时，跳过一次历史重载（消息已在 UI 中）
+  const skipNextHistoryLoadRef = useRef(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -212,6 +214,11 @@ export function ChatBox({
 
   // Load history when sessionId changes
   useEffect(() => {
+    // 403 重试后 session 已切换，但消息已在 UI 中，跳过本次历史加载
+    if (skipNextHistoryLoadRef.current) {
+      skipNextHistoryLoadRef.current = false;
+      return;
+    }
     let cancelled = false;
     (async () => {
       setLoadingHistory(true);
@@ -502,8 +509,10 @@ export function ChatBox({
             }
           }
         }
-        // 流完成后，如果因 403 替换了 session，通知父组件更新（避免在流中途触发重渲染）
+        // 流完成后，如果因 403 替换了 session，通知父组件更新
+        // 同时设置 flag，跳过下一次 useEffect 历史加载，保留当前消息
         if (effectiveSessionId !== sessionId) {
+          skipNextHistoryLoadRef.current = true;
           onSessionChange?.(effectiveSessionId);
         }
         onMessageSent?.();

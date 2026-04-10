@@ -123,8 +123,10 @@ async def _ensure_session(
     if row:
         if row.user_id is None:
             # 无主会话（用户隔离前遗留）：自动归属当前用户
+            # 用 flush 而非 commit，避免 expire 掉同一 session 中的 current_user，
+            # 防止 event_generator 访问属性时触发 async 懒加载错误
             row.user_id = user.id
-            await db.commit()
+            await db.flush()
         elif row.user_id != user.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

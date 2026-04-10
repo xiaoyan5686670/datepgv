@@ -194,8 +194,13 @@ def _build_scoped_wrapped_sql(
 
 
 async def _probe_postgresql_columns(conn: asyncpg.Connection, sql: str) -> list[str]:
-    stmt = await conn.prepare(f"SELECT * FROM ({sql}) __scope_probe LIMIT 0")
-    return [a.name for a in stmt.get_attributes()]
+    try:
+        stmt = await conn.prepare(f"SELECT * FROM ({sql}) __scope_probe LIMIT 0")
+        return [a.name for a in stmt.get_attributes()]
+    except Exception as e:
+        raise QueryExecutorError(
+            f"SQL 预编译失败（可能存在类型不匹配或语法错误）：{e}"
+        ) from e
 
 
 async def _run_postgresql(dsn: str, sql: str, scope_values: set[str] | None = None) -> QueryResult:
