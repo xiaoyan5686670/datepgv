@@ -487,7 +487,8 @@ async def chat_stream(
 
         done = {
             "type": "done",
-            "sql": clean_sql,
+            # 与 run_analytics_query 一致：展示实际执行的 SQL（含列修复与省份范围改写）
+            "sql": effective_sql,
             "effective_sql": effective_sql,
             "answer": answer,
             "executed": executed,
@@ -505,7 +506,7 @@ async def chat_stream(
             answer,
             request.sql_type,
             db,
-            generated_sql=clean_sql or None,
+            generated_sql=effective_sql or None,
             executed=executed,
             exec_error=exec_error,
             result_preview=result_preview,
