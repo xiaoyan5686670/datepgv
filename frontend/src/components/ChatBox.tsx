@@ -143,6 +143,11 @@ const MessageList = memo(function MessageList({
                 ) : null}
                 {msg.sql ? (
                   <div className="w-full animate-in zoom-in-95 duration-300">
+                    {msg.isStreaming ? (
+                      <p className="text-xs text-muted-foreground mb-2 px-1 leading-relaxed">
+                        由于权限审核，最终以改写后的 SQL 为准。
+                      </p>
+                    ) : null}
                     <SQLResult
                       sql={msg.sql}
                       sqlType={msg.sql_type ?? sqlType}
