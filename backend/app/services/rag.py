@@ -306,7 +306,10 @@ class RAGEngine:
 
         G = await self._build_nx_graph(sql_type)
         seed_ids = [t.id for t in trimmed_seeds]
-        
+        # Vector hits may include tables with no row in table_metadata_edges; those IDs
+        # are otherwise absent from G, and nx.has_path / shortest_path raise NodeNotFound.
+        G.add_nodes_from(seed_ids)
+
         nodes_to_fetch = set(seed_ids)
         join_paths = []
 
