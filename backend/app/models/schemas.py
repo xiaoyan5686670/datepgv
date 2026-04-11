@@ -100,6 +100,7 @@ class ChatRequest(BaseModel):
     sql_type: Literal["hive", "postgresql", "oracle", "mysql"] = "mysql"
     top_k: int = Field(default=5, ge=1, le=20)
     execute: bool = True
+    execute_connection_id: int | None = None
 
 
 class ChatResponse(BaseModel):
@@ -176,29 +177,38 @@ class LLMConfigTestResult(BaseModel):
     model_used: str | None = None
 
 
-class AnalyticsDbSettingsResponse(BaseModel):
-    """Masked stored URLs only; effective flags include env fallback."""
-
-    postgres_url_masked: str | None
-    mysql_url_masked: str | None
-    postgres_stored: bool
-    mysql_stored: bool
-    postgres_effective_configured: bool
-    mysql_effective_configured: bool
-
-
-class AnalyticsDbSettingsWrite(BaseModel):
-    postgres_url: str | None = None
-    mysql_url: str | None = None
-    clear_postgres: bool = False
-    clear_mysql: bool = False
+class AnalyticsDbConnectionResponse(BaseModel):
+    id: int
+    name: str
+    engine: Literal["postgresql", "mysql"]
+    url_masked: str | None
+    is_default: bool
+    created_at: datetime
+    updated_at: datetime
 
 
-class AnalyticsDbTestRequest(BaseModel):
+class AnalyticsDbConnectionCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    engine: Literal["postgresql", "mysql"]
+    url: str = Field(..., min_length=1)
+    is_default: bool = False
+
+
+class AnalyticsDbConnectionUpdate(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=128)
+    url: str | None = None
+    is_default: bool | None = None
+
+
+class AnalyticsDbConnectionTestRequest(BaseModel):
     engine: Literal["postgresql", "mysql"]
     url: str | None = Field(
         default=None,
-        description="Explicit URL to test; if omitted, uses saved + env effective URL",
+        description="Explicit URL to ping; if set with connection_id, URL wins.",
+    )
+    connection_id: int | None = Field(
+        default=None,
+        description="Use stored URL for this connection row.",
     )
 
 

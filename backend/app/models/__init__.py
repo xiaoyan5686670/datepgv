@@ -1,4 +1,4 @@
-from app.models.analytics_db_settings import AnalyticsDbSettings
+from app.models.analytics_db_connection import AnalyticsDbConnection
 from app.models.chat import ChatMessage, ChatSession
 from app.models.data_scope_policy import DataScopePolicy
 from app.models.llm_config import LLMConfig, LLMConfigRuntime
@@ -13,7 +13,7 @@ from app.models.schemas import (
 from app.models.user import Role, User
 
 __all__ = [
-    "AnalyticsDbSettings",
+    "AnalyticsDbConnection",
     "TableMetadata",
     "TableMetadataEdge",
     "ChatSession",

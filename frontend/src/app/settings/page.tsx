@@ -26,11 +26,13 @@ import { cn } from "@/lib/utils";
 import {
   activateConfig,
   deleteConfig,
-  fetchAnalyticsDbSettings,
+  createAnalyticsConnection,
+  deleteAnalyticsConnection,
+  fetchAnalyticsConnections,
   fetchConfigs,
-  testAnalyticsDbConnection,
+  testAnalyticsConnection,
   testConfig,
-  updateAnalyticsDbSettings,
+  updateAnalyticsConnection,
   fetchScopePolicies,
   createScopePolicy,
   updateScopePolicy,
@@ -39,8 +41,7 @@ import {
   previewScopeForUser,
 } from "@/lib/api";
 import type {
-  AnalyticsDbSettings,
-  AnalyticsDbSettingsWrite,
+  AnalyticsDbConnection,
   LLMConfig,
   LLMConfigTestResult,
   DataScopePolicy,
@@ -60,15 +61,15 @@ function SettingsPageInner() {
   >({});
   const [activating, setActivating] = useState<number | null>(null);
 
-  const [analytics, setAnalytics] = useState<AnalyticsDbSettings | null>(null);
+  const [connections, setConnections] = useState<AnalyticsDbConnection[]>([]);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
-  const [pgInput, setPgInput] = useState("");
-  const [mysqlInput, setMysqlInput] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [formName, setFormName] = useState("");
+  const [formEngine, setFormEngine] = useState<"mysql" | "postgresql">("mysql");
+  const [formUrl, setFormUrl] = useState("");
+  const [formDefault, setFormDefault] = useState(false);
   const [analyticsSaving, setAnalyticsSaving] = useState(false);
-  const [pgTest, setPgTest] = useState<{
-    loading: boolean;
-    result?: LLMConfigTestResult;
-  }>({ loading: false });
+  const [testingId, setTestingId] = useState<number | "form" | null>(null);
   const [scopePolicies, setScopePolicies] = useState<DataScopePolicy[]>([]);
   const [scopeLoading, setScopeLoading] = useState(false);
   const [scopeSaving, setScopeSaving] = useState(false);
@@ -100,18 +101,18 @@ function SettingsPageInner() {
     enabled: true,
     note: "",
   });
-  const [mysqlTest, setMysqlTest] = useState<{
-    loading: boolean;
-    result?: LLMConfigTestResult;
-  }>({ loading: false });
+  const resetConnectionForm = useCallback(() => {
+    setEditingId(null);
+    setFormName("");
+    setFormEngine("mysql");
+    setFormUrl("");
+    setFormDefault(false);
+  }, []);
 
-  const loadAnalytics = useCallback(async () => {
+  const loadConnections = useCallback(async () => {
     setAnalyticsLoading(true);
     try {
-      const d = await fetchAnalyticsDbSettings();
-      setAnalytics(d);
-      setPgInput("");
-      setMysqlInput("");
+      setConnections(await fetchAnalyticsConnections());
     } catch (err) {
       alert(err instanceof Error ? err.message : "加载数据连接失败");
     } finally {
@@ -163,11 +164,11 @@ function SettingsPageInner() {
 
   useEffect(() => {
     if (activeTab === "analytics") {
-      loadAnalytics();
+      loadConnections();
     } else if (activeTab === "scope") {
       loadScopePolicies();
     }
-  }, [activeTab, loadAnalytics, loadScopePolicies]);
+  }, [activeTab, loadConnections, loadScopePolicies]);
 
   const displayed =
     activeTab === "analytics"
@@ -243,22 +244,34 @@ function SettingsPageInner() {
     setEditTarget(undefined);
   };
 
-  const saveAnalyticsConnections = async () => {
-    if (!pgInput.trim() && !mysqlInput.trim()) {
-      alert(
-        "请输入要保存的连接 URL，或使用「清除」移除页面配置以改回环境变量。"
-      );
+  const submitConnectionForm = async () => {
+    if (!formName.trim()) {
+      alert("请填写连接名称");
+      return;
+    }
+    if (editingId === null && !formUrl.trim()) {
+      alert("请填写连接 URL");
       return;
     }
     setAnalyticsSaving(true);
     try {
-      const payload: AnalyticsDbSettingsWrite = {};
-      if (pgInput.trim()) payload.postgres_url = pgInput.trim();
-      if (mysqlInput.trim()) payload.mysql_url = mysqlInput.trim();
-      const d = await updateAnalyticsDbSettings(payload);
-      setAnalytics(d);
-      setPgInput("");
-      setMysqlInput("");
+      if (editingId !== null) {
+        const payload: { name: string; url?: string; is_default: boolean } = {
+          name: formName.trim(),
+          is_default: formDefault,
+        };
+        if (formUrl.trim()) payload.url = formUrl.trim();
+        await updateAnalyticsConnection(editingId, payload);
+      } else {
+        await createAnalyticsConnection({
+          name: formName.trim(),
+          engine: formEngine,
+          url: formUrl.trim(),
+          is_default: formDefault,
+        });
+      }
+      resetConnectionForm();
+      await loadConnections();
     } catch (err) {
       alert(err instanceof Error ? err.message : "保存失败");
     } finally {
@@ -266,62 +279,68 @@ function SettingsPageInner() {
     }
   };
 
-  const clearAnalyticsPg = async () => {
-    if (!confirm("清除 PostgreSQL 页面配置，执行连接将回落到环境变量？")) return;
+  const deleteConnection = async (id: number) => {
+    if (!confirm("确定删除此连接？")) return;
     try {
-      const d = await updateAnalyticsDbSettings({ clear_postgres: true });
-      setAnalytics(d);
+      await deleteAnalyticsConnection(id);
+      if (editingId === id) resetConnectionForm();
+      await loadConnections();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "清除失败");
+      alert(err instanceof Error ? err.message : "删除失败");
     }
   };
 
-  const clearAnalyticsMysql = async () => {
-    if (!confirm("清除 MySQL 页面配置，执行连接将回落到环境变量？")) return;
+  const setConnectionDefault = async (id: number) => {
     try {
-      const d = await updateAnalyticsDbSettings({ clear_mysql: true });
-      setAnalytics(d);
+      await updateAnalyticsConnection(id, { is_default: true });
+      await loadConnections();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "清除失败");
+      alert(err instanceof Error ? err.message : "设置失败");
     }
   };
 
-  const runPgTest = async () => {
-    setPgTest((s) => ({ ...s, loading: true }));
+  const runTestStored = async (c: AnalyticsDbConnection) => {
+    setTestingId(c.id);
     try {
-      const result = await testAnalyticsDbConnection(
-        "postgresql",
-        pgInput.trim() || null
-      );
-      setPgTest({ loading: false, result });
-    } catch (err) {
-      setPgTest({
-        loading: false,
-        result: {
-          success: false,
-          message: err instanceof Error ? err.message : "测试失败",
-        },
+      const r = await testAnalyticsConnection({
+        engine: c.engine,
+        connection_id: c.id,
       });
+      if (r.success) alert(`连接成功 · ${r.latency_ms ?? "?"}ms`);
+      else alert(r.message);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "测试失败");
+    } finally {
+      setTestingId(null);
     }
   };
 
-  const runMysqlTest = async () => {
-    setMysqlTest((s) => ({ ...s, loading: true }));
-    try {
-      const result = await testAnalyticsDbConnection(
-        "mysql",
-        mysqlInput.trim() || null
-      );
-      setMysqlTest({ loading: false, result });
-    } catch (err) {
-      setMysqlTest({
-        loading: false,
-        result: {
-          success: false,
-          message: err instanceof Error ? err.message : "测试失败",
-        },
-      });
+  const runTestForm = async () => {
+    if (!formUrl.trim()) {
+      alert("请输入 URL 再测试");
+      return;
     }
+    setTestingId("form");
+    try {
+      const r = await testAnalyticsConnection({
+        engine: formEngine,
+        url: formUrl.trim(),
+      });
+      if (r.success) alert(`连接成功 · ${r.latency_ms ?? "?"}ms`);
+      else alert(r.message);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "测试失败");
+    } finally {
+      setTestingId(null);
+    }
+  };
+
+  const startEditConnection = (c: AnalyticsDbConnection) => {
+    setEditingId(c.id);
+    setFormName(c.name);
+    setFormEngine(c.engine);
+    setFormUrl("");
+    setFormDefault(c.is_default);
   };
 
   const filteredScopePolicies = scopePolicies.filter((p) => {
@@ -431,10 +450,8 @@ function SettingsPageInner() {
             配置「自然语言生成 SQL」在服务器上<strong className="text-app-text">
               实际执行
             </strong>
-            所用的数据库（与存元数据/向量的 PostgreSQL 应用库不同）。MySQL
-            目标库在此填写
-            <span className="text-app-text"> mysql://…或 mariadb://…</span>
-            ；未填写时使用环境变量{" "}
+            所用的数据库（与存元数据/向量的 PostgreSQL 应用库不同）。可添加多条
+            MySQL / PostgreSQL 连接，并为每种引擎指定一个默认连接；未配置时使用环境变量{" "}
             <code className="text-app-accent">ANALYTICS_MYSQL_URL</code> /
             <code className="text-app-accent">ANALYTICS_POSTGRES_URL</code>。
           </div>
@@ -486,7 +503,7 @@ function SettingsPageInner() {
           <button
             onClick={() => (
               activeTab === "analytics"
-                ? loadAnalytics()
+                ? loadConnections()
                 : activeTab === "scope"
                   ? loadScopePolicies()
                   : load()
@@ -525,166 +542,194 @@ function SettingsPageInner() {
         {/* Analytics execute DB */}
         {activeTab === "analytics" && (
           <div className="space-y-6 mb-8">
-            {analyticsLoading || !analytics ? (
+            {analyticsLoading ? (
               <div className="flex justify-center py-16">
                 <Loader2 size={24} className="animate-spin text-app-accent" />
               </div>
             ) : (
               <>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <div
-                    className={cn(
-                      "rounded-xl border px-4 py-3 text-xs",
-                      analytics.mysql_effective_configured
-                        ? "border-green-500/30 bg-green-500/5 text-green-400/90"
-                        : "border-amber-500/30 bg-amber-500/5 text-amber-200"
-                    )}
-                  >
-                    MySQL 执行：{" "}
-                    {analytics.mysql_effective_configured
-                      ? "已可连接"
-                      : "未配置（需页面或环境变量）"}
+                  <div className="rounded-xl border border-app-border bg-app-surface px-4 py-3 text-xs text-app-muted">
+                    MySQL 连接：{" "}
+                    <span className="text-app-text font-medium">
+                      {connections.filter((c) => c.engine === "mysql").length} 条
+                    </span>
                   </div>
-                  <div
-                    className={cn(
-                      "rounded-xl border px-4 py-3 text-xs",
-                      analytics.postgres_effective_configured
-                        ? "border-green-500/30 bg-green-500/5 text-green-400/90"
-                        : "border-app-border bg-app-surface text-app-muted"
-                    )}
-                  >
-                    PostgreSQL 执行：{" "}
-                    {analytics.postgres_effective_configured
-                      ? "已可连接"
-                      : "未配置"}
+                  <div className="rounded-xl border border-app-border bg-app-surface px-4 py-3 text-xs text-app-muted">
+                    PostgreSQL 连接：{" "}
+                    <span className="text-app-text font-medium">
+                      {connections.filter((c) => c.engine === "postgresql").length} 条
+                    </span>
                   </div>
                 </div>
 
-                <div className="bg-app-surface border border-app-border rounded-xl p-5 space-y-4">
-                  <div className="flex items-center gap-2 text-sm text-app-text">
-                    <Database size={16} className="text-app-accent" />
-                    MySQL（分析库）
-                  </div>
-                  {analytics.mysql_stored && analytics.mysql_url_masked && (
-                    <p className="text-xs font-mono text-app-muted break-all">
-                      已保存：{analytics.mysql_url_masked}
+                <div className="space-y-3">
+                  {connections.map((c) => (
+                    <div
+                      key={c.id}
+                      className="bg-app-surface border border-app-border rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                    >
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2 text-sm text-app-text">
+                          <span className="font-medium truncate">{c.name}</span>
+                          <span
+                            className={cn(
+                              "text-[10px] uppercase px-2 py-0.5 rounded border",
+                              c.engine === "mysql"
+                                ? "border-amber-500/40 text-amber-300"
+                                : "border-sky-500/40 text-sky-300"
+                            )}
+                          >
+                            {c.engine}
+                          </span>
+                          {c.is_default && (
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-app-accent/15 text-app-accent border border-app-accent/30">
+                              默认
+                            </span>
+                          )}
+                        </div>
+                        {c.url_masked && (
+                          <p className="text-xs font-mono text-app-muted break-all">
+                            {c.url_masked}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2 shrink-0">
+                        {!c.is_default && (
+                          <button
+                            type="button"
+                            onClick={() => setConnectionDefault(c.id)}
+                            className="text-xs px-3 py-1.5 rounded-lg border border-app-border text-app-muted hover:text-app-text"
+                          >
+                            设为默认
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => runTestStored(c)}
+                          disabled={testingId === c.id}
+                          className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-app-accent/10 text-app-accent border border-app-accent/30 disabled:opacity-40"
+                        >
+                          {testingId === c.id ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <Wifi size={12} />
+                          )}
+                          测试
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => startEditConnection(c)}
+                          className="text-xs px-3 py-1.5 rounded-lg border border-app-border text-app-muted hover:text-app-text flex items-center gap-1"
+                        >
+                          <Edit2 size={12} />
+                          编辑
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteConnection(c.id)}
+                          className="text-xs px-3 py-1.5 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 flex items-center gap-1"
+                        >
+                          <Trash2 size={12} />
+                          删除
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {connections.length === 0 && (
+                    <p className="text-sm text-app-muted text-center py-6">
+                      暂无保存的连接。可在下方添加；未添加时使用环境变量中的 ANALYTICS_* URL。
                     </p>
                   )}
+                </div>
+
+                <div className="bg-app-surface border border-app-border rounded-xl p-5 space-y-4">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 text-sm text-app-text">
+                      <Database size={16} className="text-app-accent" />
+                      {editingId !== null ? "编辑连接" : "添加连接"}
+                    </div>
+                    {editingId !== null && (
+                      <button
+                        type="button"
+                        onClick={resetConnectionForm}
+                        className="text-xs text-app-muted hover:text-app-text"
+                      >
+                        取消编辑
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <input
+                      type="text"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={formName}
+                      onChange={(e) => setFormName(e.target.value)}
+                      placeholder="连接名称"
+                      className="rounded-lg bg-app-input border border-app-border px-3 py-2 text-sm text-app-text placeholder:text-app-subtle focus:border-app-accent/50 focus:outline-none"
+                    />
+                    <select
+                      value={formEngine}
+                      onChange={(e) =>
+                        setFormEngine(e.target.value as "mysql" | "postgresql")
+                      }
+                      disabled={editingId !== null}
+                      className="rounded-lg bg-app-input border border-app-border px-3 py-2 text-sm text-app-text focus:border-app-accent/50 focus:outline-none disabled:opacity-60"
+                    >
+                      <option value="mysql">MySQL</option>
+                      <option value="postgresql">PostgreSQL</option>
+                    </select>
+                  </div>
                   <input
                     type="text"
                     autoComplete="off"
                     spellCheck={false}
-                    value={mysqlInput}
-                    onChange={(e) => setMysqlInput(e.target.value)}
-                    placeholder="mysql://user:password@host:3306/dbname"
+                    value={formUrl}
+                    onChange={(e) => setFormUrl(e.target.value)}
+                    placeholder={
+                      editingId !== null
+                        ? "新 URL（留空则不修改）"
+                        : "mysql://… 或 postgresql://…"
+                    }
                     className="w-full rounded-lg bg-app-input border border-app-border px-3 py-2 text-sm font-mono text-app-text placeholder:text-app-subtle focus:border-app-accent/50 focus:outline-none"
                   />
+                  <label className="flex items-center gap-2 text-xs text-app-muted cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formDefault}
+                      onChange={(e) => setFormDefault(e.target.checked)}
+                      className="rounded border-app-border"
+                    />
+                    设为该引擎的默认连接
+                  </label>
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={runMysqlTest}
-                      disabled={mysqlTest.loading}
-                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-app-accent/10 text-app-accent border border-app-accent/30 hover:bg-app-accent/20 disabled:opacity-40"
+                      onClick={runTestForm}
+                      disabled={testingId === "form" || !formUrl.trim()}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-app-accent/10 text-app-accent border border-app-accent/30 disabled:opacity-40"
                     >
-                      {mysqlTest.loading ? (
+                      {testingId === "form" ? (
                         <Loader2 size={12} className="animate-spin" />
                       ) : (
                         <Wifi size={12} />
                       )}
-                      测试连接
+                      测试当前 URL
                     </button>
                     <button
                       type="button"
-                      onClick={clearAnalyticsMysql}
-                      className="text-xs px-3 py-1.5 rounded-lg border border-app-border text-app-muted hover:text-app-text hover:border-app-subtle"
+                      onClick={submitConnectionForm}
+                      disabled={analyticsSaving}
+                      className="flex items-center gap-2 rounded-lg bg-app-accent hover:bg-app-accent-hover text-white text-sm font-medium px-5 py-2 disabled:opacity-50"
                     >
-                      清除页面配置
+                      {analyticsSaving ? (
+                        <Loader2 size={16} className="animate-spin" />
+                      ) : null}
+                      {editingId !== null ? "保存修改" : "保存连接"}
                     </button>
                   </div>
-                  {mysqlTest.result && (
-                    <p
-                      className={cn(
-                        "text-xs font-mono",
-                        mysqlTest.result.success
-                          ? "text-green-400"
-                          : "text-red-400"
-                      )}
-                    >
-                      {mysqlTest.result.success
-                        ? `成功 · ${mysqlTest.result.latency_ms ?? "?"}ms`
-                        : mysqlTest.result.message}
-                    </p>
-                  )}
                 </div>
-
-                <div className="bg-app-surface border border-app-border rounded-xl p-5 space-y-4">
-                  <div className="flex items-center gap-2 text-sm text-app-text">
-                    <Database size={16} className="text-app-accent" />
-                    PostgreSQL（可选，执行方言为 PG 时）
-                  </div>
-                  {analytics.postgres_stored && analytics.postgres_url_masked && (
-                    <p className="text-xs font-mono text-app-muted break-all">
-                      已保存：{analytics.postgres_url_masked}
-                    </p>
-                  )}
-                  <input
-                    type="text"
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={pgInput}
-                    onChange={(e) => setPgInput(e.target.value)}
-                    placeholder="postgresql://user:password@host:5432/dbname"
-                    className="w-full rounded-lg bg-app-input border border-app-border px-3 py-2 text-sm font-mono text-app-text placeholder:text-app-subtle focus:border-app-accent/50 focus:outline-none"
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={runPgTest}
-                      disabled={pgTest.loading}
-                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-app-accent/10 text-app-accent border border-app-accent/30 hover:bg-app-accent/20 disabled:opacity-40"
-                    >
-                      {pgTest.loading ? (
-                        <Loader2 size={12} className="animate-spin" />
-                      ) : (
-                        <Wifi size={12} />
-                      )}
-                      测试连接
-                    </button>
-                    <button
-                      type="button"
-                      onClick={clearAnalyticsPg}
-                      className="text-xs px-3 py-1.5 rounded-lg border border-app-border text-app-muted hover:text-app-text hover:border-app-subtle"
-                    >
-                      清除页面配置
-                    </button>
-                  </div>
-                  {pgTest.result && (
-                    <p
-                      className={cn(
-                        "text-xs font-mono",
-                        pgTest.result.success
-                          ? "text-green-400"
-                          : "text-red-400"
-                      )}
-                    >
-                      {pgTest.result.success
-                        ? `成功 · ${pgTest.result.latency_ms ?? "?"}ms`
-                        : pgTest.result.message}
-                    </p>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={saveAnalyticsConnections}
-                  disabled={analyticsSaving}
-                  className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-lg bg-app-accent hover:bg-app-accent-hover text-white text-sm font-medium px-5 py-2.5 disabled:opacity-50"
-                >
-                  {analyticsSaving ? (
-                    <Loader2 size={16} className="animate-spin" />
-                  ) : null}
-                  保存连接
-                </button>
               </>
             )}
           </div>

@@ -18,10 +18,7 @@ import asyncpg
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.services.analytics_db_settings_service import (
-    effective_mysql_execute_url,
-    effective_postgres_execute_url,
-)
+from app.services.analytics_db_connection_service import resolve_execute_url
 from app.services.scope_types import ResolvedScope
 
 SqlEngine = Literal["postgresql", "mysql"]
@@ -447,21 +444,25 @@ async def _run_mysql(
 
 
 async def run_analytics_query(
-    engine: SqlEngine, sql: str, db: AsyncSession, scope: ResolvedScope | None = None
+    engine: SqlEngine,
+    sql: str,
+    db: AsyncSession,
+    scope: ResolvedScope | None = None,
+    connection_id: int | None = None,
 ) -> QueryResult:
     safe_sql = assert_single_read_statement(sql)
     threshold_ms = float(settings.ANALYTICS_SLOW_QUERY_LOG_MS)
     t0 = time.perf_counter()
     try:
         if engine == "postgresql":
-            dsn = await effective_postgres_execute_url(db)
+            dsn = await resolve_execute_url(db, "postgresql", connection_id)
             if not dsn:
                 raise QueryExecutorError(
                     "无法连接 PostgreSQL 业务库：请在「设置 → 数据连接」配置，"
                     "或设置 DATABASE_URL / ANALYTICS_POSTGRES_URL。"
                 )
             return await _run_postgresql(dsn, safe_sql, scope)
-        dsn = await effective_mysql_execute_url(db)
+        dsn = await resolve_execute_url(db, "mysql", connection_id)
         if not dsn:
             raise QueryExecutorError(
                 "未配置 MySQL 连接：请在「设置 → 数据连接」填写，或设置 ANALYTICS_MYSQL_URL。"

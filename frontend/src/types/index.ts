@@ -260,20 +260,27 @@ export interface LLMConfigTestResult {
 
 // ── Analytics execute DB (NL→SQL) ─────────────────────────────────────────────
 
-export interface AnalyticsDbSettings {
-  postgres_url_masked: string | null;
-  mysql_url_masked: string | null;
-  postgres_stored: boolean;
-  mysql_stored: boolean;
-  postgres_effective_configured: boolean;
-  mysql_effective_configured: boolean;
+export interface AnalyticsDbConnection {
+  id: number;
+  name: string;
+  engine: "postgresql" | "mysql";
+  url_masked: string | null;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
-export interface AnalyticsDbSettingsWrite {
-  postgres_url?: string | null;
-  mysql_url?: string | null;
-  clear_postgres?: boolean;
-  clear_mysql?: boolean;
+export interface AnalyticsDbConnectionCreate {
+  name: string;
+  engine: "postgresql" | "mysql";
+  url: string;
+  is_default: boolean;
+}
+
+export interface AnalyticsDbConnectionUpdate {
+  name?: string;
+  url?: string;
+  is_default?: boolean;
 }
 
 export interface DataScopePolicy {

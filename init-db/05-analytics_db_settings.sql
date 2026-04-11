@@ -1,4 +1,4 @@
--- Optional overrides for NL→SQL execute targets (UI /api/v1/config/analytics-db).
+-- Legacy singleton table for NL→SQL execute URLs. Superseded by analytics_db_connections (see 14-analytics_db_connections.sql).
 -- When columns are NULL, the app falls back to ANALYTICS_* / DATABASE_URL from environment.
 CREATE TABLE IF NOT EXISTS analytics_db_settings (
     id            SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),

@@ -15,9 +15,11 @@ import {
   authFetchInit,
   buildChatStreamUrl,
   deleteChatSession,
+  fetchAnalyticsConnections,
   fetchChatHistory,
 } from "@/lib/api";
 import type {
+  AnalyticsDbConnection,
   ChatMessage,
   DoneEvent,
   MetaEvent,
@@ -196,6 +198,11 @@ export function ChatBox({
   const [input, setInput] = useState("");
   /** 是否在生成 SQL 后由服务端执行（PostgreSQL / MySQL） */
   const [executeQuery, setExecuteQuery] = useState(true);
+  /** 空字符串表示使用后端默认连接 */
+  const [executeConnectionId, setExecuteConnectionId] = useState("");
+  const [analyticsConnections, setAnalyticsConnections] = useState<
+    AnalyticsDbConnection[]
+  >([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -209,6 +216,31 @@ export function ChatBox({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    if (sqlType !== "mysql" && sqlType !== "postgresql") {
+      setAnalyticsConnections([]);
+      setExecuteConnectionId("");
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await fetchAnalyticsConnections();
+        if (!cancelled) {
+          setAnalyticsConnections(list.filter((c) => c.engine === sqlType));
+          setExecuteConnectionId("");
+        }
+      } catch {
+        if (!cancelled) {
+          setAnalyticsConnections([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sqlType]);
 
   useEffect(() => {
     if (!isLoading) return;
@@ -368,6 +400,9 @@ export function ChatBox({
               sql_type: sqlType,
               top_k: 5,
               execute: executeQuery,
+              ...(executeConnectionId !== ""
+                ? { execute_connection_id: Number(executeConnectionId) }
+                : {}),
             }),
             signal: controller.signal,
           })
@@ -573,7 +608,15 @@ export function ChatBox({
         abortRef.current = null;
       }
     },
-    [isLoading, sessionId, sqlType, executeQuery, onMessageSent, onSessionChange] // onSessionChange 在流结束时调用，保留在依赖中
+    [
+      isLoading,
+      sessionId,
+      sqlType,
+      executeQuery,
+      executeConnectionId,
+      onMessageSent,
+      onSessionChange,
+    ]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -601,17 +644,40 @@ export function ChatBox({
       <div className="border-t bg-background/80 backdrop-blur-md p-3 sm:p-6">
         <div className="max-w-4xl mx-auto space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-1">
-            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors">
-              <input
-                type="checkbox"
-                checked={executeQuery}
-                onChange={(e) => setExecuteQuery(e.target.checked)}
-                disabled={isLoading}
-                className="rounded-sm border-muted-foreground/30 bg-background text-primary focus:ring-primary/20"
-                suppressHydrationWarning
-              />
-              <span>生成后尝试执行查询（仅 PostgreSQL / MySQL）</span>
-            </label>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap">
+              <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors">
+                <input
+                  type="checkbox"
+                  checked={executeQuery}
+                  onChange={(e) => setExecuteQuery(e.target.checked)}
+                  disabled={isLoading}
+                  className="rounded-sm border-muted-foreground/30 bg-background text-primary focus:ring-primary/20"
+                  suppressHydrationWarning
+                />
+                <span>生成后尝试执行查询（仅 PostgreSQL / MySQL）</span>
+              </label>
+              {(sqlType === "mysql" || sqlType === "postgresql") &&
+                executeQuery &&
+                analyticsConnections.length > 0 && (
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="whitespace-nowrap shrink-0">执行连接</span>
+                    <select
+                      value={executeConnectionId}
+                      onChange={(e) => setExecuteConnectionId(e.target.value)}
+                      disabled={isLoading}
+                      className="rounded-md border border-border bg-background px-2 py-1.5 text-xs max-w-[min(100%,280px)] min-w-0"
+                    >
+                      <option value="">默认</option>
+                      {analyticsConnections.map((c) => (
+                        <option key={c.id} value={String(c.id)}>
+                          {c.name}
+                          {c.is_default ? "（默认）" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+            </div>
             <div className="text-[11px] text-muted-foreground/80 font-medium">
               会话累计耗时: {formatDuration(sessionElapsedMs)}
             </div>

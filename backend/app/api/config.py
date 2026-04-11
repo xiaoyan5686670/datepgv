@@ -17,13 +17,15 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.deps.auth import require_admin
+from app.models.analytics_db_connection import AnalyticsDbConnection
 from app.models.llm_config import LLMConfig
 from app.models.data_scope_policy import DataScopePolicy
 from app.models.user import User
 from app.models.schemas import (
-    AnalyticsDbSettingsResponse,
-    AnalyticsDbSettingsWrite,
-    AnalyticsDbTestRequest,
+    AnalyticsDbConnectionCreate,
+    AnalyticsDbConnectionResponse,
+    AnalyticsDbConnectionTestRequest,
+    AnalyticsDbConnectionUpdate,
     DataScopePolicyCreate,
     DataScopePolicyResponse,
     DataScopePolicyUpdate,
@@ -129,32 +131,174 @@ async def list_ollama_models(
     return {"models": names}
 
 
-# ── Analytics DB execute targets (must stay before /{config_id}) ──────────────
+# ── Analytics DB connections (must stay before /{config_id}) ─────────────────
 
 
-@router.get("/analytics-db", response_model=AnalyticsDbSettingsResponse)
-async def get_analytics_db_settings(
-    db: AsyncSession = Depends(get_db),
-) -> AnalyticsDbSettingsResponse:
-    from app.services.analytics_db_settings_service import (
-        effective_mysql_execute_url,
-        effective_postgres_execute_url,
-        get_analytics_settings_row,
-        mask_database_url,
+def _analytics_connection_to_response(row: AnalyticsDbConnection) -> AnalyticsDbConnectionResponse:
+    from app.services.analytics_db_connection_service import mask_database_url
+
+    return AnalyticsDbConnectionResponse(
+        id=row.id,
+        name=row.name,
+        engine=row.engine,  # type: ignore[arg-type]
+        url_masked=mask_database_url(row.url),
+        is_default=row.is_default,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
-    row = await get_analytics_settings_row(db)
-    stored_pg = row.postgres_url if row else None
-    stored_my = row.mysql_url if row else None
-    eff_pg = await effective_postgres_execute_url(db)
-    eff_my = await effective_mysql_execute_url(db)
-    return AnalyticsDbSettingsResponse(
-        postgres_url_masked=mask_database_url(stored_pg),
-        mysql_url_masked=mask_database_url(stored_my),
-        postgres_stored=bool(stored_pg and stored_pg.strip()),
-        mysql_stored=bool(stored_my and stored_my.strip()),
-        postgres_effective_configured=bool(eff_pg),
-        mysql_effective_configured=bool(eff_my),
+
+@router.get("/analytics-connections", response_model=list[AnalyticsDbConnectionResponse])
+async def list_analytics_connections(
+    db: AsyncSession = Depends(get_db),
+) -> list[AnalyticsDbConnectionResponse]:
+    result = await db.execute(
+        select(AnalyticsDbConnection).order_by(
+            AnalyticsDbConnection.engine.asc(),
+            AnalyticsDbConnection.is_default.desc(),
+            AnalyticsDbConnection.id.asc(),
+        )
+    )
+    rows = result.scalars().all()
+    return [_analytics_connection_to_response(r) for r in rows]
+
+
+@router.post(
+    "/analytics-connections",
+    response_model=AnalyticsDbConnectionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_analytics_connection(
+    payload: AnalyticsDbConnectionCreate,
+    db: AsyncSession = Depends(get_db),
+) -> AnalyticsDbConnectionResponse:
+    from app.services.analytics_db_connection_service import _clear_defaults_for_engine
+
+    url = str(payload.url).strip()
+    if not url:
+        raise HTTPException(status_code=422, detail="url 不能为空")
+
+    if payload.is_default:
+        await _clear_defaults_for_engine(db, payload.engine)
+    row = AnalyticsDbConnection(
+        name=str(payload.name).strip(),
+        engine=payload.engine,
+        url=url,
+        is_default=payload.is_default,
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return _analytics_connection_to_response(row)
+
+
+@router.put("/analytics-connections/{connection_id}", response_model=AnalyticsDbConnectionResponse)
+async def update_analytics_connection(
+    connection_id: int,
+    payload: AnalyticsDbConnectionUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> AnalyticsDbConnectionResponse:
+    from app.services.analytics_db_connection_service import _clear_defaults_for_engine
+
+    row = await db.get(AnalyticsDbConnection, connection_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="连接不存在")
+
+    data = payload.model_dump(exclude_unset=True)
+    if "name" in data and data["name"] is not None:
+        row.name = str(data["name"]).strip()
+    if "url" in data and data["url"] is not None:
+        u = str(data["url"]).strip()
+        if not u:
+            raise HTTPException(status_code=422, detail="url 不能为空")
+        row.url = u
+    if data.get("is_default") is True:
+        await _clear_defaults_for_engine(db, row.engine, except_id=row.id)
+        row.is_default = True
+    elif data.get("is_default") is False:
+        row.is_default = False
+        from app.services.analytics_db_connection_service import ensure_default_after_delete
+
+        await db.flush()
+        await ensure_default_after_delete(db, row.engine)  # type: ignore[arg-type]
+
+    await db.commit()
+    await db.refresh(row)
+    return _analytics_connection_to_response(row)
+
+
+@router.delete("/analytics-connections/{connection_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_analytics_connection(
+    connection_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    from app.services.analytics_db_connection_service import ensure_default_after_delete
+
+    row = await db.get(AnalyticsDbConnection, connection_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="连接不存在")
+    eng = row.engine
+    await db.delete(row)
+    await db.flush()
+    await ensure_default_after_delete(db, eng)  # type: ignore[arg-type]
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/analytics-connections/test", response_model=LLMConfigTestResult)
+async def test_analytics_connection(
+    payload: AnalyticsDbConnectionTestRequest,
+    db: AsyncSession = Depends(get_db),
+) -> LLMConfigTestResult:
+    from app.services.analytics_db_connection_service import resolve_execute_url
+    from app.services.query_executor import (
+        QueryExecutorError,
+        ping_mysql_dsn,
+        ping_postgresql_dsn,
+    )
+
+    start = time.monotonic()
+    inline = (payload.url or "").strip() or None
+    try:
+        if inline:
+            dsn = inline
+        elif payload.connection_id is not None:
+            row = await db.get(AnalyticsDbConnection, payload.connection_id)
+            if not row or row.engine != payload.engine:
+                raise HTTPException(status_code=400, detail="连接不存在或引擎不匹配")
+            dsn = await resolve_execute_url(db, payload.engine, payload.connection_id)
+        else:
+            dsn = await resolve_execute_url(db, payload.engine, None)
+        if not dsn:
+            raise HTTPException(
+                status_code=400,
+                detail="未配置该引擎的执行连接",
+            )
+        if payload.engine == "postgresql":
+            await ping_postgresql_dsn(dsn)
+        else:
+            await ping_mysql_dsn(dsn)
+    except HTTPException:
+        raise
+    except QueryExecutorError as e:
+        latency_ms = int((time.monotonic() - start) * 1000)
+        return LLMConfigTestResult(
+            success=False,
+            message=str(e),
+            latency_ms=latency_ms,
+        )
+    except Exception as e:  # noqa: BLE001
+        latency_ms = int((time.monotonic() - start) * 1000)
+        return LLMConfigTestResult(
+            success=False,
+            message=str(e),
+            latency_ms=latency_ms,
+        )
+    latency_ms = int((time.monotonic() - start) * 1000)
+    return LLMConfigTestResult(
+        success=True,
+        message="连接成功",
+        latency_ms=latency_ms,
     )
 
 
@@ -268,105 +412,6 @@ async def preview_scope_for_user(
         "region_values": sorted(scope.region_values),
         "district_values": sorted(scope.district_values),
     }
-
-
-@router.put("/analytics-db", response_model=AnalyticsDbSettingsResponse)
-async def put_analytics_db_settings(
-    payload: AnalyticsDbSettingsWrite,
-    db: AsyncSession = Depends(get_db),
-) -> AnalyticsDbSettingsResponse:
-    from app.services.analytics_db_settings_service import (
-        effective_mysql_execute_url,
-        effective_postgres_execute_url,
-        ensure_analytics_db_settings_row,
-        mask_database_url,
-    )
-
-    row = await ensure_analytics_db_settings_row(db)
-    data = payload.model_dump(exclude_unset=True)
-    if data.get("clear_postgres"):
-        row.postgres_url = None
-    elif "postgres_url" in data:
-        v = data["postgres_url"]
-        row.postgres_url = str(v).strip() if v and str(v).strip() else None
-    if data.get("clear_mysql"):
-        row.mysql_url = None
-    elif "mysql_url" in data:
-        v = data["mysql_url"]
-        row.mysql_url = str(v).strip() if v and str(v).strip() else None
-
-    await db.commit()
-    await db.refresh(row)
-    stored_pg = row.postgres_url
-    stored_my = row.mysql_url
-    eff_pg = await effective_postgres_execute_url(db)
-    eff_my = await effective_mysql_execute_url(db)
-    return AnalyticsDbSettingsResponse(
-        postgres_url_masked=mask_database_url(stored_pg),
-        mysql_url_masked=mask_database_url(stored_my),
-        postgres_stored=bool(stored_pg and stored_pg.strip()),
-        mysql_stored=bool(stored_my and stored_my.strip()),
-        postgres_effective_configured=bool(eff_pg),
-        mysql_effective_configured=bool(eff_my),
-    )
-
-
-@router.post("/analytics-db/test", response_model=LLMConfigTestResult)
-async def test_analytics_db_connection(
-    payload: AnalyticsDbTestRequest,
-    db: AsyncSession = Depends(get_db),
-) -> LLMConfigTestResult:
-    from app.services.analytics_db_settings_service import (
-        effective_mysql_execute_url,
-        effective_postgres_execute_url,
-    )
-    from app.services.query_executor import (
-        QueryExecutorError,
-        ping_mysql_dsn,
-        ping_postgresql_dsn,
-    )
-
-    start = time.monotonic()
-    url = (payload.url or "").strip() or None
-    try:
-        if payload.engine == "postgresql":
-            dsn = url or await effective_postgres_execute_url(db)
-            if not dsn:
-                raise HTTPException(
-                    status_code=400,
-                    detail="未配置 PostgreSQL 执行连接",
-                )
-            await ping_postgresql_dsn(dsn)
-        else:
-            dsn = url or await effective_mysql_execute_url(db)
-            if not dsn:
-                raise HTTPException(
-                    status_code=400,
-                    detail="未配置 MySQL 执行连接",
-                )
-            await ping_mysql_dsn(dsn)
-    except HTTPException:
-        raise
-    except QueryExecutorError as e:
-        latency_ms = int((time.monotonic() - start) * 1000)
-        return LLMConfigTestResult(
-            success=False,
-            message=str(e),
-            latency_ms=latency_ms,
-        )
-    except Exception as e:  # noqa: BLE001
-        latency_ms = int((time.monotonic() - start) * 1000)
-        return LLMConfigTestResult(
-            success=False,
-            message=str(e),
-            latency_ms=latency_ms,
-        )
-    latency_ms = int((time.monotonic() - start) * 1000)
-    return LLMConfigTestResult(
-        success=True,
-        message="连接成功",
-        latency_ms=latency_ms,
-    )
 
 
 # ── List ──────────────────────────────────────────────────────────────────────

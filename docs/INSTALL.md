@@ -101,7 +101,8 @@ PostgreSQL 会在容器首次启动时自动执行 `init-db` 目录下的 SQL：
 - `01-init.sql`：创建元数据表、chat 历史表、llm 配置表等
 - `02-...`：表关系 / graph 边
 - `03-...`：MySQL NL 回答等（视版本）
-- `05-analytics_db_settings.sql`：「设置 → 数据连接」用的分析库 URL 存储表（旧库可单独执行此文件补齐）
+- `05-analytics_db_settings.sql`：旧版单条分析库 URL 表（仅遗留环境；新部署可跳过，见 `14`）
+- `14-analytics_db_connections.sql`：多数据连接表；若存在旧表 `analytics_db_settings` 会自动迁移数据并删除旧表
 - `06-table_metadata_db_type_mysql_oracle.sql`：放宽 `table_metadata.db_type` 校验，允许 `mysql` / `oracle`（仅跑过早期 `01-init` 的旧库需执行）
 - `08-auth_users_roles.sql`：**用户 / 角色 / JWT 登录**（新装必跑；旧库升级见下方文档）
 

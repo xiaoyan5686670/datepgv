@@ -23,10 +23,7 @@ from app.models.llm_config import LLMConfig
 from app.models.schemas import ChatRequest, ChatSessionSummary
 from app.services.embedding import get_embedding_service
 from app.services.llm import LLMService, get_llm_service
-from app.services.analytics_db_settings_service import (
-    effective_mysql_execute_url,
-    effective_postgres_execute_url,
-)
+from app.services.analytics_db_connection_service import resolve_execute_url
 from app.core.config import settings
 from app.models.user import User
 from app.services.query_executor import QueryExecutorError, QueryResult, run_analytics_query
@@ -382,17 +379,29 @@ async def chat_stream(
                 f"当前为 {request.sql_type.upper()} 方言模式，系统未连接业务库执行查询，"
                 "请在目标环境中自行运行下方 SQL。"
             )
-        elif request.sql_type == "postgresql" and not await effective_postgres_execute_url(
-            db
+        elif request.sql_type == "postgresql" and not await resolve_execute_url(
+            db, "postgresql", request.execute_connection_id
         ):
             exec_error = (
-                "未配置可用的 PostgreSQL 执行连接：请在「设置 → 数据连接」填写，"
+                "指定的 PostgreSQL 执行连接无效或未配置：请在「设置 → 数据连接」选择或配置，"
                 "或设置 DATABASE_URL / ANALYTICS_POSTGRES_URL。"
+                if request.execute_connection_id is not None
+                else (
+                    "未配置可用的 PostgreSQL 执行连接：请在「设置 → 数据连接」填写，"
+                    "或设置 DATABASE_URL / ANALYTICS_POSTGRES_URL。"
+                )
             )
             answer = exec_error
-        elif request.sql_type == "mysql" and not await effective_mysql_execute_url(db):
+        elif request.sql_type == "mysql" and not await resolve_execute_url(
+            db, "mysql", request.execute_connection_id
+        ):
             exec_error = (
-                "未配置 MySQL 执行连接：请在「设置 → 数据连接」填写，或设置 ANALYTICS_MYSQL_URL。"
+                "指定的 MySQL 执行连接无效或未配置：请在「设置 → 数据连接」选择或配置，"
+                "或设置 ANALYTICS_MYSQL_URL。"
+                if request.execute_connection_id is not None
+                else (
+                    "未配置 MySQL 执行连接：请在「设置 → 数据连接」填写，或设置 ANALYTICS_MYSQL_URL。"
+                )
             )
             answer = exec_error
         else:
@@ -450,6 +459,7 @@ async def chat_stream(
                     effective_sql,
                     db,
                     scope=scope,
+                    connection_id=request.execute_connection_id,
                 )
                 if not scope.unrestricted:
                     scoped_rows = filter_rows_by_scope(qres.rows, scope)

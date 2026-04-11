@@ -369,8 +369,9 @@ export async function activateLLMModel(configId: number): Promise<LLMModelOption
 // ── LLM Config ────────────────────────────────────────────────────────────────
 
 import type {
-  AnalyticsDbSettings,
-  AnalyticsDbSettingsWrite,
+  AnalyticsDbConnection,
+  AnalyticsDbConnectionCreate,
+  AnalyticsDbConnectionUpdate,
   LLMConfig,
   LLMConfigCreate,
   LLMConfigTestResult,
@@ -437,36 +438,65 @@ export async function getActiveConfig(
 /** List model names from a running Ollama instance (via backend proxy). */
 // ── Analytics DB (execute targets) ────────────────────────────────────────────
 
-export async function fetchAnalyticsDbSettings(): Promise<AnalyticsDbSettings> {
-  const res = await apiFetch(`${apiV1Prefix()}/config/analytics-db`);
+export async function fetchAnalyticsConnections(): Promise<AnalyticsDbConnection[]> {
+  const res = await apiFetch(`${apiV1Prefix()}/config/analytics-connections`);
   if (!res.ok) {
     throw new Error(await readErrorMessage(res, "加载数据连接配置失败"));
   }
   return res.json();
 }
 
-export async function updateAnalyticsDbSettings(
-  payload: AnalyticsDbSettingsWrite
-): Promise<AnalyticsDbSettings> {
-  const res = await apiFetch(`${apiV1Prefix()}/config/analytics-db`, {
+export async function createAnalyticsConnection(
+  payload: AnalyticsDbConnectionCreate
+): Promise<AnalyticsDbConnection> {
+  const res = await apiFetch(`${apiV1Prefix()}/config/analytics-connections`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "创建连接失败"));
+  }
+  return res.json();
+}
+
+export async function updateAnalyticsConnection(
+  id: number,
+  payload: AnalyticsDbConnectionUpdate
+): Promise<AnalyticsDbConnection> {
+  const res = await apiFetch(`${apiV1Prefix()}/config/analytics-connections/${id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    throw new Error(await readErrorMessage(res, "保存失败"));
+    throw new Error(await readErrorMessage(res, "更新连接失败"));
   }
   return res.json();
 }
 
-export async function testAnalyticsDbConnection(
-  engine: "postgresql" | "mysql",
-  url?: string | null
-): Promise<LLMConfigTestResult> {
-  const res = await apiFetch(`${apiV1Prefix()}/config/analytics-db/test`, {
+export async function deleteAnalyticsConnection(id: number): Promise<void> {
+  const res = await apiFetch(`${apiV1Prefix()}/config/analytics-connections/${id}`, {
+    method: "DELETE",
+  });
+  if (!res.ok && res.status !== 204) {
+    throw new Error(await readErrorMessage(res, "删除连接失败"));
+  }
+}
+
+export async function testAnalyticsConnection(payload: {
+  engine: "postgresql" | "mysql";
+  url?: string | null;
+  connection_id?: number | null;
+}): Promise<LLMConfigTestResult> {
+  const res = await apiFetch(`${apiV1Prefix()}/config/analytics-connections/test`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ engine, url: url?.trim() || null }),
+    body: JSON.stringify({
+      engine: payload.engine,
+      url: payload.url?.trim() || null,
+      connection_id: payload.connection_id ?? null,
+    }),
   });
   if (!res.ok) {
     throw new Error(await readErrorMessage(res, "测试请求失败"));
