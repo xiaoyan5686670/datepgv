@@ -217,10 +217,6 @@ async def update_analytics_connection(
         row.is_default = True
     elif data.get("is_default") is False:
         row.is_default = False
-        from app.services.analytics_db_connection_service import ensure_default_after_delete
-
-        await db.flush()
-        await ensure_default_after_delete(db, row.engine)  # type: ignore[arg-type]
 
     await db.commit()
     await db.refresh(row)
@@ -232,15 +228,10 @@ async def delete_analytics_connection(
     connection_id: int,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    from app.services.analytics_db_connection_service import ensure_default_after_delete
-
     row = await db.get(AnalyticsDbConnection, connection_id)
     if not row:
         raise HTTPException(status_code=404, detail="连接不存在")
-    eng = row.engine
     await db.delete(row)
-    await db.flush()
-    await ensure_default_after_delete(db, eng)  # type: ignore[arg-type]
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

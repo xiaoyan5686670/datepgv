@@ -52,7 +52,8 @@ async def resolve_execute_url(
     connection_id: int | None,
 ) -> str | None:
     """
-    Resolve DSN: explicit id (must match engine), else default row for engine, else env.
+    Resolve DSN: explicit id (must match engine), else stored row for engine
+    (prefer is_default, else smallest id), else env.
     Returns None if no URL available (caller may error).
     """
     if connection_id is not None:
@@ -63,13 +64,21 @@ async def resolve_execute_url(
             return None
         return _url_from_row(engine, row.url)
 
-    result = await db.execute(
-        select(AnalyticsDbConnection).where(
-            AnalyticsDbConnection.engine == engine,
-            AnalyticsDbConnection.is_default.is_(True),
-        )
+    base = select(AnalyticsDbConnection).where(AnalyticsDbConnection.engine == engine)
+
+    r1 = await db.execute(
+        base.where(AnalyticsDbConnection.is_default.is_(True)).order_by(
+            AnalyticsDbConnection.id.asc()
+        ).limit(1)
     )
-    row = result.scalar_one_or_none()
+    row = r1.scalars().first()
+    if row and row.url and str(row.url).strip():
+        return _url_from_row(engine, row.url)
+
+    r2 = await db.execute(
+        base.order_by(AnalyticsDbConnection.id.asc()).limit(1)
+    )
+    row = r2.scalars().first()
     if row and row.url and str(row.url).strip():
         return _url_from_row(engine, row.url)
 
@@ -108,28 +117,3 @@ async def _clear_defaults_for_engine(
         .values(is_default=False)
     )
 
-
-async def ensure_default_after_delete(db: AsyncSession, engine: SqlEngine) -> None:
-    """If engine has no default row, set smallest id as default."""
-    r = await db.execute(
-        select(AnalyticsDbConnection.id).where(
-            AnalyticsDbConnection.engine == engine,
-            AnalyticsDbConnection.is_default.is_(True),
-        )
-    )
-    if r.scalar_one_or_none() is not None:
-        return
-    r2 = await db.execute(
-        select(AnalyticsDbConnection.id)
-        .where(AnalyticsDbConnection.engine == engine)
-        .order_by(AnalyticsDbConnection.id.asc())
-        .limit(1)
-    )
-    next_id = r2.scalar_one_or_none()
-    if next_id is None:
-        return
-    await db.execute(
-        update(AnalyticsDbConnection)
-        .where(AnalyticsDbConnection.id == next_id)
-        .values(is_default=True)
-    )

@@ -451,7 +451,7 @@ function SettingsPageInner() {
               实际执行
             </strong>
             所用的数据库（与存元数据/向量的 PostgreSQL 应用库不同）。可添加多条
-            MySQL / PostgreSQL 连接，并为每种引擎指定一个默认连接；未配置时使用环境变量{" "}
+            MySQL / PostgreSQL 连接；可选「默认」优先用于执行。未指定默认时，使用同引擎下最早创建的一条，再回落环境变量{" "}
             <code className="text-app-accent">ANALYTICS_MYSQL_URL</code> /
             <code className="text-app-accent">ANALYTICS_POSTGRES_URL</code>。
           </div>
