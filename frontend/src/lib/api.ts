@@ -1,4 +1,6 @@
 import type {
+  AdminPutRagPermissionRequest,
+  AdminUserRagPermissionResponse,
   AuthUser,
   ChatSessionSummary,
   OrgGraphResponse,
@@ -543,6 +545,31 @@ export async function fetchOllamaModels(apiBase: string): Promise<string[]> {
 }
 
 // ── User Management ───────────────────────────────────────────────────────────
+
+export async function fetchAdminUserRagPermission(
+  userId: number
+): Promise<AdminUserRagPermissionResponse> {
+  const res = await apiFetch(`${apiV1Prefix()}/admin/users/${userId}/rag-permission`);
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "加载 RAG 层级权限失败"));
+  }
+  return res.json();
+}
+
+export async function putAdminUserRagPermission(
+  userId: number,
+  body: AdminPutRagPermissionRequest
+): Promise<AdminUserRagPermissionResponse> {
+  const res = await apiFetch(`${apiV1Prefix()}/admin/users/${userId}/rag-permission`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "保存 RAG 层级权限失败"));
+  }
+  return res.json();
+}
 
 export async function fetchUsers(
   province?: string,

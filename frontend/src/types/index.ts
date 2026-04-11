@@ -64,6 +64,30 @@ export interface UserUpdate {
   password?: string;
 }
 
+/** RAG 层级检索 ABAC（与后端 UserPermission 对齐） */
+export interface UserPermission {
+  unrestricted: boolean;
+  allowed_prefix: string[] | null;
+  allowed_prefixes: string[][];
+  attributes: Record<string, unknown>;
+}
+
+export interface AdminUserRagPermissionResponse {
+  effective: UserPermission;
+  org_baseline: UserPermission;
+  stored_override: Record<string, unknown> | null;
+}
+
+export interface RagPermissionOverrideInput {
+  unrestricted: boolean;
+  prefixes: string[][];
+}
+
+export interface AdminPutRagPermissionRequest {
+  /** null 表示清除覆盖、恢复通讯录自动推导 */
+  override: RagPermissionOverrideInput | null;
+}
+
 export interface UserImportRow {
   username: string;
   password?: string;

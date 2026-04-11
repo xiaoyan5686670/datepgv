@@ -13,6 +13,7 @@ import {
   RotateCcw,
   Settings,
   Share2,
+  Shield,
   Table,
   Trash2,
   Upload,
@@ -28,17 +29,32 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 import {
   deleteMetadata,
+  fetchAdminUserRagPermission,
   fetchMetadata,
+  fetchUsers,
   importCSV,
+  putAdminUserRagPermission,
   reembedAll,
 } from "@/lib/api";
-import type { SqlType, TableMetadata } from "@/types";
+import type {
+  AdminUserRagPermissionResponse,
+  SqlType,
+  TableMetadata,
+  User,
+} from "@/types";
 
 function AdminPageInner() {
   const [tables, setTables] = useState<TableMetadata[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | SqlType>("all");
-  const [section, setSection] = useState<"tables" | "relations">("tables");
+  const [section, setSection] = useState<"tables" | "relations" | "rag">("tables");
+  const [ragUsers, setRagUsers] = useState<User[]>([]);
+  const [ragUserId, setRagUserId] = useState<string>("");
+  const [ragDetail, setRagDetail] = useState<AdminUserRagPermissionResponse | null>(null);
+  const [ragLoading, setRagLoading] = useState(false);
+  const [ragErr, setRagErr] = useState<string | null>(null);
+  const [ragUnrestricted, setRagUnrestricted] = useState(false);
+  const [ragPrefixesJson, setRagPrefixesJson] = useState<string>("[]");
   const [showForm, setShowForm] = useState(false);
   const [showDDL, setShowDDL] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -58,6 +74,105 @@ function AdminPageInner() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (section !== "rag") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await fetchUsers(undefined, undefined, 0, 200);
+        if (!cancelled) setRagUsers(list);
+      } catch {
+        if (!cancelled) setRagUsers([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [section]);
+
+  const handleLoadRagPermission = async () => {
+    setRagErr(null);
+    const id = Number(ragUserId);
+    if (!Number.isFinite(id) || id < 1) {
+      setRagErr("请选择有效用户");
+      return;
+    }
+    setRagLoading(true);
+    try {
+      const d = await fetchAdminUserRagPermission(id);
+      setRagDetail(d);
+      setRagUnrestricted(d.stored_override?.unrestricted === true);
+      if (Array.isArray(d.stored_override?.prefixes)) {
+        setRagPrefixesJson(JSON.stringify(d.stored_override.prefixes, null, 2));
+      } else {
+        setRagPrefixesJson(JSON.stringify(d.org_baseline.allowed_prefixes, null, 2));
+      }
+    } catch (e) {
+      setRagDetail(null);
+      setRagErr(e instanceof Error ? e.message : "加载失败");
+    } finally {
+      setRagLoading(false);
+    }
+  };
+
+  const handleSaveRagOverride = async () => {
+    setRagErr(null);
+    const id = Number(ragUserId);
+    if (!Number.isFinite(id) || id < 1) {
+      setRagErr("请选择有效用户");
+      return;
+    }
+    let prefixes: string[][] = [];
+    if (!ragUnrestricted) {
+      try {
+        const parsed = JSON.parse(ragPrefixesJson) as unknown;
+        if (!Array.isArray(parsed)) throw new Error("prefixes 须为 JSON 数组");
+        prefixes = parsed.map((row) => {
+          if (!Array.isArray(row)) throw new Error("每条前缀须为字符串数组");
+          return row.map((x) => String(x));
+        });
+      } catch (e) {
+        setRagErr(e instanceof Error ? e.message : "JSON 解析失败");
+        return;
+      }
+    }
+    setRagLoading(true);
+    try {
+      const d = await putAdminUserRagPermission(id, {
+        override: { unrestricted: ragUnrestricted, prefixes },
+      });
+      setRagDetail(d);
+      setRagErr(null);
+      alert("已保存 RAG 层级权限覆盖");
+    } catch (e) {
+      setRagErr(e instanceof Error ? e.message : "保存失败");
+    } finally {
+      setRagLoading(false);
+    }
+  };
+
+  const handleClearRagOverride = async () => {
+    setRagErr(null);
+    const id = Number(ragUserId);
+    if (!Number.isFinite(id) || id < 1) {
+      setRagErr("请选择有效用户");
+      return;
+    }
+    if (!confirm("确定清除手动覆盖？将恢复为通讯录自动推导。")) return;
+    setRagLoading(true);
+    try {
+      const d = await putAdminUserRagPermission(id, { override: null });
+      setRagDetail(d);
+      setRagUnrestricted(false);
+      setRagPrefixesJson(JSON.stringify(d.org_baseline.allowed_prefixes, null, 2));
+      alert("已恢复自动推导");
+    } catch (e) {
+      setRagErr(e instanceof Error ? e.message : "清除失败");
+    } finally {
+      setRagLoading(false);
+    }
+  };
 
   const handleDelete = async (id: number) => {
     if (!confirm("确定删除该表元数据？")) return;
@@ -136,6 +251,19 @@ function AdminPageInner() {
               >
                 <GitBranch size={12} />
                 表关系
+              </button>
+              <button
+                type="button"
+                onClick={() => setSection("rag")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all",
+                  section === "rag"
+                    ? "bg-app-accent/15 text-app-accent"
+                    : "text-app-muted hover:text-app-text"
+                )}
+              >
+                <Shield size={12} />
+                RAG 权限
               </button>
             </div>
             <Link
@@ -240,6 +368,19 @@ function AdminPageInner() {
             <GitBranch size={12} />
             表关系
           </button>
+          <button
+            type="button"
+            onClick={() => setSection("rag")}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium",
+              section === "rag"
+                ? "bg-app-accent/15 text-app-accent"
+                : "text-app-muted"
+            )}
+          >
+            <Shield size={12} />
+            RAG
+          </button>
         </div>
 
         {/* Stats */}
@@ -271,6 +412,7 @@ function AdminPageInner() {
         )}
 
         {/* Filter tabs */}
+        {section !== "rag" && (
         <div className="flex items-center gap-2 mb-4 flex-wrap">
           {(["all", "hive", "postgresql", "mysql", "oracle"] as const).map((f) => (
             <button
@@ -314,8 +456,125 @@ function AdminPageInner() {
             </button>
           </div>
         </div>
+        )}
 
-        {section === "relations" ? (
+        {section === "rag" ? (
+          <div className="space-y-6 max-w-4xl">
+            <p className="text-sm text-app-muted leading-relaxed">
+              此处配置仅影响{" "}
+              <code className="text-xs bg-app-border px-1 py-0.5 rounded">POST /api/v1/rag/search</code>{" "}
+              文档块的层级过滤（<code className="text-xs">hierarchy_path @&gt; 前缀</code>）。不影响聊天 NL→SQL 的数据范围；仅管理员可见本页。
+            </p>
+            {ragErr && (
+              <div className="text-sm text-red-500 border border-red-500/30 rounded-lg px-3 py-2">
+                {ragErr}
+              </div>
+            )}
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="flex flex-col gap-1 min-w-[200px]">
+                <label className="text-xs text-app-muted">用户</label>
+                <select
+                  className="rounded-lg border border-app-border bg-app-input px-3 py-2 text-sm"
+                  value={ragUserId}
+                  onChange={(e) => setRagUserId(e.target.value)}
+                >
+                  <option value="">请选择</option>
+                  {ragUsers.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.username}
+                      {u.full_name ? ` · ${u.full_name}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                disabled={ragLoading}
+                onClick={handleLoadRagPermission}
+                className="text-sm px-4 py-2 rounded-lg bg-app-accent text-white hover:bg-app-accent-hover disabled:opacity-50"
+              >
+                {ragLoading ? "加载中…" : "加载权限"}
+              </button>
+            </div>
+
+            {ragDetail && (
+              <div className="grid gap-4 md:grid-cols-1">
+                <div className="rounded-xl border border-app-border bg-app-surface p-4">
+                  <h3 className="text-xs font-semibold text-app-muted uppercase tracking-wide mb-2">
+                    当前生效（含手动覆盖）
+                  </h3>
+                  <pre className="text-xs text-app-text overflow-x-auto whitespace-pre-wrap font-mono bg-app-input/50 rounded-lg p-3">
+                    {JSON.stringify(ragDetail.effective, null, 2)}
+                  </pre>
+                </div>
+                <div className="rounded-xl border border-app-border bg-app-surface p-4">
+                  <h3 className="text-xs font-semibold text-app-muted uppercase tracking-wide mb-2">
+                    通讯录自动推导（无覆盖时与生效一致）
+                  </h3>
+                  <pre className="text-xs text-app-text overflow-x-auto whitespace-pre-wrap font-mono bg-app-input/50 rounded-lg p-3">
+                    {JSON.stringify(ragDetail.org_baseline, null, 2)}
+                  </pre>
+                </div>
+                <div className="rounded-xl border border-app-border bg-app-surface p-4">
+                  <h3 className="text-xs font-semibold text-app-muted uppercase tracking-wide mb-2">
+                    库中已存覆盖 JSON
+                  </h3>
+                  <pre className="text-xs text-app-text overflow-x-auto whitespace-pre-wrap font-mono bg-app-input/50 rounded-lg p-3">
+                    {ragDetail.stored_override
+                      ? JSON.stringify(ragDetail.stored_override, null, 2)
+                      : "null（未设置，走自动推导）"}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            <div className="rounded-xl border border-app-border bg-app-surface p-4 space-y-4">
+              <h3 className="text-sm font-medium text-app-text">调整手动覆盖</h3>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={ragUnrestricted}
+                  onChange={(e) => setRagUnrestricted(e.target.checked)}
+                  className="rounded border-app-border"
+                />
+                <span>
+                  对该用户 RAG 不做层级限制（等同全库可见，非 JWT 管理员）
+                </span>
+              </label>
+              <div className={cn("space-y-1", ragUnrestricted && "opacity-40 pointer-events-none")}>
+                <label className="text-xs text-app-muted">
+                  前缀列表 JSON（字符串数组的数组），例如{" "}
+                  <code className="text-[11px]">{`[["北部大区","广西"]]`}</code>
+                </label>
+                <textarea
+                  className="w-full min-h-[160px] rounded-lg border border-app-border bg-app-input p-3 text-xs font-mono"
+                  value={ragPrefixesJson}
+                  onChange={(e) => setRagPrefixesJson(e.target.value)}
+                  disabled={ragUnrestricted}
+                  spellCheck={false}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={ragLoading}
+                  onClick={handleSaveRagOverride}
+                  className="text-sm px-4 py-2 rounded-lg bg-app-accent text-white hover:bg-app-accent-hover disabled:opacity-50"
+                >
+                  保存覆盖
+                </button>
+                <button
+                  type="button"
+                  disabled={ragLoading}
+                  onClick={handleClearRagOverride}
+                  className="text-sm px-4 py-2 rounded-lg border border-app-border text-app-muted hover:text-app-text disabled:opacity-50"
+                >
+                  清除覆盖（恢复自动）
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : section === "relations" ? (
           loading ? (
             <div className="flex justify-center py-20">
               <Loader2 size={24} className="animate-spin text-app-accent" />
@@ -339,67 +598,68 @@ function AdminPageInner() {
                 key={table.id}
                 className="bg-app-surface border border-app-border rounded-xl overflow-hidden"
               >
-                <button
-                  onClick={() =>
-                    setExpandedId(expandedId === table.id ? null : table.id)
-                  }
-                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-app-input transition-colors text-left"
-                >
-                  {expandedId === table.id ? (
-                    <ChevronDown size={14} className="text-app-muted flex-shrink-0" />
-                  ) : (
-                    <ChevronRight size={14} className="text-app-muted flex-shrink-0" />
-                  )}
-
-                  <span
-                    className={cn(
-                      "text-xs px-2 py-0.5 rounded border flex-shrink-0",
-                      table.db_type === "hive"
-                        ? "bg-amber-500/10 text-amber-300 border-amber-500/20"
-                        : table.db_type === "postgresql"
-                        ? "bg-blue-500/10 text-blue-300 border-blue-500/20"
-                        : table.db_type === "mysql"
-                        ? "bg-orange-500/10 text-orange-300 border-orange-500/20"
-                        : "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
-                    )}
+                <div className="flex items-stretch">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedId(expandedId === table.id ? null : table.id)
+                    }
+                    className="flex-1 min-w-0 flex items-center gap-3 px-4 py-3 hover:bg-app-input transition-colors text-left"
                   >
-                    {table.db_type}
-                  </span>
+                    {expandedId === table.id ? (
+                      <ChevronDown size={14} className="text-app-muted flex-shrink-0" />
+                    ) : (
+                      <ChevronRight size={14} className="text-app-muted flex-shrink-0" />
+                    )}
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-sm text-app-text truncate">
-                        {[table.database_name, table.schema_name, table.table_name]
-                          .filter(Boolean)
-                          .join(".")}
-                      </span>
-                      {table.has_embedding && (
-                        <span className="text-xs text-green-400 flex-shrink-0">
-                          ✓ 已向量化
+                    <span
+                      className={cn(
+                        "text-xs px-2 py-0.5 rounded border flex-shrink-0",
+                        table.db_type === "hive"
+                          ? "bg-amber-500/10 text-amber-300 border-amber-500/20"
+                          : table.db_type === "postgresql"
+                          ? "bg-blue-500/10 text-blue-300 border-blue-500/20"
+                          : table.db_type === "mysql"
+                          ? "bg-orange-500/10 text-orange-300 border-orange-500/20"
+                          : "bg-emerald-500/10 text-emerald-300 border-emerald-500/20"
+                      )}
+                    >
+                      {table.db_type}
+                    </span>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm text-app-text truncate">
+                          {[table.database_name, table.schema_name, table.table_name]
+                            .filter(Boolean)
+                            .join(".")}
                         </span>
+                        {table.has_embedding && (
+                          <span className="text-xs text-green-400 flex-shrink-0">
+                            ✓ 已向量化
+                          </span>
+                        )}
+                      </div>
+                      {table.table_comment && (
+                        <p className="text-xs text-app-muted truncate">
+                          {table.table_comment}
+                        </p>
                       )}
                     </div>
-                    {table.table_comment && (
-                      <p className="text-xs text-app-muted truncate">
-                        {table.table_comment}
-                      </p>
-                    )}
-                  </div>
 
-                  <span className="text-xs text-app-subtle flex-shrink-0">
-                    {table.columns?.length ?? 0} 字段
-                  </span>
-
+                    <span className="text-xs text-app-subtle flex-shrink-0">
+                      {table.columns?.length ?? 0} 字段
+                    </span>
+                  </button>
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDelete(table.id);
-                    }}
-                    className="flex-shrink-0 text-app-subtle hover:text-red-400 transition-colors ml-2"
+                    type="button"
+                    onClick={() => handleDelete(table.id)}
+                    className="flex-shrink-0 px-4 text-app-subtle hover:text-red-400 hover:bg-app-input transition-colors border-l border-app-border"
+                    title="删除"
                   >
                     <Trash2 size={14} />
                   </button>
-                </button>
+                </div>
 
                 {/* Expanded columns */}
                 {expandedId === table.id && (

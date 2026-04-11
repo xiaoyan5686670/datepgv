@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
@@ -14,6 +14,7 @@ from sqlalchemy import (
     Text,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -68,6 +69,8 @@ class User(Base):
         String(100), nullable=True, comment="区县市（普通员工仅查看自己所在区县）"
     )
     full_name: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="姓名")
+    # Admin-only override for hierarchical RAG (rag_chunks): {"unrestricted": true} or {"prefixes": [["大区","省"], ...]}
+    rag_permission_override: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

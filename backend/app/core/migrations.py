@@ -23,6 +23,8 @@ async def run_migrations() -> None:
         await _ensure_user_id_fk(conn)
         await _ensure_data_scope_policy_table(conn)
         await _backfill_scope_policies_from_users(conn)
+        await _ensure_rag_chunks_table(conn)
+        await _ensure_users_rag_permission_override(conn)
 
 
 async def _fix_user_id_column_type(conn) -> None:  # type: ignore[type-arg]
@@ -262,3 +264,94 @@ async def _backfill_scope_policies_from_users(conn) -> None:  # type: ignore[typ
     )
     if seeded > 0:
         logger.info("DB migration: seeded %d baseline scope policies from users.", seeded)
+
+
+async def _ensure_rag_chunks_table(conn) -> None:  # type: ignore[type-arg]
+    """Create rag_chunks + indexes when missing (vector dim from settings.EMBEDDING_DIM)."""
+    exists_row = await conn.execute(
+        text(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = 'rag_chunks' LIMIT 1"
+        )
+    )
+    dim = int(settings.EMBEDDING_DIM)
+    if exists_row.scalar() is None:
+        await conn.execute(
+            text(
+                f"""
+                CREATE TABLE rag_chunks (
+                    id              BIGSERIAL PRIMARY KEY,
+                    content         TEXT NOT NULL,
+                    embedding       vector({dim}),
+                    metadata        JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+                    hierarchy_path  JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT chk_rag_chunks_hierarchy_path_is_array
+                        CHECK (jsonb_typeof(hierarchy_path) = 'array'),
+                    CONSTRAINT chk_rag_chunks_metadata_hierarchy_path
+                        CHECK (
+                            NOT (metadata ? 'hierarchy_path')
+                            OR jsonb_typeof(metadata->'hierarchy_path') = 'array'
+                        )
+                )
+                """
+            )
+        )
+        logger.info("DB migration: created table rag_chunks (vector(%d)).", dim)
+    else:
+        # Optional sanity check: embedding column dimension vs settings
+        col = await conn.execute(
+            text(
+                "SELECT format_type(a.atttypid, a.atttypmod) AS pg_type "
+                "FROM pg_attribute a "
+                "JOIN pg_class c ON a.attrelid = c.oid "
+                "WHERE c.relname = 'rag_chunks' AND a.attname = 'embedding' "
+                "AND NOT a.attisdropped AND a.attnum > 0"
+            )
+        )
+        row = col.fetchone()
+        if row and row[0] and str(dim) not in str(row[0]):
+            logger.warning(
+                "DB migration: rag_chunks.embedding type is %s but EMBEDDING_DIM=%s; "
+                "align model output with DB or recreate rag_chunks.",
+                row[0],
+                dim,
+            )
+
+    await conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS rag_chunks_hierarchy_path_gin "
+            "ON rag_chunks USING gin (hierarchy_path jsonb_path_ops)"
+        )
+    )
+    await conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS rag_chunks_embedding_ivfflat_idx "
+            "ON rag_chunks USING ivfflat (embedding vector_cosine_ops) WITH (lists = 50)"
+        )
+    )
+
+
+async def _ensure_users_rag_permission_override(conn) -> None:  # type: ignore[type-arg]
+    col = await conn.execute(
+        text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'users' "
+            "AND column_name = 'rag_permission_override'"
+        )
+    )
+    if col.scalar() is not None:
+        return
+    await conn.execute(
+        text(
+            "ALTER TABLE users ADD COLUMN rag_permission_override JSONB NULL"
+        )
+    )
+    await conn.execute(
+        text(
+            "COMMENT ON COLUMN users.rag_permission_override IS "
+            "'Admin RAG ABAC override JSON; NULL means auto from org CSV'"
+        )
+    )
+    logger.info("DB migration: added users.rag_permission_override.")
