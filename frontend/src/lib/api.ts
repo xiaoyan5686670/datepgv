@@ -1,5 +1,6 @@
 import type {
   AdminPutRagPermissionRequest,
+  AdminRagUserLookupResponse,
   AdminUserRagPermissionResponse,
   AuthUser,
   ChatSessionSummary,
@@ -545,6 +546,23 @@ export async function fetchOllamaModels(apiBase: string): Promise<string[]> {
 }
 
 // ── User Management ───────────────────────────────────────────────────────────
+
+export async function lookupAdminUserForRag(params: {
+  username?: string;
+  full_name?: string;
+}): Promise<AdminRagUserLookupResponse> {
+  const sp = new URLSearchParams();
+  if (params.username?.trim()) sp.set("username", params.username.trim());
+  if (params.full_name?.trim()) sp.set("full_name", params.full_name.trim());
+  const q = sp.toString();
+  const res = await apiFetch(
+    `${apiV1Prefix()}/admin/users/lookup-for-rag${q ? `?${q}` : ""}`
+  );
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "查找用户失败"));
+  }
+  return res.json();
+}
 
 export async function fetchAdminUserRagPermission(
   userId: number

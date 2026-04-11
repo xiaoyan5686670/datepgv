@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -14,6 +14,7 @@ from app.core.database import get_db
 from app.deps.auth import require_admin
 from app.models.rag_abac import (
     AdminPutRagPermissionRequest,
+    AdminRagUserLookupResponse,
     AdminUserRagPermissionResponse,
     RagPermissionOverrideInput,
 )
@@ -61,6 +62,43 @@ def _stored_to_jsonable(raw: Any) -> dict[str, Any] | None:
     if isinstance(raw, dict):
         return dict(raw)
     return None
+
+
+@router.get("/users/lookup-for-rag", response_model=AdminRagUserLookupResponse)
+async def lookup_user_for_rag_admin(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[User, Depends(require_admin)],
+    username: str | None = Query(None, description="登录工号，精确匹配"),
+    full_name: str | None = Query(None, description="姓名，精确匹配"),
+) -> AdminRagUserLookupResponse:
+    """按 username 和/或 full_name 查找单个用户（须唯一）。"""
+    u = (username or "").strip()
+    f = (full_name or "").strip()
+    if not u and not f:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请至少提供 username 或 full_name 之一",
+        )
+    stmt = select(User).options(selectinload(User.roles))
+    if u:
+        stmt = stmt.where(User.username == u)
+    if f:
+        stmt = stmt.where(User.full_name == f)
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="未找到匹配用户")
+    if len(rows) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="匹配到多个用户，请同时填写工号与姓名以精确定位",
+        )
+    hit = rows[0]
+    return AdminRagUserLookupResponse(
+        id=hit.id,
+        username=hit.username,
+        full_name=hit.full_name,
+    )
 
 
 @router.get("/users/{user_id}/rag-permission", response_model=AdminUserRagPermissionResponse)

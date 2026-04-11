@@ -20,7 +20,7 @@ import {
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AuthGuard } from "@/components/AuthGuard";
 import { DDLImportModal } from "@/components/DDLImportModal";
 import { MetadataForm } from "@/components/MetadataForm";
@@ -33,6 +33,7 @@ import {
   fetchMetadata,
   fetchUsers,
   importCSV,
+  lookupAdminUserForRag,
   putAdminUserRagPermission,
   reembedAll,
 } from "@/lib/api";
@@ -55,6 +56,10 @@ function AdminPageInner() {
   const [ragErr, setRagErr] = useState<string | null>(null);
   const [ragUnrestricted, setRagUnrestricted] = useState(false);
   const [ragPrefixesJson, setRagPrefixesJson] = useState<string>("[]");
+  const [ragUserFilter, setRagUserFilter] = useState("");
+  const [ragLookupUsername, setRagLookupUsername] = useState("");
+  const [ragLookupFullName, setRagLookupFullName] = useState("");
+  const [ragResolvedDisplay, setRagResolvedDisplay] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [showDDL, setShowDDL] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -91,6 +96,43 @@ function AdminPageInner() {
     };
   }, [section]);
 
+  const ragUsersFiltered = useMemo(() => {
+    const q = ragUserFilter.trim().toLowerCase();
+    if (!q) return ragUsers;
+    return ragUsers.filter((u) => {
+      const un = (u.username || "").toLowerCase();
+      const fn = (u.full_name || "").toLowerCase();
+      return un.includes(q) || fn.includes(q);
+    });
+  }, [ragUsers, ragUserFilter]);
+
+  const handleLookupUserByName = async () => {
+    setRagErr(null);
+    const u = ragLookupUsername.trim();
+    const f = ragLookupFullName.trim();
+    if (!u && !f) {
+      setRagErr("请至少填写工号（username）或姓名（full_name）之一");
+      return;
+    }
+    setRagLoading(true);
+    try {
+      const hit = await lookupAdminUserForRag({
+        username: u || undefined,
+        full_name: f || undefined,
+      });
+      setRagUserId(String(hit.id));
+      setRagResolvedDisplay(
+        `${hit.username}${hit.full_name ? ` · ${hit.full_name}` : ""}`
+      );
+      setRagLookupUsername(hit.username);
+      setRagLookupFullName(hit.full_name ?? "");
+    } catch (e) {
+      setRagErr(e instanceof Error ? e.message : "查找失败");
+    } finally {
+      setRagLoading(false);
+    }
+  };
+
   const handleLoadRagPermission = async () => {
     setRagErr(null);
     const id = Number(ragUserId);
@@ -102,6 +144,14 @@ function AdminPageInner() {
     try {
       const d = await fetchAdminUserRagPermission(id);
       setRagDetail(d);
+      const a = d.effective.attributes as Record<string, unknown>;
+      const un = a?.username != null ? String(a.username) : "";
+      const fn = a?.full_name != null ? String(a.full_name) : "";
+      if (un) {
+        setRagResolvedDisplay(`${un}${fn ? ` · ${fn}` : ""}`);
+        setRagLookupUsername(un);
+        setRagLookupFullName(fn);
+      }
       setRagUnrestricted(d.stored_override?.unrestricted === true);
       if (Array.isArray(d.stored_override?.prefixes)) {
         setRagPrefixesJson(JSON.stringify(d.stored_override.prefixes, null, 2));
@@ -470,31 +520,126 @@ function AdminPageInner() {
                 {ragErr}
               </div>
             )}
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="flex flex-col gap-1 min-w-[200px]">
-                <label className="text-xs text-app-muted">用户</label>
-                <select
+            <div className="space-y-3">
+              <p className="text-xs text-app-muted">
+                下拉仅加载前 200 个用户；其他人请用「工号 / 姓名」在库中精确查找（与列表是否加载无关）。
+              </p>
+              <div className="flex flex-col gap-1 min-w-[min(100%,220px)]">
+                <label className="text-xs text-app-muted">筛选下拉（工号、姓名片段）</label>
+                <input
+                  type="search"
                   className="rounded-lg border border-app-border bg-app-input px-3 py-2 text-sm"
-                  value={ragUserId}
-                  onChange={(e) => setRagUserId(e.target.value)}
-                >
-                  <option value="">请选择</option>
-                  {ragUsers.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.username}
-                      {u.full_name ? ` · ${u.full_name}` : ""}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="输入关键字以缩小下列表…"
+                  value={ragUserFilter}
+                  onChange={(e) => setRagUserFilter(e.target.value)}
+                  autoComplete="off"
+                />
               </div>
-              <button
-                type="button"
-                disabled={ragLoading}
-                onClick={handleLoadRagPermission}
-                className="text-sm px-4 py-2 rounded-lg bg-app-accent text-white hover:bg-app-accent-hover disabled:opacity-50"
-              >
-                {ragLoading ? "加载中…" : "加载权限"}
-              </button>
+              <div className="rounded-xl border border-app-border bg-app-surface p-4 space-y-3">
+                <p className="text-xs font-medium text-app-text">按工号 / 姓名查找（精确匹配）</p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs text-app-muted">工号（username）</label>
+                    <input
+                      type="text"
+                      className="rounded-lg border border-app-border bg-app-input px-3 py-2 text-sm"
+                      placeholder="登录工号"
+                      value={ragLookupUsername}
+                      onChange={(e) => setRagLookupUsername(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void handleLookupUserByName();
+                        }
+                      }}
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs text-app-muted">姓名（full_name）</label>
+                    <input
+                      type="text"
+                      className="rounded-lg border border-app-border bg-app-input px-3 py-2 text-sm"
+                      placeholder="与档案姓名完全一致"
+                      value={ragLookupFullName}
+                      onChange={(e) => setRagLookupFullName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void handleLookupUserByName();
+                        }
+                      }}
+                      autoComplete="off"
+                    />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={ragLoading}
+                  onClick={() => void handleLookupUserByName()}
+                  className="text-sm px-4 py-2 rounded-lg border border-app-border text-app-muted hover:text-app-text hover:border-app-accent/40 disabled:opacity-50"
+                >
+                  查找用户
+                </button>
+                {ragResolvedDisplay && (
+                  <p className="text-xs text-app-muted">
+                    当前选中：<span className="text-app-text">{ragResolvedDisplay}</span>
+                  </p>
+                )}
+              </div>
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="flex flex-col gap-1 min-w-[min(100%,280px)] flex-1">
+                  <label className="text-xs text-app-muted">从列表选择（可选）</label>
+                  <select
+                    className="rounded-lg border border-app-border bg-app-input px-3 py-2 text-sm"
+                    value={ragUserId}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setRagUserId(v);
+                      if (!v) {
+                        setRagResolvedDisplay(null);
+                        return;
+                      }
+                      const hit = ragUsers.find((x) => String(x.id) === v);
+                      if (hit) {
+                        setRagResolvedDisplay(
+                          `${hit.username}${hit.full_name ? ` · ${hit.full_name}` : ""}`
+                        );
+                        setRagLookupUsername(hit.username);
+                        setRagLookupFullName(hit.full_name ?? "");
+                      }
+                    }}
+                  >
+                    <option value="">请选择</option>
+                    {ragUserId &&
+                      !ragUsers.some((u) => String(u.id) === ragUserId) &&
+                      ragResolvedDisplay && (
+                        <option value={ragUserId}>
+                          {ragResolvedDisplay}（未在下列表中）
+                        </option>
+                      )}
+                    {ragUsersFiltered.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.username}
+                        {u.full_name ? ` · ${u.full_name}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {ragUserFilter && ragUsersFiltered.length === 0 && (
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      无匹配项，请改关键字或使用上方工号/姓名查找。
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  disabled={ragLoading}
+                  onClick={handleLoadRagPermission}
+                  className="text-sm px-4 py-2 rounded-lg bg-app-accent text-white hover:bg-app-accent-hover disabled:opacity-50"
+                >
+                  {ragLoading ? "加载中…" : "加载权限"}
+                </button>
+              </div>
             </div>
 
             {ragDetail && (

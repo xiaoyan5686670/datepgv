@@ -88,6 +88,13 @@ export interface AdminPutRagPermissionRequest {
   override: RagPermissionOverrideInput | null;
 }
 
+/** GET /admin/users/lookup-for-rag */
+export interface AdminRagUserLookupResponse {
+  id: number;
+  username: string;
+  full_name: string | null;
+}
+
 export interface UserImportRow {
   username: string;
   password?: string;

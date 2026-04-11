@@ -57,3 +57,11 @@ class AdminUserRagPermissionResponse(BaseModel):
     effective: UserPermission
     org_baseline: UserPermission
     stored_override: dict[str, Any] | None = None
+
+
+class AdminRagUserLookupResponse(BaseModel):
+    """按工号 / 姓名定位用户（供 RAG 权限管理）。"""
+
+    id: int
+    username: str
+    full_name: str | None = None
