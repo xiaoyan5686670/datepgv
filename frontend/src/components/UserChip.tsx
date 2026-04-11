@@ -24,59 +24,59 @@ const AVATAR_CLASS: Record<string, string> = {
   staff:              "bg-gray-100    dark:bg-gray-800       text-gray-600   dark:text-gray-300   border-gray-200   dark:border-gray-600/50",
 };
 
-const BADGE_CLASS: Record<string, string> = {
-  admin:              "bg-red-50     dark:bg-red-900/30     text-red-600    dark:text-red-400    ring-red-200/60    dark:ring-red-700/40",
-  region_executive:   "bg-violet-50  dark:bg-violet-900/30  text-violet-600 dark:text-violet-400 ring-violet-200/60 dark:ring-violet-700/40",
-  province_executive: "bg-indigo-50  dark:bg-indigo-900/30  text-indigo-600 dark:text-indigo-400 ring-indigo-200/60 dark:ring-indigo-700/40",
-  province_manager:   "bg-blue-50    dark:bg-blue-900/30    text-blue-600   dark:text-blue-400   ring-blue-200/60   dark:ring-blue-700/40",
-  area_executive:     "bg-sky-50     dark:bg-sky-900/30     text-sky-600    dark:text-sky-400    ring-sky-200/60    dark:ring-sky-700/40",
-  area_manager:       "bg-teal-50    dark:bg-teal-900/30    text-teal-600   dark:text-teal-400   ring-teal-200/60   dark:ring-teal-700/40",
-  staff:              "bg-gray-50    dark:bg-gray-800/60    text-gray-500   dark:text-gray-400   ring-gray-200/60   dark:ring-gray-600/40",
-};
+function trimOrDash(value: string | null | undefined): string {
+  const t = typeof value === "string" ? value.trim() : "";
+  return t || "—";
+}
+
+/** 大区，省，职位（纯文案，不含市/区县） */
+function buildOrgMetaLine(user: {
+  org_region?: string | null;
+  province?: string | null;
+}, roleLabel: string): string {
+  return `${trimOrDash(user.org_region)}，${trimOrDash(user.province)}，${roleLabel}`;
+}
 
 export function UserChip() {
   const { user, logout } = useAuth();
   if (!user) return null;
 
-  const level  = user.employee_level ?? "staff";
-  const label  = LEVEL_LABEL[level] ?? level;
+  const level = user.employee_level ?? "staff";
+  const label = LEVEL_LABEL[level] ?? level;
   const avatar = AVATAR_CLASS[level] ?? AVATAR_CLASS.staff;
-  const badge  = BADGE_CLASS[level]  ?? BADGE_CLASS.staff;
 
-  // 显示名：优先 full_name，退回 username
   const displayName = user.full_name?.trim() || user.username;
-  // avatar 首字：中文取第一字，英文取首字母大写
-  const avatarChar  = displayName[0] ?? "U";
+  const avatarChar = displayName[0] ?? "U";
+  const metaLine = buildOrgMetaLine(user, label);
+  const chipTitle = `${displayName} · ${metaLine}`;
 
   return (
-    <div className="flex items-center gap-2.5">
-      {/* 桌面端：姓名 + 职位 */}
-      <div className="hidden sm:flex flex-col items-end gap-0.5">
+    <div className="flex items-center gap-2 sm:gap-2.5" title={chipTitle}>
+      <div className="flex flex-col items-end gap-0.5 sm:gap-1 min-w-0 max-w-[calc(100vw-11rem)] sm:max-w-[min(240px,32vw)]">
         <span
-          className="text-sm font-semibold leading-tight max-w-[120px] truncate"
+          className="text-xs sm:text-sm font-semibold text-app-text leading-tight truncate max-w-full text-right"
           title={displayName}
         >
           {displayName}
         </span>
         <span
-          className={`inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded-full ring-1 leading-none ${badge}`}
+          className="inline-block max-w-full min-w-0 rounded-full border border-app-border bg-app-surface/90 px-2.5 py-1 sm:px-3 sm:py-1 text-[10px] sm:text-xs text-app-text-secondary leading-snug text-right tracking-wide whitespace-nowrap truncate shadow-sm"
+          title={metaLine}
         >
-          {label}
+          {metaLine}
         </span>
       </div>
 
-      {/* 头像 */}
       <div
         className={`w-9 h-9 rounded-full border-2 flex items-center justify-center font-bold text-sm select-none shrink-0 ${avatar}`}
-        title={`${displayName}（${label}）`}
+        title={chipTitle}
       >
         {avatarChar}
       </div>
 
-      {/* 退出按钮——桌面端悬浮显示，移动端常显 */}
       <button
         onClick={() => logout()}
-        className="p-2 rounded-lg border bg-background hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+        className="p-2 rounded-lg border border-app-border bg-app-surface/80 hover:bg-red-500/10 text-app-muted hover:text-red-600 dark:hover:text-red-400 transition-colors"
         aria-label="退出登录"
         title="退出登录"
       >
