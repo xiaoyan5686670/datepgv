@@ -28,11 +28,11 @@ from app.core.config import settings
 from app.models.user import User
 from app.services.query_executor import QueryExecutorError, QueryResult, run_analytics_query
 from app.services.org_hierarchy import filter_rows_by_scope
-from app.services.rag import RAGEngine
+from app.services.rag import RAGEngine, qualified_table_label
 from app.services.sql_generator import process_llm_output
-from app.services.sql_column_repair import repair_sql_unknown_columns
+from app.services.sql_column_repair import repair_sql_unknown_columns, repair_sql_unknown_tables
 from app.services.viewer_sql_context import build_viewer_sql_context
-from app.services.sql_metadata_guard import find_unknown_columns
+from app.services.sql_metadata_guard import find_unknown_columns, find_unknown_tables
 from app.services.scope_policy_service import resolve_user_scope
 from app.services.sql_scope_guard import rewrite_sql_with_scope
 
@@ -308,7 +308,7 @@ async def chat_stream(
     prompt_ms = (time.perf_counter() - t) * 1000
 
     pre_stream_ms = (time.perf_counter() - t0) * 1000
-    referenced = [t.table_name for t in tables]
+    referenced = [qualified_table_label(t) for t in tables]
     if timing:
         logger.info(
             "chat_stream_timing rid=%s session_id=%s pre_stream_ms=%.1f "
@@ -408,6 +408,27 @@ async def chat_stream(
             try:
                 viewer_ctx = build_viewer_sql_context(current_user)
                 for repair_round in range(_SQL_COLUMN_REPAIR_MAX_ROUNDS):
+                    unknown_tables = find_unknown_tables(
+                        clean_sql, tables, request.sql_type
+                    )
+                    if unknown_tables:
+                        logger.info(
+                            "chat_sql_table_repair round=%s unknown=%s",
+                            repair_round + 1,
+                            unknown_tables,
+                        )
+                        fixed_raw = await repair_sql_unknown_tables(
+                            clean_sql,
+                            unknown_tables,
+                            tables,
+                            join_paths,
+                            request.sql_type,
+                            llm,
+                            db,
+                            viewer_context=viewer_ctx,
+                        )
+                        clean_sql = process_llm_output(fixed_raw, request.sql_type)
+                        continue
                     unknown = find_unknown_columns(
                         clean_sql, tables, request.sql_type
                     )
@@ -429,6 +450,15 @@ async def chat_stream(
                         viewer_context=viewer_ctx,
                     )
                     clean_sql = process_llm_output(fixed_raw, request.sql_type)
+                still_tables = find_unknown_tables(
+                    clean_sql, tables, request.sql_type
+                )
+                if still_tables:
+                    logger.warning(
+                        "chat_sql_table_repair still unknown after %s rounds: %s; executing anyway",
+                        _SQL_COLUMN_REPAIR_MAX_ROUNDS,
+                        still_tables,
+                    )
                 still = find_unknown_columns(clean_sql, tables, request.sql_type)
                 if still:
                     logger.warning(

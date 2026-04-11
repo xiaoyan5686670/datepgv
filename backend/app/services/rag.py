@@ -109,11 +109,15 @@ def _join_columns_for_path_step(
     return candidates[0]
 
 
+def qualified_table_label(row: TableMetadata) -> str:
+    """Fully qualified name as in SQL (database.schema.table), for prompts and JOIN hints."""
+    parts = [row.database_name, row.schema_name, row.table_name]
+    return ".".join(p for p in parts if p and str(p).strip()) or row.table_name
+
+
 def _format_table_schema(row: TableMetadata) -> str:
     """Convert a TableMetadata row to a human-readable schema block."""
-    full_name = ".".join(
-        filter(None, [row.database_name, row.schema_name, row.table_name])
-    )
+    full_name = qualified_table_label(row)
     lines = [f"### 表: {full_name}  [类型: {row.db_type}]"]
     if row.table_comment:
         lines.append(f"说明: {row.table_comment}")
@@ -264,8 +268,8 @@ class RAGEngine:
             v_table = loaded_map.get(v)
             if not u_table or not v_table:
                 continue
-            u_name = u_table.table_name
-            v_name = v_table.table_name
+            u_name = qualified_table_label(u_table)
+            v_name = qualified_table_label(v_table)
             u_col, v_col = _join_columns_for_path_step(
                 u, v, u_table, v_table, cond
             )
@@ -407,6 +411,7 @@ class RAGEngine:
 {rules}
 
 严格要求（违反则视为错误）：
+- FROM / JOIN 子句中的「表名」必须与下方「可用的表结构」标题行中的完整限定名完全一致（含库名/模式名与完整表名，例如 `DWD`.`DWD_SLS_PAYMENT_ACK_STAFF`）；禁止缩写、省略后缀或臆造相似表名（如不要用 `DWD_SLS_PAYMENT` 代替 `DWD_SLS_PAYMENT_ACK_STAFF`）。
 - 所有 SELECT / WHERE / GROUP BY / ORDER BY / HAVING 以及 JOIN ON 条件中出现的「列名」，必须逐字来自下方「可用的表结构」中列出的字段名；禁止根据中文含义翻译、缩写或拼音造列名（例如不要用臆造的 renyuanbianma 代替实际字段名）。
 - 若「已知表之间的关联路径参考」给出了 JOIN ON 条件，应优先采用这些 ON 条件连接表，不要改用未在表结构中出现的列去关联。
 - 若无法只用已给出的字段完成查询，不要编造列名：请返回仅含注释的 SQL（如 -- 缺少某某业务字段，元数据中无对应列）说明原因，不要生成会在数据库上报 Unknown column 的语句。
