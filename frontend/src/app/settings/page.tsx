@@ -826,49 +826,69 @@ function SettingsPageInner() {
                 </div>
               ) : (
                 <div className="bg-app-surface border border-app-border rounded-xl overflow-hidden">
-                  <div className="grid grid-cols-[40px_80px_1.2fr_90px_90px_110px_130px] gap-2 px-3 py-2 border-b border-app-border text-[11px] text-app-subtle">
-                    <span />
-                    <span>ID</span>
-                    <span>主体</span>
-                    <span>维度</span>
-                    <span>优先级</span>
-                    <span>状态</span>
-                    <span>操作</span>
-                  </div>
-                  <div className="max-h-[560px] overflow-y-auto">
+                  <div className="max-h-[min(70vh,720px)] overflow-y-auto divide-y divide-app-border">
                     {filteredScopePolicies.map((p) => (
                       <div
                         key={p.id}
-                        className="grid grid-cols-[40px_80px_1.2fr_90px_90px_110px_130px] gap-2 px-3 py-2 border-b border-app-border text-xs items-center"
+                        className="px-3 py-3 sm:px-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4"
                       >
-                        <input
-                          type="checkbox"
-                          checked={selectedPolicyIds.includes(p.id)}
-                          onChange={(e) =>
-                            setSelectedPolicyIds((prev) =>
-                              e.target.checked
-                                ? [...new Set([...prev, p.id])]
-                                : prev.filter((id) => id !== p.id)
-                            )
-                          }
-                        />
-                        <span className="text-app-subtle">#{p.id}</span>
-                        <div className="min-w-0">
-                          <p className="text-app-text truncate">
-                            {p.subject_type}:{p.subject_key}
-                          </p>
-                          <p className="text-app-subtle truncate">
-                            allow=[{p.allowed_values.join(", ")}] deny=[{p.deny_values.join(", ")}]
-                          </p>
+                        <div className="flex items-start gap-3 min-w-0 flex-1">
+                          <input
+                            type="checkbox"
+                            className="mt-1 shrink-0"
+                            checked={selectedPolicyIds.includes(p.id)}
+                            onChange={(e) =>
+                              setSelectedPolicyIds((prev) =>
+                                e.target.checked
+                                  ? [...new Set([...prev, p.id])]
+                                  : prev.filter((id) => id !== p.id)
+                              )
+                            }
+                          />
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+                              <span className="text-app-subtle font-mono">#{p.id}</span>
+                              <span className="px-2 py-0.5 rounded-md bg-app-input border border-app-border text-app-text">
+                                {p.dimension}
+                              </span>
+                              <span className="text-app-muted">priority {p.priority}</span>
+                              <span
+                                className={
+                                  p.enabled ? "text-green-400" : "text-amber-300"
+                                }
+                              >
+                                {p.enabled ? "enabled" : "disabled"}
+                              </span>
+                            </div>
+                            <div>
+                              <div className="text-[10px] uppercase tracking-wide text-app-subtle mb-1">
+                                主体
+                              </div>
+                              <p className="text-sm text-app-text font-mono break-all whitespace-pre-wrap leading-relaxed">
+                                {p.subject_type}:{p.subject_key}
+                              </p>
+                            </div>
+                            <div className="text-xs text-app-muted space-y-1">
+                              <p className="break-words">
+                                <span className="text-app-subtle">allow</span>=[
+                                {p.allowed_values.join(", ")}]
+                              </p>
+                              <p className="break-words">
+                                <span className="text-app-subtle">deny</span>=[
+                                {p.deny_values.join(", ")}]
+                              </p>
+                              {p.note ? (
+                                <p className="text-app-subtle italic pt-1 border-t border-app-border/60">
+                                  {p.note}
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
                         </div>
-                        <span>{p.dimension}</span>
-                        <span>{p.priority}</span>
-                        <span className={p.enabled ? "text-green-400" : "text-amber-300"}>
-                          {p.enabled ? "enabled" : "disabled"}
-                        </span>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-3 shrink-0 sm:flex-col sm:items-end sm:gap-2 sm:pt-0.5 pl-7 sm:pl-0">
                           <button
-                            className="text-app-muted hover:text-app-text"
+                            type="button"
+                            className="text-xs text-app-muted hover:text-app-text px-2 py-1 rounded-md border border-transparent hover:border-app-border"
                             onClick={() => {
                               setEditingPolicyId(p.id);
                               setScopeForm({
@@ -888,7 +908,8 @@ function SettingsPageInner() {
                             编辑
                           </button>
                           <button
-                            className="text-red-400"
+                            type="button"
+                            className="text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded-md border border-transparent hover:border-red-500/30"
                             onClick={async () => {
                               if (!confirm(`确认删除策略 #${p.id} ?`)) return;
                               await deleteScopePolicy(p.id);
