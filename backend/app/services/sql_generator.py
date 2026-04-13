@@ -7,18 +7,28 @@ from __future__ import annotations
 import re
 
 
-def extract_sql(raw: str) -> str:
+def extract_sql(raw: str) -> str | None:
     """
     Extract SQL from a markdown code block.
-    Falls back to the raw text if no fences are found.
+    Returns None if no SQL is found and the text doesn't look like bare SQL.
     """
     # Match ```sql ... ``` or ``` ... ```
     pattern = r"```(?:sql|hive|postgresql|postgres|mysql)?\s*\n?([\s\S]*?)```"
     match = re.search(pattern, raw, re.IGNORECASE)
     if match:
         return match.group(1).strip()
-    # No fences – return as-is, stripped
-    return raw.strip()
+    
+    # No fences – check if it looks like a raw SQL statement
+    text = raw.strip()
+    if not text:
+        return None
+        
+    upper_text = text.upper()
+    if upper_text.startswith(("SELECT ", "WITH ", "SHOW ", "DESC ", "DESCRIBE ")):
+        return text
+
+    # It's likely just conversational text
+    return None
 
 
 def validate_sql(sql: str, dialect: str = "ansi") -> list[str]:
@@ -75,9 +85,11 @@ def normalize_sql_fullwidth_punctuation(sql: str) -> str:
     return sql.translate(_FULLWIDTH_SQL_PUNCT)
 
 
-def process_llm_output(raw: str, sql_type: str) -> str:
-    """Full pipeline: extract SQL from LLM output and return clean SQL."""
+def process_llm_output(raw: str, sql_type: str) -> str | None:
+    """Full pipeline: extract SQL from LLM output and return clean SQL. Returns None if it is plain text."""
     sql = extract_sql(raw)
+    if not sql:
+        return None
     sql = normalize_sql_fullwidth_punctuation(sql)
     dialect = DIALECT_MAP.get(sql_type, "ansi")
     sql = format_sql(sql, dialect)

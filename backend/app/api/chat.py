@@ -369,10 +369,14 @@ async def chat_stream(
         result_preview: dict | None = None
         scope_applied = False
         scope_rewrite_note: str | None = None
-        effective_sql = clean_sql
+        effective_sql = clean_sql if clean_sql else ""
 
         t_exec_block = time.perf_counter()
-        if not request.execute:
+        
+        if clean_sql is None:
+            # Not a SQL query, it's just an informational answer
+            answer = full_response.strip()
+        elif not request.execute:
             answer = "已按设置跳过数据库执行，仅生成 SQL。"
         elif request.sql_type not in ("postgresql", "mysql"):
             answer = (
@@ -427,7 +431,9 @@ async def chat_stream(
                             db,
                             viewer_context=viewer_ctx,
                         )
-                        clean_sql = process_llm_output(fixed_raw, request.sql_type)
+                        new_sql = process_llm_output(fixed_raw, request.sql_type)
+                        if new_sql:
+                            clean_sql = new_sql
                         continue
                     unknown = find_unknown_columns(
                         clean_sql, tables, request.sql_type
@@ -449,7 +455,9 @@ async def chat_stream(
                         db,
                         viewer_context=viewer_ctx,
                     )
-                    clean_sql = process_llm_output(fixed_raw, request.sql_type)
+                    new_sql = process_llm_output(fixed_raw, request.sql_type)
+                    if new_sql:
+                        clean_sql = new_sql
                 still_tables = find_unknown_tables(
                     clean_sql, tables, request.sql_type
                 )

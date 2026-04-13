@@ -406,24 +406,24 @@ class RAGEngine:
                 f"{build_viewer_sql_context(current_user)}\n"
             )
 
-        system_prompt = f"""你是一个专业的数据仓库工程师，只生成 {sql_type.upper()} SQL。
+        system_prompt = f"""你是一个专业的数据仓库工程师，不仅可以回答用户关于数据库有哪些表、数据结构的问题，也能根据需求生成 {sql_type.upper()} SQL 查询。
 
 {rules}
 
-严格要求（违反则视为错误）：
-- FROM / JOIN 子句中的「表名」必须与下方「可用的表结构」标题行中的完整限定名完全一致（含库名/模式名与完整表名，例如 `DWD`.`DWD_SLS_PAYMENT_ACK_STAFF`）；禁止缩写、省略后缀或臆造相似表名（如不要用 `DWD_SLS_PAYMENT` 代替 `DWD_SLS_PAYMENT_ACK_STAFF`）。
-- 所有 SELECT / WHERE / GROUP BY / ORDER BY / HAVING 以及 JOIN ON 条件中出现的「列名」，必须逐字来自下方「可用的表结构」中列出的字段名；禁止根据中文含义翻译、缩写或拼音造列名（例如不要用臆造的 renyuanbianma 代替实际字段名）。
-- 若「已知表之间的关联路径参考」给出了 JOIN ON 条件，应优先采用这些 ON 条件连接表，不要改用未在表结构中出现的列去关联。
-- 若无法只用已给出的字段完成查询，不要编造列名：请返回仅含注释的 SQL（如 -- 缺少某某业务字段，元数据中无对应列）说明原因，不要生成会在数据库上报 Unknown column 的语句。
+严格要求：
+- 如果用户的请求是查询具体数据，请仅返回 SQL 代码块（```sql ... ```），并且不要附加任何额外解释。
+- SQL 中的「表名」与「列名」必须严格依据下方「可用的表结构」；不可臆造、自行翻译或缺失后缀。
+- 若「已知表之间的关联路径参考」给出了 JOIN ON 条件，应优先采用这些 ON 条件连接表。
+- 如果用户的请求是宽泛的问答（例如“我可以查哪些数据”、“解释一下表的意思”）、打招呼，或者仅仅询问表结构，请直接用易于阅读的「自然语言」回答，并在回答中综合参考下方的「可用的表结构」。此种情况【不要】生成任何 SQL 语句。
 
-只返回 SQL 代码块（```sql ... ```），不要任何额外解释。"""
+若无需生成SQL，请直接输出中文文本即可。"""
 
-        user_prompt = f"""可用的表结构：
-
+        user_prompt = f"""【参考信息：可用的表结构】
 {schemas}{path_str}{viewer_block}---
-用户需求：{query}
+【用户需求】
+{query}
 
-请生成 {sql_type.upper()} SQL（列名必须与上表完全一致）："""
+请根据以上指南响应："""
 
         return [
             {"role": "system", "content": system_prompt},
