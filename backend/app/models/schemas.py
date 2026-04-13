@@ -346,6 +346,11 @@ EmployeeOrgLevel = Literal[
 ]
 
 
+class UserScopeItem(BaseModel):
+    dimension: Literal["province", "employee", "region", "district"]
+    allowed_values: list[str] = Field(default_factory=list)
+
+
 class UserBase(BaseModel):
     username: str = Field(..., min_length=1, max_length=100)
     is_active: bool = True
@@ -358,6 +363,7 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=6)
+    data_scope: list[UserScopeItem] | None = None
 
 
 class UserUpdate(BaseModel):
@@ -369,6 +375,7 @@ class UserUpdate(BaseModel):
     district: str | None = None
     full_name: str | None = None
     password: str | None = Field(None, min_length=6, description="如果提供则更新密码")
+    data_scope: list[UserScopeItem] | None = None
 
 
 class UserResponse(UserBase):
@@ -376,6 +383,7 @@ class UserResponse(UserBase):
     created_at: datetime
     updated_at: datetime
     roles: list[str] = Field(default_factory=list)
+    data_scope: list[UserScopeItem] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 

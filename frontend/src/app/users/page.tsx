@@ -40,6 +40,7 @@ import type {
   UserUpdate,
   UserImportResponse,
   SyncOrgCsvResponse,
+  UserScopeItem,
 } from "@/types";
 
 // 层级从高到低：大区总 > 省总 > 省区经理 > 区域总 > 区域经理 > 基层
@@ -109,6 +110,13 @@ function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
     normalizeEmployeeLevel(editUser?.employee_level)
   );
   const [isActive, setIsActive] = useState(editUser?.is_active ?? true);
+  const [dataScope, setDataScope] = useState<UserScopeItem[]>(
+    editUser?.data_scope ?? [
+      { dimension: "province", allowed_values: [] },
+      { dimension: "region", allowed_values: [] },
+      { dimension: "district", allowed_values: [] },
+    ]
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -127,9 +135,9 @@ function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
           district: district || null,
           employee_level: employeeLevel,
           is_active: isActive,
+          data_scope: dataScope,
         };
         if (password.trim()) payload.password = password;
-        // 仅在用户名实际发生变更时才提交，避免不必要的覆盖
         if (username.trim() && username.trim() !== editUser.username) {
           payload.username = username.trim();
         }
@@ -149,6 +157,7 @@ function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
           district: district || null,
           employee_level: employeeLevel,
           is_active: isActive,
+          data_scope: dataScope,
         };
         await createUser(payload);
       }
@@ -289,6 +298,90 @@ function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
                 <option value="inactive">停用</option>
               </select>
             </div>
+          </div>
+
+          {/* Data Scope Section */}
+          <div className="pt-2 border-t space-y-3">
+            <h3 className="text-sm font-bold flex items-center gap-2">
+              <Shield size={16} className="text-primary" />
+              数据范围权限 (Data Scope)
+            </h3>
+            <p className="text-[11px] text-muted-foreground bg-muted/30 p-2 rounded border border-dashed">
+              单独为该用户配置允许查看的范围（覆盖或叠加在职级规则之上）。留空则使用默认规则。
+            </p>
+
+            {(["province", "region", "district"] as const).map((dim) => {
+              const labelMap: Record<string, string> = {
+                province: "允许省份",
+                region: "允许大区",
+                district: "允许区域",
+              };
+              const placeholderMap: Record<string, string> = {
+                province: "如: 浙江省, 江苏省",
+                region: "如: 西部大区",
+                district: "如: 烟威",
+              };
+              const item = dataScope.find((s) => s.dimension === dim) || {
+                dimension: dim,
+                allowed_values: [],
+              };
+
+              return (
+                <div key={dim} className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">{labelMap[dim]}</label>
+                  <div className="flex flex-wrap gap-1.5 p-2 min-h-[42px] border rounded-lg bg-muted/10">
+                    {item.allowed_values.map((val) => (
+                      <span
+                        key={val}
+                        className="flex items-center gap-1 text-[11px] px-2 py-0.5 bg-primary/10 text-primary border border-primary/20 rounded-full"
+                      >
+                        {val}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDataScope((prev) =>
+                              prev.map((s) =>
+                                s.dimension === dim
+                                  ? { ...s, allowed_values: s.allowed_values.filter((v) => v !== val) }
+                                  : s
+                              )
+                            );
+                          }}
+                          className="hover:text-destructive"
+                        >
+                          <X size={10} />
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      type="text"
+                      className="flex-1 min-w-[80px] bg-transparent border-none text-[11px] focus:ring-0 p-0 outline-none"
+                      placeholder={item.allowed_values.length === 0 ? placeholderMap[dim] : ""}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === ",") {
+                          e.preventDefault();
+                          const val = e.currentTarget.value.trim();
+                          if (val && !item.allowed_values.includes(val)) {
+                            setDataScope((prev) => {
+                              const existing = prev.find((p) => p.dimension === dim);
+                              if (existing) {
+                                return prev.map((p) =>
+                                  p.dimension === dim
+                                    ? { ...p, allowed_values: [...p.allowed_values, val] }
+                                    : p
+                                );
+                              }
+                              return [...prev, { dimension: dim, allowed_values: [val] }];
+                            });
+                            e.currentTarget.value = "";
+                          }
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-2">

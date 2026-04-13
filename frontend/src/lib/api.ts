@@ -336,6 +336,7 @@ export async function fetchChatHistory(
   }[]
 > {
   const res = await apiFetch(`${apiV1Prefix()}/chat/sessions/${sessionId}/history`);
+  if (res.status === 404) return [];
   if (!res.ok) throw new ApiError(res.status, await res.text());
   return res.json();
 }

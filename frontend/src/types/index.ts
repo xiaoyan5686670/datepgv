@@ -14,6 +14,16 @@ export type EmployeeOrgLevel =
   | "area_manager"
   | "staff";
 
+
+
+
+
+export interface UserScopeItem {
+  dimension: "province" | "employee" | "region" | "district";
+  allowed_values: string[];
+}
+
+
 /** 当前登录用户（GET /auth/me） */
 export interface AuthUser {
   id: number;
@@ -38,6 +48,7 @@ export interface User {
   district?: string | null;
   full_name?: string | null;
   roles: string[];
+  data_scope: UserScopeItem[];
   created_at: string;
   updated_at: string;
 }
@@ -51,6 +62,7 @@ export interface UserCreate {
   employee_level?: EmployeeOrgLevel;
   district?: string | null;
   full_name?: string | null;
+  data_scope?: UserScopeItem[];
 }
 
 export interface UserUpdate {
@@ -62,6 +74,7 @@ export interface UserUpdate {
   district?: string | null;
   full_name?: string | null;
   password?: string;
+  data_scope?: UserScopeItem[];
 }
 
 /** RAG 层级检索 ABAC（与后端 UserPermission 对齐） */
@@ -213,6 +226,7 @@ export interface ChatMessage {
   scope_applied?: boolean;
   scope_rewrite_note?: string | null;
   effective_sql?: string;
+  isError?: boolean;
 }
 
 export interface ChatSession {

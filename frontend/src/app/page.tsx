@@ -46,6 +46,7 @@ function persistSessionId(id: string, userId: number) {
 function HomePageInner() {
   const { user } = useAuth();
   const userId = user!.id;
+  const isAdmin = user?.roles?.includes("admin") ?? false;
   const [sqlType, setSqlType] = useState<SqlType>("mysql");
   // AuthGuard guarantees user is non-null before this component renders.
   const [activeSessionId, setActiveSessionId] = useState<string>(() => getOrCreateSessionId(userId));
@@ -141,7 +142,8 @@ function HomePageInner() {
 
         <div className="w-full lg:w-auto flex flex-wrap items-center justify-end gap-2 sm:gap-3">
           {/* SQL type toggle */}
-          <div className="flex flex-col items-end gap-1 ml-auto">
+          {isAdmin ? (
+            <div className="flex flex-col items-end gap-1 ml-auto">
           <div className="flex items-center bg-muted/50 border rounded-full p-1 max-w-full overflow-x-auto">
             <button
               onClick={() => setSqlType("hive")}
@@ -192,6 +194,9 @@ function HomePageInner() {
             PostgreSQL / MySQL: 可执行 · Hive / Oracle: 仅生成
           </span>
           </div>
+          ) : (
+            <div className="ml-auto" />
+          )}
 
           <div className="hidden md:block h-8 w-px bg-border mx-1" />
 

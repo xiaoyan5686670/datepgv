@@ -20,6 +20,19 @@ interface DynamicChartProps {
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
 
+function formatNumber(value: number | string): string {
+  const num = typeof value === 'string' ? parseFloat(value) : value;
+  if (isNaN(num)) return String(value);
+  
+  if (Math.abs(num) >= 100000000) {
+    return (num / 100000000).toLocaleString(undefined, { maximumFractionDigits: 2 }) + '亿';
+  }
+  if (Math.abs(num) >= 10000) {
+    return (num / 10000).toLocaleString(undefined, { maximumFractionDigits: 2 }) + '万';
+  }
+  return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
 export function DynamicChart({ config, columns, rows }: DynamicChartProps) {
   const data = useMemo(() => {
     if (!columns || !rows || rows.length === 0) return [];
@@ -164,11 +177,14 @@ export function DynamicChart({ config, columns, rows }: DynamicChartProps) {
                 axisLine={{ stroke: 'currentColor', opacity: 0.2 }}
               />
               <YAxis 
+                tickFormatter={(val) => formatNumber(val)}
                 tick={{ fontSize: 12, fill: 'currentColor', opacity: 0.7 }} 
                 tickLine={false}
                 axisLine={false}
               />
               <Tooltip 
+                formatter={(val: any) => formatNumber(val)}
+                labelStyle={{ color: 'var(--foreground)' }}
                 contentStyle={{ borderRadius: '12px', border: '1px solid var(--border)', backgroundColor: 'var(--background)' }}
                 cursor={{ fill: 'currentColor', opacity: 0.05 }}
               />
@@ -187,11 +203,14 @@ export function DynamicChart({ config, columns, rows }: DynamicChartProps) {
                 axisLine={{ stroke: 'currentColor', opacity: 0.2 }}
               />
               <YAxis 
+                tickFormatter={(val) => formatNumber(val)}
                 tick={{ fontSize: 12, fill: 'currentColor', opacity: 0.7 }} 
                 tickLine={false}
                 axisLine={false}
               />
               <Tooltip 
+                formatter={(val: any) => formatNumber(val)}
+                labelStyle={{ color: 'var(--foreground)' }}
                 contentStyle={{ borderRadius: '12px', border: '1px solid var(--border)', backgroundColor: 'var(--background)' }}
               />
               <Legend wrapperStyle={{ fontSize: 12, paddingTop: 10 }} />

@@ -124,7 +124,6 @@ def _build_user_visibility_clause(scope: ResolvedScope, viewer_user_id: int) -> 
         return User.id == -1
     return or_(*conds)
 
-
 def _user_matches_scope(user: User, scope: ResolvedScope) -> bool:
     if scope.unrestricted:
         return True
@@ -143,10 +142,68 @@ def _user_matches_scope(user: User, scope: ResolvedScope) -> bool:
     return False
 
 
-def _user_to_response(user: User, roles: list[str] | None = None) -> UserResponse:
+async def _get_user_data_scope(db: AsyncSession, username: str) -> list[UserScopeItem]:
+    """Fetch individual scope policies for a specific user."""
+    from app.models.data_scope_policy import DataScopePolicy
+    from app.models.schemas import UserScopeItem
+
+    result = await db.execute(
+        select(DataScopePolicy)
+        .where(DataScopePolicy.subject_type == "user_name")
+        .where(DataScopePolicy.subject_key == username)
+    )
+    policies = result.scalars().all()
+    # Group by dimension if needed, but the model has one dimension per row
+    return [
+        UserScopeItem(
+            dimension=p.dimension,  # type: ignore[arg-type]
+            allowed_values=p.allowed_values,
+        )
+        for p in policies
+    ]
+
+
+async def _sync_user_data_scope(
+    db: AsyncSession, username: str, data_scope: list[UserScopeItem], updated_by: str
+) -> None:
+    """Upsert DataScopePolicy records for an individual user."""
+    from app.models.data_scope_policy import DataScopePolicy
+
+    # 1. Clear existing individual policies for this user
+    from sqlalchemy import delete
+
+    await db.execute(
+        delete(DataScopePolicy)
+        .where(DataScopePolicy.subject_type == "user_name")
+        .where(DataScopePolicy.subject_key == username)
+    )
+
+    # 2. Insert new ones
+    for item in data_scope:
+        if not item.allowed_values:
+            continue
+        policy = DataScopePolicy(
+            subject_type="user_name",
+            subject_key=username,
+            dimension=item.dimension,
+            allowed_values=item.allowed_values,
+            updated_by=updated_by,
+            enabled=True,
+            priority=1,  # Individual overrides usually have high priority
+        )
+        db.add(policy)
+
+
+def _user_to_response(
+    user: User, roles: list[str] | None = None, data_scope: list[UserScopeItem] | None = None
+) -> UserResponse:
     """Convert SQLAlchemy User to Pydantic response."""
     if roles is None:
-        roles = [r.name for r in user.roles] if hasattr(user, "roles") and user.roles else []
+        roles = (
+            [r.name for r in user.roles]
+            if hasattr(user, "roles") and user.roles
+            else []
+        )
     return UserResponse(
         id=user.id,
         username=user.username,
@@ -157,6 +214,7 @@ def _user_to_response(user: User, roles: list[str] | None = None) -> UserRespons
         district=user.district,
         full_name=user.full_name,
         roles=roles,
+        data_scope=data_scope or [],
         created_at=user.created_at,
         updated_at=user.updated_at,
     )
@@ -398,6 +456,8 @@ async def list_users(
     result = await db.execute(stmt)
     users = result.scalars().all()
 
+    # Bulk fetch scope for performance? For now, we'll just return empty or fetch
+    # (In a real high-traffic app, we'd join or pre-fetch them)
     return [_user_to_response(u) for u in users]
 
 
@@ -443,9 +503,19 @@ async def create_user(
             user.roles.append(role)
 
     db.add(user)
+    if payload.data_scope:
+        await _sync_user_data_scope(
+            db, payload.username, payload.data_scope, current_user.username
+        )
+
     await db.commit()
-    await db.refresh(user)
-    return _user_to_response(user)
+    # 重新加载（含 roles），避免懒加载触发 MissingGreenlet
+    result = await db.execute(
+        select(User).where(User.id == user.id).options(selectinload(User.roles))
+    )
+    db_user = result.scalar_one()
+    scope = await _get_user_data_scope(db, db_user.username)
+    return _user_to_response(db_user, data_scope=scope)
 
 
 @router.get("/{user_id}", response_model=UserResponse)
@@ -468,7 +538,8 @@ async def get_user(
         if not _user_matches_scope(user, scope):
             raise HTTPException(status_code=403, detail="无权查看此用户")
 
-    return _user_to_response(user)
+    effective_scope = await _get_user_data_scope(db, user.username)
+    return _user_to_response(user, data_scope=effective_scope)
 
 
 @router.put("/{user_id}", response_model=UserResponse)
@@ -510,13 +581,20 @@ async def update_user(
         if value is not None:
             setattr(user, field, value)
 
+    if payload.data_scope is not None:
+        await _sync_user_data_scope(
+            db, user.username, payload.data_scope, current_user.username
+        )
+
     await db.commit()
 
     # 重新加载（含 roles），避免懒加载触发 MissingGreenlet
     refreshed = await db.execute(
         select(User).where(User.id == user_id).options(selectinload(User.roles))
     )
-    return _user_to_response(refreshed.scalar_one())
+    db_user = refreshed.scalar_one()
+    scope = await _get_user_data_scope(db, db_user.username)
+    return _user_to_response(db_user, data_scope=scope)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)

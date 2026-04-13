@@ -35,6 +35,7 @@ from app.services.viewer_sql_context import build_viewer_sql_context
 from app.services.sql_metadata_guard import find_unknown_columns, find_unknown_tables
 from app.services.scope_policy_service import resolve_user_scope
 from app.services.sql_scope_guard import rewrite_sql_with_scope
+from app.services.error_formatter import format_execution_error
 
 router = APIRouter(
     prefix="/chat",
@@ -366,7 +367,8 @@ async def chat_stream(
                     (time.perf_counter() - t_stream) * 1000,
                     e,
                 )
-            err = {"type": "error", "message": str(e)}
+            answer, _ = format_execution_error(e, _user_is_admin(current_user))
+            err = {"type": "error", "message": answer}
             yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n".encode()
             return
 
@@ -528,16 +530,18 @@ async def chat_stream(
                         llm, db, request.query, qres
                     )
                 except Exception as sum_err:
-                    answer = (
-                        "查询已成功执行，但生成自然语言总结时出现错误："
-                        f"{sum_err}\n请查看下方返回的数据摘要。"
-                    )
+                    logger.exception("Summarizing query result failed: %s", sum_err)
+                    answer, _ = format_execution_error(sum_err, _user_is_admin(current_user))
+                    if _user_is_admin(current_user):
+                        answer = f"查询已成功执行，但在生成自然语言总结时出现错误。原始信息：{sum_err}"
+                    else:
+                        answer = "查询已成功执行，但在生成总结时遇到一点小问题。您可以先查看下方的数据报表。"
             except QueryExecutorError as e:
-                exec_error = str(e)
-                answer = f"查询未能执行：{exec_error}"
+                logger.warning("Query execution failed (QueryExecutorError): %s", e)
+                answer, exec_error = format_execution_error(e, _user_is_admin(current_user))
             except Exception as e:
-                exec_error = str(e)
-                answer = f"执行过程出错：{exec_error}"
+                logger.exception("Query execution failed (Unexpected Exception): %s", e)
+                answer, exec_error = format_execution_error(e, _user_is_admin(current_user))
 
         if scope_rewrite_note:
             answer = (answer + "\n\n" + scope_rewrite_note).strip()

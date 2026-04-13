@@ -53,6 +53,7 @@ interface MessageListProps {
   sqlType: SqlType;
   isAdmin: boolean;
   send: (query: string) => void;
+  onRetry: (assistantMsgId: string) => void;
 }
 
 function formatDuration(ms: number): string {
@@ -86,6 +87,7 @@ const MessageList = memo(function MessageList({
   sqlType,
   isAdmin,
   send,
+  onRetry,
 }: MessageListProps) {
   return (
     <>
@@ -101,7 +103,9 @@ const MessageList = memo(function MessageList({
             <p className="text-muted-foreground text-base leading-relaxed">
               我可以帮你将自然语言转化为精准的 SQL 语句。
               <br />
-              在 PostgreSQL / MySQL 模式下，我还可以执行查询并为你总结数据洞察。
+              {isAdmin 
+                ? "在 PostgreSQL / MySQL 模式下，我还可以执行查询并为你总结数据洞察。"
+                : "你可以直接向我提问业务数据，我会快速为你计算并生成图表分析。"}
             </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full animate-in fade-in slide-in-from-bottom-8 duration-1000">
@@ -127,7 +131,7 @@ const MessageList = memo(function MessageList({
 
       {messages.map((msg, idx) => (
         <div
-          key={msg.id}
+          key={`${msg.id}-${idx}-${msg.role}`}
           className={cn(
             "flex gap-2 sm:gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300",
             msg.role === "user" ? "flex-row-reverse" : "flex-row"
@@ -162,7 +166,7 @@ const MessageList = memo(function MessageList({
                 {(() => {
                   const { text, chartConfig } = parseMessageContent(msg.content);
                   return (
-                    <>
+                    <div className="w-full space-y-4">
                       {text ? (
                         <div className="text-sm text-foreground bg-card rounded-2xl rounded-tl-none px-5 py-4 border shadow-sm leading-relaxed animate-in fade-in duration-500 overflow-x-auto">
                           <MarkdownViewer source={text} />
@@ -177,7 +181,7 @@ const MessageList = memo(function MessageList({
                           />
                         </div>
                       )}
-                    </>
+                    </div>
                   );
                 })()}
                 {msg.sql ? (
@@ -213,7 +217,17 @@ const MessageList = memo(function MessageList({
                     <span>思考中，正在生成 SQL...</span>
                   </div>
                 )}
-                {msg.role === "assistant" && msg.elapsed_ms ? (
+                {!!(msg.isError || msg.exec_error) && idx === messages.length - 1 && (
+                  <div className="mt-2 flex items-center justify-start">
+                    <button
+                      onClick={() => onRetry(msg.id)}
+                      className="flex items-center gap-1.5 text-xs font-medium text-destructive hover:text-white px-3 py-1.5 rounded-full border border-destructive/30 hover:bg-destructive hover:border-destructive transition-all shadow-sm"
+                    >
+                      <span>🔄 重新生成</span>
+                    </button>
+                  </div>
+                )}
+                {msg.role === "assistant" && msg.elapsed_ms && !msg.isError && !msg.exec_error ? (
                   <div className="text-[11px] text-muted-foreground/80 px-1">
                     本轮耗时: {formatDuration(msg.elapsed_ms)}
                   </div>
@@ -352,10 +366,9 @@ export function ChatBox({
       } catch (err) {
         if (!cancelled) {
           if (err instanceof ApiError && err.status === 403) {
-            // session 属于其他用户，自动切换新 session
             onSessionChange?.(uuidv4());
           } else {
-            // 404 = session 尚未入库（新会话，正常）；其他错误同理：清空消息，等用户发第一条时自动创建
+            // Already handled 404 in api.ts, other errors clear messages
             setMessages([]);
           }
         }
@@ -381,6 +394,8 @@ export function ChatBox({
   const stopGeneration = useCallback(() => {
     abortRef.current?.abort();
   }, []);
+
+
 
   const elapsedCompletedMs = messages.reduce(
     (sum, msg) => sum + (msg.role === "assistant" ? msg.elapsed_ms ?? 0 : 0),
@@ -589,9 +604,9 @@ export function ChatBox({
                 prev.map((m) =>
                   m.id === assistantMsgId
                     ? {
-                        ...m,
                         content: `错误: ${(event as { type: "error"; message: string }).message}`,
                         isStreaming: false,
+                        isError: true,
                         elapsed_ms: Math.max(
                           0,
                           Math.round(Date.now() - requestStartAt)
@@ -635,10 +650,11 @@ export function ChatBox({
                     ...m,
                     content: `请求失败: ${err instanceof Error ? err.message : "未知错误"}`,
                     isStreaming: false,
-                        elapsed_ms: Math.max(
-                          0,
-                          Math.round(Date.now() - requestStartAt)
-                        ),
+                    isError: true,
+                    elapsed_ms: Math.max(
+                      0,
+                      Math.round(Date.now() - requestStartAt)
+                    ),
                   }
                 : m
             )
@@ -661,6 +677,26 @@ export function ChatBox({
     ]
   );
 
+  const handleRetryLast = useCallback((assistantMsgId: string) => {
+    setMessages((prev) => {
+      const idx = prev.findIndex((m) => m.id === assistantMsgId);
+      if (
+        idx > 0 &&
+        prev[idx].role === "assistant" &&
+        !!(prev[idx].isError || prev[idx].exec_error) &&
+        prev[idx - 1].role === "user"
+      ) {
+        const retryQuery = prev[idx - 1].content;
+        const newMessages = prev.slice(0, idx - 1);
+        // Delay send slightly to let state update
+        setTimeout(() => send(retryQuery), 10);
+        return newMessages;
+      }
+      return prev;
+    });
+  }, [send]);
+
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -678,6 +714,7 @@ export function ChatBox({
           sqlType={sqlType}
           isAdmin={isAdmin}
           send={send}
+          onRetry={handleRetryLast}
         />
 
         <div ref={bottomRef} />
@@ -688,38 +725,42 @@ export function ChatBox({
         <div className="max-w-4xl mx-auto space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-1">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap">
-              <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors">
-                <input
-                  type="checkbox"
-                  checked={executeQuery}
-                  onChange={(e) => setExecuteQuery(e.target.checked)}
-                  disabled={isLoading}
-                  className="rounded-sm border-muted-foreground/30 bg-background text-primary focus:ring-primary/20"
-                  suppressHydrationWarning
-                />
-                <span>生成后尝试执行查询（仅 PostgreSQL / MySQL）</span>
-              </label>
-              {(sqlType === "mysql" || sqlType === "postgresql") &&
-                executeQuery &&
-                analyticsConnections.length > 0 && (
-                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className="whitespace-nowrap shrink-0">执行连接</span>
-                    <select
-                      value={executeConnectionId}
-                      onChange={(e) => setExecuteConnectionId(e.target.value)}
+              {isAdmin && (
+                <>
+                  <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={executeQuery}
+                      onChange={(e) => setExecuteQuery(e.target.checked)}
                       disabled={isLoading}
-                      className="rounded-md border border-border bg-background px-2 py-1.5 text-xs max-w-[min(100%,280px)] min-w-0"
-                    >
-                      <option value="">默认</option>
-                      {analyticsConnections.map((c) => (
-                        <option key={c.id} value={String(c.id)}>
-                          {c.name}
-                          {c.is_default ? "（默认）" : ""}
-                        </option>
-                      ))}
-                    </select>
+                      className="rounded-sm border-muted-foreground/30 bg-background text-primary focus:ring-primary/20"
+                      suppressHydrationWarning
+                    />
+                    <span>生成后尝试执行查询（仅 PostgreSQL / MySQL）</span>
                   </label>
-                )}
+                  {(sqlType === "mysql" || sqlType === "postgresql") &&
+                    executeQuery &&
+                    analyticsConnections.length > 0 && (
+                      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span className="whitespace-nowrap shrink-0">执行连接</span>
+                        <select
+                          value={executeConnectionId}
+                          onChange={(e) => setExecuteConnectionId(e.target.value)}
+                          disabled={isLoading}
+                          className="rounded-md border border-border bg-background px-2 py-1.5 text-xs max-w-[min(100%,280px)] min-w-0"
+                        >
+                          <option value="">默认</option>
+                          {analyticsConnections.map((c) => (
+                            <option key={c.id} value={String(c.id)}>
+                              {c.name}
+                              {c.is_default ? "（默认）" : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                </>
+              )}
             </div>
             <div className="text-[11px] text-muted-foreground/80 font-medium">
               会话累计耗时: {formatDuration(sessionElapsedMs)}
@@ -753,7 +794,7 @@ export function ChatBox({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={`输入你的数据查询需求... (${
+              placeholder={isAdmin ? `输入你的数据查询需求... (${
                 sqlType === "hive"
                   ? "Hive"
                   : sqlType === "postgresql"
@@ -761,7 +802,7 @@ export function ChatBox({
                   : sqlType === "mysql"
                   ? "MySQL"
                   : "Oracle"
-              } 模式)`}
+              } 模式)` : "输入您关心的业务指标或数据分析意图..."}
               rows={1}
               className="flex-1 bg-transparent text-sm px-2 sm:px-3 py-2.5 min-h-[44px] max-h-40 resize-none outline-none placeholder:text-muted-foreground/60"
               style={{ lineHeight: "1.6" }}

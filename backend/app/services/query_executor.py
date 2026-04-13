@@ -293,7 +293,7 @@ async def _run_postgresql(
         await conn.close()
 
 
-def _mysql_err_code_from_exception(e: BaseException) -> int | None:
+def mysql_err_code_from_exception(e: BaseException) -> int | None:
     args = getattr(e, "args", None)
     if args and isinstance(args[0], int):
         return args[0]
@@ -306,7 +306,7 @@ def _mysql_err_code_from_exception(e: BaseException) -> int | None:
     return None
 
 
-def _friendly_mysql_access_error(exc: BaseException) -> str | None:
+def friendly_mysql_access_error(exc: BaseException) -> str | None:
     """Map common MySQL / PyMySQL error codes to actionable Chinese messages."""
     candidates: list[BaseException] = [exc]
     if getattr(exc, "__cause__", None) is not None:
@@ -314,7 +314,7 @@ def _friendly_mysql_access_error(exc: BaseException) -> str | None:
 
     codes: list[int] = []
     for e in candidates:
-        c = _mysql_err_code_from_exception(e)
+        c = mysql_err_code_from_exception(e)
         if c is not None:
             codes.append(c)
     if not codes:
@@ -404,7 +404,7 @@ async def _run_mysql(
             autocommit=False,
         )
     except Exception as e:
-        hint = _friendly_mysql_access_error(e)
+        hint = friendly_mysql_access_error(e)
         raise QueryExecutorError(hint or str(e)) from e
     try:
         async with conn.cursor(aiomysql.DictCursor) as cur:
@@ -418,19 +418,19 @@ async def _run_mysql(
                     "mysql", sql, probe_columns, scope
                 )
             except Exception as e:
-                hint = _friendly_mysql_access_error(e)
+                hint = friendly_mysql_access_error(e)
                 raise QueryExecutorError(hint or str(e)) from e
             try:
                 await asyncio.wait_for(cur.execute(scoped_sql), timeout=timeout)
             except Exception as e:
-                hint = _friendly_mysql_access_error(e)
+                hint = friendly_mysql_access_error(e)
                 raise QueryExecutorError(hint or str(e)) from e
             try:
                 batch = await asyncio.wait_for(
                     cur.fetchmany(max_rows + 1), timeout=timeout
                 )
             except Exception as e:
-                hint = _friendly_mysql_access_error(e)
+                hint = friendly_mysql_access_error(e)
                 raise QueryExecutorError(hint or str(e)) from e
             truncated = len(batch) > max_rows
             if truncated:
@@ -509,7 +509,7 @@ async def ping_mysql_dsn(dsn: str) -> None:
             autocommit=True,
         )
     except Exception as e:
-        hint = _friendly_mysql_access_error(e)
+        hint = friendly_mysql_access_error(e)
         raise QueryExecutorError(hint or str(e)) from e
     try:
         async with conn.cursor() as cur:
