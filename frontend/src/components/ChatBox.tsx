@@ -18,6 +18,7 @@ import {
   fetchAnalyticsConnections,
   fetchChatHistory,
 } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import type {
   AnalyticsDbConnection,
   ChatMessage,
@@ -27,8 +28,10 @@ import type {
   SSEEvent,
   TokenEvent,
 } from "@/types";
+import { MarkdownViewer } from "./MarkdownViewer";
 import { QueryResultPreview } from "./QueryResultPreview";
 import { SQLResult } from "./SQLResult";
+import { DynamicChart, type ChartConfig } from "./DynamicChart";
 
 const SUGGESTED_QUERIES = [
   "查询过去 7 天每个部门的销售总额",
@@ -48,6 +51,7 @@ interface MessageListProps {
   messages: ChatMessage[];
   loadingHistory: boolean;
   sqlType: SqlType;
+  isAdmin: boolean;
   send: (query: string) => void;
 }
 
@@ -60,10 +64,27 @@ function formatDuration(ms: number): string {
   return `${min}m ${String(sec).padStart(2, "0")}s`;
 }
 
+function parseMessageContent(content: string) {
+  if (!content) return { text: "", chartConfig: null };
+  const chartRegex = /```(?:json)?\s*\n?\s*({[\s\S]*?"chart_type"[\s\S]*?})\s*\n?```/i;
+  const match = content.match(chartRegex);
+  if (match) {
+    try {
+      const chartConfig = JSON.parse(match[1]) as ChartConfig;
+      const text = content.replace(chartRegex, "").trim();
+      return { text, chartConfig };
+    } catch {
+      return { text: content, chartConfig: null };
+    }
+  }
+  return { text: content, chartConfig: null };
+}
+
 const MessageList = memo(function MessageList({
   messages,
   loadingHistory,
   sqlType,
+  isAdmin,
   send,
 }: MessageListProps) {
   return (
@@ -138,26 +159,44 @@ const MessageList = memo(function MessageList({
               </div>
             ) : (
               <div className="w-full space-y-4">
-                {msg.content ? (
-                  <div className="text-sm text-foreground bg-card rounded-2xl rounded-tl-none px-5 py-4 border shadow-sm whitespace-pre-wrap leading-relaxed">
-                    {msg.content}
-                  </div>
-                ) : null}
+                {(() => {
+                  const { text, chartConfig } = parseMessageContent(msg.content);
+                  return (
+                    <>
+                      {text ? (
+                        <div className="text-sm text-foreground bg-card rounded-2xl rounded-tl-none px-5 py-4 border shadow-sm leading-relaxed animate-in fade-in duration-500 overflow-x-auto">
+                          <MarkdownViewer source={text} />
+                        </div>
+                      ) : null}
+                      {chartConfig && msg.result_preview && (
+                        <div className="animate-in zoom-in-95 duration-500">
+                          <DynamicChart 
+                            config={chartConfig} 
+                            columns={msg.result_preview.columns} 
+                            rows={msg.result_preview.rows} 
+                          />
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
                 {msg.sql ? (
                   <div className="w-full animate-in zoom-in-95 duration-300">
-                    {msg.isStreaming ? (
+                    {msg.isStreaming && isAdmin ? (
                       <p className="text-xs text-muted-foreground mb-2 px-1 leading-relaxed">
                         由于权限审核，最终以改写后的 SQL 为准。
                       </p>
                     ) : null}
-                    <SQLResult
-                      sql={msg.sql}
-                      sqlType={msg.sql_type ?? sqlType}
-                      referencedTables={msg.referenced_tables}
-                      isStreaming={msg.isStreaming}
-                    />
+                    {isAdmin && (
+                      <SQLResult
+                        sql={msg.sql}
+                        sqlType={msg.sql_type ?? sqlType}
+                        referencedTables={msg.referenced_tables}
+                        isStreaming={msg.isStreaming}
+                      />
+                    )}
                     {!msg.isStreaming ? (
-                      <div className="mt-3">
+                      <div className={isAdmin ? "mt-3" : ""}>
                         <QueryResultPreview
                           sqlType={msg.sql_type ?? sqlType}
                           executed={msg.executed}
@@ -194,6 +233,9 @@ export function ChatBox({
   onSessionChange,
   onMessageSent,
 }: ChatBoxProps) {
+  const { user } = useAuth();
+  const isAdmin = user?.roles?.includes("admin") ?? false;
+  
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   /** 是否在生成 SQL 后由服务端执行（PostgreSQL / MySQL） */
@@ -634,6 +676,7 @@ export function ChatBox({
           messages={messages}
           loadingHistory={loadingHistory}
           sqlType={sqlType}
+          isAdmin={isAdmin}
           send={send}
         />
 
