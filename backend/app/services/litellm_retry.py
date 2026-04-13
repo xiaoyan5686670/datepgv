@@ -19,6 +19,7 @@ def _is_retryable_litellm_error(exc: BaseException) -> bool:
     name = type(exc).__name__
     if name in (
         "ServiceUnavailableError",
+        "MidStreamFallbackError",
         "RateLimitError",
         "InternalServerError",
         "APIConnectionError",
@@ -34,7 +35,14 @@ def _is_retryable_litellm_error(exc: BaseException) -> bool:
         return True
     if "try again later" in low:
         return True
+    if "midstreamfallbackerror" in low:
+        return True
     return False
+
+
+def is_retryable_litellm_error(exc: BaseException) -> bool:
+    """Public helper for stream consumers that need retry decisions."""
+    return _is_retryable_litellm_error(exc)
 
 
 async def async_retry_litellm(

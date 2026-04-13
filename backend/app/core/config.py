@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # International: https://dashscope-intl.aliyuncs.com/compatible-mode/v1
     # https://docs.litellm.ai/docs/providers/dashscope
     DASHSCOPE_API_BASE: str | None = None
+    # Vertex AI default location (used when active model is Vertex/Gemini route and
+    # config extra_params does not provide location/vertex_location).
+    VERTEXAI_LOCATION: str = "us-central1"
 
     # LiteLLM: retry 503 / 429 / overload (e.g. Vertex "high demand")
     LITELLM_RETRY_MAX_ATTEMPTS: int = 4

@@ -109,6 +109,12 @@ def is_dashscope_family(model: str) -> bool:
     return normalize_litellm_model(raw).lower().startswith("dashscope/")
 
 
+def is_vertex_family(model: str) -> bool:
+    """Best-effort detection for Vertex-backed Gemini routes in LiteLLM."""
+    m = (model or "").strip().lower()
+    return m.startswith("vertex_ai/") or m.startswith("vertex/") or m.startswith("gemini/")
+
+
 def embedding_target_dimensions(cfg: LiteLLMConfigParams) -> int:
     """
     Target vector length for embeddings: extra_params.dimensions / dim override EMBEDDING_DIM.
@@ -212,11 +218,27 @@ def build_completion_kwargs(cfg: LiteLLMConfigParams) -> dict:
     """Kwargs for litellm.acompletion (merge messages, temperature, stream separately)."""
     normalized_model = _normalize_model_for_cfg(cfg)
     kw: dict = {"model": normalized_model}
+    extra = cfg.extra_params or {}
     if cfg.api_key:
         kw["api_key"] = cfg.api_key
     api_base = resolve_api_base(cfg)
     if api_base:
         kw["api_base"] = api_base
+    # Allow provider-specific routing params from UI config.
+    for key in ("project", "vertex_project", "google_project", "location", "vertex_location"):
+        val = extra.get(key)
+        if val is not None and str(val).strip():
+            kw[key] = val
+    if is_vertex_family(normalized_model):
+        loc = str(
+            extra.get("vertex_location")
+            or extra.get("location")
+            or settings.VERTEXAI_LOCATION
+        ).strip()
+        if loc:
+            # Set both names for compatibility across LiteLLM/provider adapters.
+            kw.setdefault("vertex_location", loc)
+            kw.setdefault("location", loc)
     if is_ollama_family(normalized_model):
         kw["drop_params"] = True
     return kw
@@ -234,9 +256,23 @@ def build_embedding_kwargs(cfg: LiteLLMConfigParams) -> dict:
         kw = {"model": normalized_model}
     if cfg.api_key:
         kw["api_key"] = cfg.api_key
+    extra = cfg.extra_params or {}
     api_base = resolve_api_base(cfg)
     if api_base:
         kw["api_base"] = api_base
+    for key in ("project", "vertex_project", "google_project", "location", "vertex_location"):
+        val = extra.get(key)
+        if val is not None and str(val).strip():
+            kw[key] = val
+    if is_vertex_family(kw["model"]):
+        loc = str(
+            extra.get("vertex_location")
+            or extra.get("location")
+            or settings.VERTEXAI_LOCATION
+        ).strip()
+        if loc:
+            kw.setdefault("vertex_location", loc)
+            kw.setdefault("location", loc)
     if is_ollama_family(kw["model"]):
         kw["drop_params"] = True
 

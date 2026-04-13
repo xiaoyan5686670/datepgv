@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.llm_config import LLMConfig, LLMConfigRuntime
 from app.services.litellm_kwargs import build_completion_kwargs
-from app.services.litellm_retry import async_retry_litellm
+from app.services.litellm_retry import async_retry_litellm, is_retryable_litellm_error
 
 litellm.set_verbose = settings.DEBUG
 
@@ -88,25 +88,42 @@ class LLMService:
         """Streaming completion – yields text chunks as they arrive."""
         cfg = await _get_active_config(db)
         temp = temperature if temperature is not None else (cfg.extra_params or {}).get("temperature", 0.1)
-        response = await async_retry_litellm(
-            lambda: litellm.acompletion(
-                messages=messages,
-                temperature=temp,
-                stream=True,
-                **build_completion_kwargs(cfg),
-            ),
-            operation="llm.acompletion_stream",
-        )
-        async for chunk in response:
-            choices = getattr(chunk, "choices", None) or []
-            if not choices:
+        stream_attempts = 0
+        max_stream_attempts = 2
+        while stream_attempts < max_stream_attempts:
+            stream_attempts += 1
+            emitted_any = False
+            response = await async_retry_litellm(
+                lambda: litellm.acompletion(
+                    messages=messages,
+                    temperature=temp,
+                    stream=True,
+                    **build_completion_kwargs(cfg),
+                ),
+                operation="llm.acompletion_stream",
+            )
+            try:
+                async for chunk in response:
+                    choices = getattr(chunk, "choices", None) or []
+                    if not choices:
+                        continue
+                    delta = getattr(choices[0], "delta", None)
+                    if not delta:
+                        continue
+                    content = getattr(delta, "content", None)
+                    if content:
+                        emitted_any = True
+                        yield content
+                return
+            except Exception as exc:
+                # If stream fails before first token, retry once end-to-end.
+                if (
+                    emitted_any
+                    or stream_attempts >= max_stream_attempts
+                    or not is_retryable_litellm_error(exc)
+                ):
+                    raise
                 continue
-            delta = getattr(choices[0], "delta", None)
-            if not delta:
-                continue
-            content = getattr(delta, "content", None)
-            if content:
-                yield content
 
     async def model_name(self, db: AsyncSession) -> str:
         cfg = await _get_active_config(db)

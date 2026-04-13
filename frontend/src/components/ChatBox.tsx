@@ -264,6 +264,7 @@ export function ChatBox({
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const inFlightRef = useRef(false);
   const requestStartedAtRef = useRef<number | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   // 当 session 因 403 重试而被替换时，跳过一次历史重载（消息已在 UI 中）
@@ -409,7 +410,8 @@ export function ChatBox({
 
   const send = useCallback(
     async (query: string) => {
-      if (!query.trim() || isLoading) return;
+      if (!query.trim() || isLoading || inFlightRef.current) return;
+      inFlightRef.current = true;
       setInput("");
       const requestStartAt = Date.now();
       requestStartedAtRef.current = requestStartAt;
@@ -604,6 +606,7 @@ export function ChatBox({
                 prev.map((m) =>
                   m.id === assistantMsgId
                     ? {
+                        ...m,
                         content: `错误: ${(event as { type: "error"; message: string }).message}`,
                         isStreaming: false,
                         isError: true,
@@ -661,6 +664,7 @@ export function ChatBox({
           );
         }
       } finally {
+        inFlightRef.current = false;
         setIsLoading(false);
         requestStartedAtRef.current = null;
         abortRef.current = null;
@@ -678,6 +682,7 @@ export function ChatBox({
   );
 
   const handleRetryLast = useCallback((assistantMsgId: string) => {
+    if (isLoading) return;
     setMessages((prev) => {
       const idx = prev.findIndex((m) => m.id === assistantMsgId);
       if (
@@ -688,13 +693,13 @@ export function ChatBox({
       ) {
         const retryQuery = prev[idx - 1].content;
         const newMessages = prev.slice(0, idx - 1);
-        // Delay send slightly to let state update
+        // Delay slightly to let message list collapse before new stream starts.
         setTimeout(() => send(retryQuery), 10);
         return newMessages;
       }
       return prev;
     });
-  }, [send]);
+  }, [isLoading, send]);
 
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
