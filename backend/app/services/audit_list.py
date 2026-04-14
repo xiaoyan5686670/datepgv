@@ -146,5 +146,6 @@ WHERE {where_sql}
     page_sql = from_sql + " ORDER BY o.assistant_at DESC OFFSET :skip LIMIT :limit"
     binds_page = {**binds, "skip": skip, "limit": limit}
     result = await db.execute(text(page_sql), binds_page)
-    items = [dict(row._mapping) for row in result.mappings().all()]
+    # 勿用 row._mapping：RowMapping 会把属性当作列名，触发 NoSuchColumnError('_mapping')
+    items = [dict(r) for r in result.mappings().all()]
     return items, total
