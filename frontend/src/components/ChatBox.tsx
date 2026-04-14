@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import { v4 as uuidv4 } from "uuid";
 import { cn } from "@/lib/utils";
 import {
@@ -427,6 +428,8 @@ export function ChatBox({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const inFlightRef = useRef(false);
+  /** 避免重试里 setTimeout 调用到过期的 send（闭包 isLoading 仍为 true 会静默 return） */
+  const sendRef = useRef<(query: string) => void>(() => {});
   const requestStartedAtRef = useRef<number | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   // 当 session 因 403 重试而被替换时，跳过一次历史重载（消息已在 UI 中）
@@ -656,7 +659,8 @@ export function ChatBox({
 
   const send = useCallback(
     async (query: string) => {
-      if (!query.trim() || isLoading || inFlightRef.current) return;
+      // 仅用 inFlightRef：不要用闭包里的 isLoading，否则「重新生成」异步调用 send 时可能误判仍在加载
+      if (!query.trim() || inFlightRef.current) return;
       inFlightRef.current = true;
       setInput("");
       const requestStartAt = Date.now();
@@ -921,7 +925,6 @@ export function ChatBox({
       }
     },
     [
-      isLoading,
       sessionId,
       sqlType,
       executeQuery,
@@ -931,30 +934,35 @@ export function ChatBox({
     ]
   );
 
+  sendRef.current = send;
+
   const handleRetryLast = useCallback((assistantMsgId: string) => {
-    if (isLoading) return;
-    setMessages((prev) => {
-      const idx = prev.findIndex((m) => m.id === assistantMsgId);
-      const aiIdxs = prev
-        .map((m, i) => (m.role === "assistant" ? i : -1))
-        .filter((i) => i >= 0);
-      const lastAi = aiIdxs[aiIdxs.length - 1];
-      if (
-        idx > 0 &&
-        idx === lastAi &&
-        prev[idx].role === "assistant" &&
-        assistantMessageIsRetryable(prev[idx]) &&
-        prev[idx - 1].role === "user"
-      ) {
-        const retryQuery = prev[idx - 1].content;
-        const newMessages = prev.slice(0, idx - 1);
-        // Delay slightly to let message list collapse before new stream starts.
-        setTimeout(() => send(retryQuery), 10);
-        return newMessages;
-      }
-      return prev;
+    if (inFlightRef.current) return;
+    let retryQuery: string | null = null;
+    flushSync(() => {
+      setMessages((prev) => {
+        const idx = prev.findIndex((m) => m.id === assistantMsgId);
+        const aiIdxs = prev
+          .map((m, i) => (m.role === "assistant" ? i : -1))
+          .filter((i) => i >= 0);
+        const lastAi = aiIdxs[aiIdxs.length - 1];
+        if (
+          idx > 0 &&
+          idx === lastAi &&
+          prev[idx].role === "assistant" &&
+          assistantMessageIsRetryable(prev[idx]) &&
+          prev[idx - 1].role === "user"
+        ) {
+          retryQuery = prev[idx - 1].content;
+          return prev.slice(0, idx - 1);
+        }
+        return prev;
+      });
     });
-  }, [isLoading, send]);
+    if (retryQuery != null && retryQuery.trim() !== "") {
+      sendRef.current(retryQuery);
+    }
+  }, []);
 
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
