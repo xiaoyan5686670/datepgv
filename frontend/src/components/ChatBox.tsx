@@ -108,6 +108,43 @@ function buildDefaultWelcome(groupIndex: number): WelcomeShortcutItem[] {
   return DEFAULT_WELCOME_GROUPS[idx].items.map((q) => ({ query: q, label: q }));
 }
 
+/** 与「重新生成」按钮、handleRetryLast 使用同一套规则，避免仅依赖 exec_error 漏掉 executed=false 等路径 */
+function assistantMessageIsRetryable(msg: ChatMessage): boolean {
+  if (msg.role !== "assistant" || msg.isStreaming) return false;
+  if (msg.isError) return true;
+  if (msg.exec_error != null && String(msg.exec_error).trim() !== "") return true;
+  const st = msg.sql_type;
+  if (st === "hive" || st === "oracle") return false;
+  if (
+    typeof msg.content === "string" &&
+    msg.content.includes("已按设置跳过数据库执行")
+  ) {
+    return false;
+  }
+  if (
+    msg.executed === false &&
+    typeof msg.sql === "string" &&
+    msg.sql.trim() !== ""
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function assistantShouldShowRetryButton(
+  msg: ChatMessage,
+  idx: number,
+  messages: ChatMessage[],
+): boolean {
+  if (msg.role !== "assistant") return false;
+  const aiIdxs = messages
+    .map((m, i) => (m.role === "assistant" ? i : -1))
+    .filter((i) => i >= 0);
+  const lastAi = aiIdxs[aiIdxs.length - 1];
+  if (lastAi === undefined || idx !== lastAi) return false;
+  return assistantMessageIsRetryable(msg);
+}
+
 interface ChatBoxProps {
   sqlType: SqlType;
   sessionId: string;
@@ -341,16 +378,17 @@ const MessageList = memo(function MessageList({
                     <span>思考中，正在生成 SQL...</span>
                   </div>
                 )}
-                {!!(msg.isError || msg.exec_error) && idx === messages.length - 1 && (
+                {assistantShouldShowRetryButton(msg, idx, messages) ? (
                   <div className="mt-2 flex items-center justify-start">
                     <button
+                      type="button"
                       onClick={() => onRetry(msg.id)}
                       className="flex items-center gap-1.5 text-xs font-medium text-destructive hover:text-white px-3 py-1.5 rounded-full border border-destructive/30 hover:bg-destructive hover:border-destructive transition-all shadow-sm"
                     >
                       <span>🔄 重新生成</span>
                     </button>
                   </div>
-                )}
+                ) : null}
                 {msg.role === "assistant" && msg.elapsed_ms && !msg.isError && !msg.exec_error ? (
                   <div className="text-[11px] text-muted-foreground/80 px-1">
                     本轮耗时: {formatDuration(msg.elapsed_ms)}
@@ -783,26 +821,30 @@ export function ChatBox({
               }
               const doneEvt = event as DoneEvent;
               setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantMsgId
-                    ? {
-                        ...m,
-                        sql: doneEvt.sql,
-                        content: doneEvt.answer ?? "",
-                        isStreaming: false,
-                        elapsed_ms: Math.max(
-                          0,
-                          Math.round(Date.now() - requestStartAt)
-                        ),
-                        executed: doneEvt.executed,
-                        exec_error: doneEvt.exec_error ?? undefined,
-                        result_preview: doneEvt.result_preview ?? undefined,
-                        scope_applied: doneEvt.scope_applied ?? undefined,
-                        scope_rewrite_note: doneEvt.scope_rewrite_note ?? undefined,
-                        effective_sql: doneEvt.effective_sql ?? undefined,
-                      }
-                    : m
-                )
+                prev.map((m) => {
+                  if (m.id !== assistantMsgId) return m;
+                  const mergedSql =
+                    (doneEvt.sql && String(doneEvt.sql).trim()) ||
+                    (doneEvt.effective_sql && String(doneEvt.effective_sql).trim()) ||
+                    (m.sql && String(m.sql).trim()) ||
+                    "";
+                  return {
+                    ...m,
+                    sql: mergedSql,
+                    content: doneEvt.answer ?? "",
+                    isStreaming: false,
+                    elapsed_ms: Math.max(
+                      0,
+                      Math.round(Date.now() - requestStartAt)
+                    ),
+                    executed: doneEvt.executed,
+                    exec_error: doneEvt.exec_error ?? undefined,
+                    result_preview: doneEvt.result_preview ?? undefined,
+                    scope_applied: doneEvt.scope_applied ?? undefined,
+                    scope_rewrite_note: doneEvt.scope_rewrite_note ?? undefined,
+                    effective_sql: doneEvt.effective_sql ?? undefined,
+                  };
+                })
               );
             } else if (event.type === "error") {
               if (flushTimer !== null) {
@@ -893,10 +935,15 @@ export function ChatBox({
     if (isLoading) return;
     setMessages((prev) => {
       const idx = prev.findIndex((m) => m.id === assistantMsgId);
+      const aiIdxs = prev
+        .map((m, i) => (m.role === "assistant" ? i : -1))
+        .filter((i) => i >= 0);
+      const lastAi = aiIdxs[aiIdxs.length - 1];
       if (
         idx > 0 &&
+        idx === lastAi &&
         prev[idx].role === "assistant" &&
-        !!(prev[idx].isError || prev[idx].exec_error) &&
+        assistantMessageIsRetryable(prev[idx]) &&
         prev[idx - 1].role === "user"
       ) {
         const retryQuery = prev[idx - 1].content;
