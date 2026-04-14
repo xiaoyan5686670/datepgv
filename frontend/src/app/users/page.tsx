@@ -2,6 +2,7 @@
 
 import {
   ArrowLeft,
+  BarChart3,
   Download,
   Edit2,
   GitBranch,
@@ -1249,6 +1250,13 @@ function UsersPageInner() {
                         {isAdmin && (
                           <td className="px-4 py-3">
                             <div className="flex items-center justify-end gap-1">
+                              <Link
+                                href={`/admin?section=usage&user_id=${u.id}`}
+                                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                                title="提问统计"
+                              >
+                                <BarChart3 size={14} />
+                              </Link>
                               <button
                                 onClick={() => setEditTarget(u)}
                                 className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"

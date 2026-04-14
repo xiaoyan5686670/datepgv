@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import admin_rag_permission, auth, chat, config, metadata, rag, users
+from app.api import admin_rag_permission, auth, chat, config, metadata, rag, stats_chat_queries, users
 from app.core.config import settings
 from app.core.migrations import run_migrations
 
@@ -36,6 +36,7 @@ app.include_router(metadata.router, prefix="/api/v1")
 app.include_router(config.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(rag.router, prefix="/api/v1")
+app.include_router(stats_chat_queries.router, prefix="/api/v1")
 app.include_router(admin_rag_permission.router, prefix="/api/v1")
 
 

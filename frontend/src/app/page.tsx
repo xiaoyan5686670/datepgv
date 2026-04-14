@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BarChart3,
   Database,
   Menu,
   MessageSquarePlus,
@@ -15,6 +16,7 @@ import { useCallback, useEffect, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { AuthGuard } from "@/components/AuthGuard";
 import { ChatBox } from "@/components/ChatBox";
+import { ChatQueryStatsPanel } from "@/components/ChatQueryStatsPanel";
 import { ModelSwitcher } from "@/components/ModelSwitcher";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UserChip } from "@/components/UserChip";
@@ -53,6 +55,7 @@ function HomePageInner() {
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [showMyStats, setShowMyStats] = useState(false);
 
   // Reset session when the logged-in account changes (same browser, different user).
   useEffect(() => {
@@ -249,7 +252,21 @@ function HomePageInner() {
               <MessageSquarePlus size={16} />
               开启新对话
             </button>
+            <button
+              type="button"
+              onClick={() => setShowMyStats((v) => !v)}
+              className="mt-2 flex items-center justify-center gap-2 w-full px-4 py-2 text-xs font-medium text-muted-foreground hover:text-foreground border rounded-xl bg-background hover:bg-muted/40 transition-all"
+            >
+              <BarChart3 size={14} />
+              {showMyStats ? "收起提问统计" : "我的提问统计"}
+            </button>
           </div>
+
+          {showMyStats && (
+            <div className="px-3 pb-3 max-h-[50vh] overflow-y-auto">
+              <ChatQueryStatsPanel variant="me" theme="default" />
+            </div>
+          )}
 
           {/* Session list */}
           <div className="flex-1 overflow-y-auto px-2 pb-4">
@@ -331,7 +348,20 @@ function HomePageInner() {
                   <MessageSquarePlus size={16} />
                   开启新对话
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setShowMyStats((v) => !v)}
+                  className="mt-2 flex items-center justify-center gap-2 w-full px-4 py-2 text-xs font-medium text-muted-foreground hover:text-foreground border rounded-xl bg-background hover:bg-muted/40 transition-all"
+                >
+                  <BarChart3 size={14} />
+                  {showMyStats ? "收起提问统计" : "我的提问统计"}
+                </button>
               </div>
+              {showMyStats && (
+                <div className="px-3 pb-3 max-h-[40vh] overflow-y-auto border-b">
+                  <ChatQueryStatsPanel variant="me" theme="default" />
+                </div>
+              )}
               <div className="flex-1 overflow-y-auto px-2 pb-4">
                 {sessions.length === 0 ? (
                   <div className="px-4 py-8 text-xs text-muted-foreground text-center italic">

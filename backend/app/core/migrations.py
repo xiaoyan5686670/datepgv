@@ -25,6 +25,7 @@ async def run_migrations() -> None:
         await _backfill_scope_policies_from_users(conn)
         await _ensure_rag_chunks_table(conn)
         await _ensure_users_rag_permission_override(conn)
+        await _ensure_chat_messages_stats_indexes(conn)
 
 
 async def _fix_user_id_column_type(conn) -> None:  # type: ignore[type-arg]
@@ -355,3 +356,21 @@ async def _ensure_users_rag_permission_override(conn) -> None:  # type: ignore[t
         )
     )
     logger.info("DB migration: added users.rag_permission_override.")
+
+
+async def _ensure_chat_messages_stats_indexes(conn) -> None:  # type: ignore[type-arg]
+    """Speed up chat question stats (role=user + time range scans)."""
+    exists = await conn.execute(
+        text(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = 'chat_messages' LIMIT 1"
+        )
+    )
+    if exists.scalar() is None:
+        return
+    await conn.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS chat_messages_role_created_at_idx "
+            "ON public.chat_messages (role, created_at DESC)"
+        )
+    )

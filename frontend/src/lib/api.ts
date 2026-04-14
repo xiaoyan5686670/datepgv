@@ -4,6 +4,7 @@ import type {
   AdminUserRagPermissionResponse,
   AuthUser,
   ChatSessionSummary,
+  ChatQueryStatsResponse,
   OrgGraphResponse,
   SqlType,
   SyncOrgCsvResponse,
@@ -304,6 +305,78 @@ export async function fetchChatSessions(): Promise<ChatSessionSummary[]> {
   const res = await apiFetch(`${apiV1Prefix()}/chat/sessions`);
   if (!res.ok) throw new Error(await res.text());
   return res.json();
+}
+
+function statsQueryString(params: {
+  date_from?: string;
+  date_to?: string;
+  trend_days?: number;
+  top_n?: number;
+  user_id?: number;
+}): string {
+  const sp = new URLSearchParams();
+  if (params.date_from?.trim()) sp.set("date_from", params.date_from.trim());
+  if (params.date_to?.trim()) sp.set("date_to", params.date_to.trim());
+  if (params.trend_days != null) sp.set("trend_days", String(params.trend_days));
+  if (params.top_n != null) sp.set("top_n", String(params.top_n));
+  if (params.user_id != null) sp.set("user_id", String(params.user_id));
+  const q = sp.toString();
+  return q ? `?${q}` : "";
+}
+
+export async function fetchMyChatQueryStats(
+  params: {
+    date_from?: string;
+    date_to?: string;
+    trend_days?: number;
+    top_n?: number;
+  } = {}
+): Promise<ChatQueryStatsResponse> {
+  const res = await apiFetch(
+    `${apiV1Prefix()}/stats/chat-queries/me${statsQueryString(params)}`
+  );
+  if (!res.ok) throw new ApiError(res.status, await res.text());
+  return res.json();
+}
+
+export async function fetchAdminChatQueryStats(
+  params: {
+    user_id?: number;
+    date_from?: string;
+    date_to?: string;
+    trend_days?: number;
+    top_n?: number;
+  } = {}
+): Promise<ChatQueryStatsResponse> {
+  const res = await apiFetch(
+    `${apiV1Prefix()}/stats/chat-queries${statsQueryString(params)}`
+  );
+  if (!res.ok) throw new ApiError(res.status, await res.text());
+  return res.json();
+}
+
+export async function downloadAdminChatQueryTopCsv(params: {
+  user_id?: number;
+  date_from?: string;
+  date_to?: string;
+  top_n?: number;
+}): Promise<void> {
+  const sp = new URLSearchParams();
+  if (params.date_from?.trim()) sp.set("date_from", params.date_from.trim());
+  if (params.date_to?.trim()) sp.set("date_to", params.date_to.trim());
+  if (params.top_n != null) sp.set("top_n", String(params.top_n));
+  if (params.user_id != null) sp.set("user_id", String(params.user_id));
+  const res = await apiFetch(
+    `${apiV1Prefix()}/stats/chat-queries/export.csv?${sp.toString()}`
+  );
+  if (!res.ok) throw new ApiError(res.status, await res.text());
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "chat_query_top.csv";
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export class ApiError extends Error {

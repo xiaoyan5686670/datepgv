@@ -2,6 +2,7 @@
 
 import {
   ArrowLeft,
+  BarChart3,
   ChevronDown,
   ChevronRight,
   Database,
@@ -20,8 +21,10 @@ import {
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AuthGuard } from "@/components/AuthGuard";
+import { ChatQueryStatsPanel } from "@/components/ChatQueryStatsPanel";
 import { DDLImportModal } from "@/components/DDLImportModal";
 import { MetadataForm } from "@/components/MetadataForm";
 import { TableRelationsPanel } from "@/components/TableRelationsPanel";
@@ -45,10 +48,13 @@ import type {
 } from "@/types";
 
 function AdminPageInner() {
+  const searchParams = useSearchParams();
   const [tables, setTables] = useState<TableMetadata[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | SqlType>("all");
-  const [section, setSection] = useState<"tables" | "relations" | "rag">("tables");
+  const [section, setSection] = useState<"tables" | "relations" | "rag" | "usage">("tables");
+  /** 来自 URL `?user_id=`，供「使用统计」单人深链预填 */
+  const [statsDeepLinkUserId, setStatsDeepLinkUserId] = useState<string | null>(null);
   const [ragUsers, setRagUsers] = useState<User[]>([]);
   const [ragUserId, setRagUserId] = useState<string>("");
   const [ragDetail, setRagDetail] = useState<AdminUserRagPermissionResponse | null>(null);
@@ -79,6 +85,14 @@ function AdminPageInner() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useLayoutEffect(() => {
+    const sp = new URLSearchParams(searchParams.toString());
+    if (sp.get("section") === "usage") setSection("usage");
+    const uid = sp.get("user_id");
+    if (uid && /^\d+$/.test(uid.trim())) setStatsDeepLinkUserId(uid.trim());
+    else setStatsDeepLinkUserId(null);
+  }, [searchParams]);
 
   useEffect(() => {
     if (section !== "rag") return;
@@ -315,6 +329,19 @@ function AdminPageInner() {
                 <Shield size={12} />
                 RAG 权限
               </button>
+              <button
+                type="button"
+                onClick={() => setSection("usage")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all",
+                  section === "usage"
+                    ? "bg-app-accent/15 text-app-accent"
+                    : "text-app-muted hover:text-app-text"
+                )}
+              >
+                <BarChart3 size={12} />
+                使用统计
+              </button>
             </div>
             <Link
               href="/users"
@@ -391,7 +418,7 @@ function AdminPageInner() {
 
       <main className="max-w-6xl mx-auto px-6 py-6">
         {/* Mobile section tabs */}
-        <div className="sm:hidden flex rounded-lg border border-app-border p-0.5 bg-app-input mb-4">
+        <div className="sm:hidden flex flex-wrap rounded-lg border border-app-border p-0.5 bg-app-input mb-4 gap-0.5">
           <button
             type="button"
             onClick={() => setSection("tables")}
@@ -431,6 +458,19 @@ function AdminPageInner() {
             <Shield size={12} />
             RAG
           </button>
+          <button
+            type="button"
+            onClick={() => setSection("usage")}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium min-w-[33%]",
+              section === "usage"
+                ? "bg-app-accent/15 text-app-accent"
+                : "text-app-muted"
+            )}
+          >
+            <BarChart3 size={12} />
+            统计
+          </button>
         </div>
 
         {/* Stats */}
@@ -462,7 +502,7 @@ function AdminPageInner() {
         )}
 
         {/* Filter tabs */}
-        {section !== "rag" && (
+        {section !== "rag" && section !== "usage" && (
         <div className="flex items-center gap-2 mb-4 flex-wrap">
           {(["all", "hive", "postgresql", "mysql", "oracle"] as const).map((f) => (
             <button
@@ -508,7 +548,17 @@ function AdminPageInner() {
         </div>
         )}
 
-        {section === "rag" ? (
+        {section === "usage" ? (
+          <div className="max-w-4xl space-y-4">
+            <h2 className="text-lg font-semibold text-app-text">用户提问统计</h2>
+            <ChatQueryStatsPanel
+              key={`stats-${statsDeepLinkUserId ?? "all"}`}
+              variant="admin"
+              theme="app"
+              initialUserId={statsDeepLinkUserId}
+            />
+          </div>
+        ) : section === "rag" ? (
           <div className="space-y-6 max-w-4xl">
             <p className="text-sm text-app-muted leading-relaxed">
               此处配置仅影响{" "}
@@ -896,7 +946,9 @@ function AdminPageInner() {
 export default function AdminPage() {
   return (
     <AuthGuard requireAdmin>
-      <AdminPageInner />
+      <Suspense fallback={<div className="p-8 text-sm text-app-muted">加载中…</div>}>
+        <AdminPageInner />
+      </Suspense>
     </AuthGuard>
   );
 }

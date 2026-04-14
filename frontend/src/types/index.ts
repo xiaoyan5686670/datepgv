@@ -241,6 +241,39 @@ export interface ChatSessionSummary {
   last_message_at: string;
 }
 
+/** GET /stats/chat-queries/me | /stats/chat-queries */
+export interface ChatQuerySummaryBlock {
+  total_questions: number;
+  active_days: number;
+  distinct_sessions: number;
+  last_question_at: string | null;
+}
+
+export interface ChatQueryDailyBucket {
+  date: string;
+  count: number;
+}
+
+export interface ChatQueryTopItem {
+  normalized_key: string;
+  count: number;
+  example_snippet: string;
+  example_query: string;
+}
+
+export interface ChatQueryStatsFiltersBlock {
+  user_id: number | null;
+  day_from: string | null;
+  day_to: string | null;
+}
+
+export interface ChatQueryStatsResponse {
+  summary: ChatQuerySummaryBlock;
+  daily_trend: ChatQueryDailyBucket[];
+  top_queries: ChatQueryTopItem[];
+  filters: ChatQueryStatsFiltersBlock;
+}
+
 // ── LLM Config ────────────────────────────────────────────────────────────────
 
 export interface LLMConfig {

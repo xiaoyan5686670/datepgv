@@ -118,6 +118,38 @@ class ChatSessionSummary(BaseModel):
     last_message_at: datetime
 
 
+class ChatQuerySummaryBlock(BaseModel):
+    total_questions: int
+    active_days: int
+    distinct_sessions: int
+    last_question_at: datetime | None = None
+
+
+class ChatQueryDailyBucket(BaseModel):
+    date: str
+    count: int
+
+
+class ChatQueryTopItem(BaseModel):
+    normalized_key: str
+    count: int
+    example_snippet: str
+    example_query: str
+
+
+class ChatQueryStatsFiltersBlock(BaseModel):
+    user_id: int | None = None
+    day_from: str | None = None
+    day_to: str | None = None
+
+
+class ChatQueryStatsResponse(BaseModel):
+    summary: ChatQuerySummaryBlock
+    daily_trend: list[ChatQueryDailyBucket]
+    top_queries: list[ChatQueryTopItem]
+    filters: ChatQueryStatsFiltersBlock
+
+
 # ── DDL Import ────────────────────────────────────────────────────────────────
 
 class DDLImportRequest(BaseModel):

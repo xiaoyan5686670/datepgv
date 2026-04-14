@@ -1,10 +1,11 @@
 "use client";
 
-import { Database, Loader2, Send, Square, Trash2 } from "lucide-react";
+import { Database, Loader2, Send, Sparkles, Square, Trash2 } from "lucide-react";
 import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -17,6 +18,7 @@ import {
   deleteChatSession,
   fetchAnalyticsConnections,
   fetchChatHistory,
+  fetchMyChatQueryStats,
 } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import type {
@@ -33,12 +35,78 @@ import { QueryResultPreview } from "./QueryResultPreview";
 import { SQLResult } from "./SQLResult";
 import { DynamicChart, type ChartConfig } from "./DynamicChart";
 
-const SUGGESTED_QUERIES = [
-  "查询过去 7 天每个部门的销售总额",
-  "统计各状态订单数量及占比",
-  "找出最近一个月新注册且有过购买记录的用户",
-  "按城市汇总近 30 天的 GMV，取 Top 10",
-];
+/** 未登录 / 无个人高频时的默认话术：多组口语化问法，弱化「查询」「统计」等刻板动词 */
+const DEFAULT_WELCOME_GROUPS = [
+  {
+    id: "people_performance",
+    items: [
+      "我们上个月哪个销售的业绩最好？",
+      "这个季度谁完成的订单量最多？",
+      "上周回款金额最高的是哪位同事？",
+      "今年新客户里，哪几个销售跟进的成交最多？",
+    ],
+  },
+  {
+    id: "compare_structure",
+    items: [
+      "华东和华南哪边回款更高？",
+      "各产品线里哪一条贡献的收入最大？",
+      "不同订单状态下，哪一种占比最高？",
+      "一线城市和二三线城市，哪边客单价更高？",
+    ],
+  },
+  {
+    id: "trend_anomaly",
+    items: [
+      "最近两周里，哪一天销量掉得最厉害？",
+      "上个月新客和老客，谁花得更多？",
+      "过去 30 天每天的订单量走势大概怎样？",
+      "哪个城市的 GMV 在最近一个月涨得最快？",
+    ],
+  },
+] as const;
+
+const WELCOME_GROUP_STORAGE_KEY = "datepgv_welcome_group";
+
+function pickWelcomeGroupIndex(userId: number | undefined): number {
+  const n = DEFAULT_WELCOME_GROUPS.length;
+  if (n === 0) return 0;
+  if (userId != null && Number.isFinite(userId)) {
+    let h = 0;
+    for (const ch of String(Math.trunc(userId))) {
+      h = (h * 31 + ch.charCodeAt(0)) | 0;
+    }
+    return ((h % n) + n) % n;
+  }
+  if (typeof window === "undefined") return 0;
+  try {
+    const raw = window.sessionStorage.getItem(WELCOME_GROUP_STORAGE_KEY);
+    if (raw != null) {
+      const v = Number.parseInt(raw, 10);
+      if (!Number.isNaN(v)) return ((v % n) + n) % n;
+    }
+    const v = Math.floor(Math.random() * n);
+    window.sessionStorage.setItem(WELCOME_GROUP_STORAGE_KEY, String(v));
+    return v;
+  } catch {
+    return 0;
+  }
+}
+
+export type WelcomeShortcutItem = {
+  /** 实际发送给后端的完整问句 */
+  query: string;
+  /** 卡片展示（可与 query 相同） */
+  label: string;
+  /** 个人高频时的出现次数 */
+  count?: number;
+};
+
+function buildDefaultWelcome(groupIndex: number): WelcomeShortcutItem[] {
+  const n = DEFAULT_WELCOME_GROUPS.length;
+  const idx = ((groupIndex % n) + n) % n;
+  return DEFAULT_WELCOME_GROUPS[idx].items.map((q) => ({ query: q, label: q }));
+}
 
 interface ChatBoxProps {
   sqlType: SqlType;
@@ -54,6 +122,12 @@ interface MessageListProps {
   isAdmin: boolean;
   send: (query: string) => void;
   onRetry: (assistantMsgId: string) => void;
+  welcomeShortcuts: WelcomeShortcutItem[];
+  welcomeShortcutsLoading: boolean;
+  welcomeFromPersonal: boolean;
+  /** 默认话术模式下展示「换一组」 */
+  welcomeShowShuffle: boolean;
+  onShuffleWelcomeGroup?: () => void;
 }
 
 function formatDuration(ms: number): string {
@@ -88,16 +162,21 @@ const MessageList = memo(function MessageList({
   isAdmin,
   send,
   onRetry,
+  welcomeShortcuts,
+  welcomeShortcutsLoading,
+  welcomeFromPersonal,
+  welcomeShowShuffle,
+  onShuffleWelcomeGroup,
 }: MessageListProps) {
   return (
     <>
       {messages.length === 0 && !loadingHistory && (
-        <div className="flex flex-col items-center justify-center h-full gap-8 text-center max-w-2xl mx-auto">
-          <div className="w-20 h-20 rounded-3xl bg-primary/10 flex items-center justify-center shadow-inner border border-primary/20 animate-in zoom-in duration-500">
+        <div className="flex flex-col items-center justify-center h-full gap-8 text-center max-w-2xl mx-auto px-2">
+          <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center shadow-inner border border-primary/20 animate-in zoom-in duration-500">
             <Database size={40} className="text-primary" />
           </div>
           <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <h2 className="text-3xl font-bold tracking-tight">
+            <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">
               你好，我是 DATEPGV
             </h2>
             <p className="text-muted-foreground text-base leading-relaxed">
@@ -108,16 +187,61 @@ const MessageList = memo(function MessageList({
                 : "你可以直接向我提问业务数据，我会快速为你计算并生成图表分析。"}
             </p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full animate-in fade-in slide-in-from-bottom-8 duration-1000">
-            {SUGGESTED_QUERIES.map((q) => (
-              <button
-                key={q}
-                onClick={() => send(q)}
-                className="text-left text-sm px-5 py-4 rounded-2xl bg-card border hover:border-primary/50 hover:shadow-md hover:bg-accent/50 transition-all duration-300 group"
-              >
-                <span className="text-muted-foreground group-hover:text-foreground transition-colors">{q}</span>
-              </button>
-            ))}
+          <div className="w-full space-y-3 animate-in fade-in slide-in-from-bottom-8 duration-1000">
+            <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm font-semibold text-foreground/90">
+              <span className="inline-flex items-center gap-2">
+                <Sparkles className="text-amber-500 shrink-0" size={18} />
+                <span>
+                  {welcomeFromPersonal
+                    ? "根据你的提问习惯 · 常用分析"
+                    : "你可以这样问 · 口语示例"}
+                </span>
+              </span>
+              {welcomeShowShuffle && onShuffleWelcomeGroup ? (
+                <button
+                  type="button"
+                  onClick={onShuffleWelcomeGroup}
+                  className="text-xs font-medium text-primary/90 hover:text-primary underline-offset-2 hover:underline"
+                >
+                  换一组
+                </button>
+              ) : null}
+            </div>
+            <p className="text-[11px] text-muted-foreground text-center max-w-md mx-auto leading-relaxed">
+              {welcomeFromPersonal
+                ? "点击下方卡片将直接发起一次新分析（与手动输入后发送相同）。"
+                : "不必写「查询」「统计」——像和同事说话一样问数据即可；积累对话后将自动换成你的常用问法。"}
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+              {welcomeShortcutsLoading
+                ? Array.from({ length: 4 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="h-[5.5rem] rounded-2xl border border-border/60 bg-muted/20 animate-pulse"
+                    />
+                  ))
+                : welcomeShortcuts.map((item, idx) => (
+                    <button
+                      key={`${item.query}-${idx}`}
+                      type="button"
+                      onClick={() => send(item.query)}
+                      title={item.query}
+                      className="group relative text-left rounded-2xl border border-border/80 bg-gradient-to-br from-card via-card to-muted/20 px-5 py-4 shadow-sm hover:shadow-lg hover:border-primary/35 hover:-translate-y-0.5 transition-all duration-300"
+                    >
+                      {item.count != null && item.count > 1 ? (
+                        <span className="absolute top-3 right-3 text-[10px] font-semibold tabular-nums px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/15">
+                          ×{item.count}
+                        </span>
+                      ) : null}
+                      <span className="block text-sm text-foreground/90 group-hover:text-foreground leading-snug line-clamp-3 pr-10">
+                        {item.label}
+                      </span>
+                      <span className="mt-3 block text-[10px] font-medium text-muted-foreground/80 group-hover:text-primary/80">
+                        点击直接分析 →
+                      </span>
+                    </button>
+                  ))}
+            </div>
           </div>
         </div>
       )}
@@ -269,6 +393,90 @@ export function ChatBox({
   const [nowMs, setNowMs] = useState(() => Date.now());
   // 当 session 因 403 重试而被替换时，跳过一次历史重载（消息已在 UI 中）
   const skipNextHistoryLoadRef = useRef(false);
+
+  const [defaultGroupIdx, setDefaultGroupIdx] = useState(0);
+  const defaultGroupIdxRef = useRef(defaultGroupIdx);
+  defaultGroupIdxRef.current = defaultGroupIdx;
+
+  /** 首帧用第 0 组，避免 SSR 与客户端 sessionStorage 不一致；useLayoutEffect 再对齐真实分组 */
+  const [welcomeShortcuts, setWelcomeShortcuts] = useState<WelcomeShortcutItem[]>(() =>
+    buildDefaultWelcome(0)
+  );
+  const [welcomeShortcutsLoading, setWelcomeShortcutsLoading] = useState(!!user?.id);
+  const [welcomeFromPersonal, setWelcomeFromPersonal] = useState(false);
+
+  useLayoutEffect(() => {
+    setDefaultGroupIdx(pickWelcomeGroupIndex(user?.id));
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (welcomeFromPersonal) return;
+    setWelcomeShortcuts(buildDefaultWelcome(defaultGroupIdx));
+  }, [defaultGroupIdx, welcomeFromPersonal]);
+
+  const bumpWelcomeGroup = useCallback(() => {
+    setDefaultGroupIdx((i) => {
+      const n = DEFAULT_WELCOME_GROUPS.length;
+      const next = (i + 1) % n;
+      if (user?.id == null && typeof window !== "undefined") {
+        try {
+          window.sessionStorage.setItem(WELCOME_GROUP_STORAGE_KEY, String(next));
+        } catch {
+          /* ignore */
+        }
+      }
+      return next;
+    });
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setWelcomeFromPersonal(false);
+      setWelcomeShortcutsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setWelcomeShortcutsLoading(true);
+      try {
+        const stats = await fetchMyChatQueryStats({ top_n: 6, trend_days: 90 });
+        if (cancelled) return;
+        const tops = stats.top_queries ?? [];
+        if (tops.length === 0) {
+          setWelcomeFromPersonal(false);
+          setWelcomeShortcuts(buildDefaultWelcome(defaultGroupIdxRef.current));
+        } else {
+          setWelcomeFromPersonal(true);
+          setWelcomeShortcuts(
+            tops.map((t) => {
+              const full =
+                (t.example_query && t.example_query.trim()) ||
+                (t.example_snippet && t.example_snippet.replace(/…$/u, "").trim()) ||
+                t.normalized_key;
+              const label =
+                (t.example_snippet && t.example_snippet.trim()) ||
+                full;
+              return {
+                query: full,
+                label,
+                count: t.count,
+              };
+            })
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setWelcomeFromPersonal(false);
+          setWelcomeShortcuts(buildDefaultWelcome(defaultGroupIdxRef.current));
+        }
+      } finally {
+        if (!cancelled) setWelcomeShortcutsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -720,6 +928,11 @@ export function ChatBox({
           isAdmin={isAdmin}
           send={send}
           onRetry={handleRetryLast}
+          welcomeShortcuts={welcomeShortcuts}
+          welcomeShortcutsLoading={welcomeShortcutsLoading}
+          welcomeFromPersonal={welcomeFromPersonal}
+          welcomeShowShuffle={!welcomeFromPersonal && !welcomeShortcutsLoading}
+          onShuffleWelcomeGroup={bumpWelcomeGroup}
         />
 
         <div ref={bottomRef} />
