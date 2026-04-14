@@ -5,6 +5,7 @@ import {
   BarChart3,
   ChevronDown,
   ChevronRight,
+  ClipboardList,
   Database,
   FileSpreadsheet,
   GitBranch,
@@ -23,6 +24,7 @@ import {
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AdminAuditPanel } from "@/components/AdminAuditPanel";
 import { AuthGuard } from "@/components/AuthGuard";
 import { ChatQueryStatsPanel } from "@/components/ChatQueryStatsPanel";
 import { DDLImportModal } from "@/components/DDLImportModal";
@@ -52,7 +54,9 @@ function AdminPageInner() {
   const [tables, setTables] = useState<TableMetadata[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | SqlType>("all");
-  const [section, setSection] = useState<"tables" | "relations" | "rag" | "usage">("tables");
+  const [section, setSection] = useState<
+    "tables" | "relations" | "rag" | "usage" | "audit"
+  >("tables");
   /** 来自 URL `?user_id=`，供「使用统计」单人深链预填 */
   const [statsDeepLinkUserId, setStatsDeepLinkUserId] = useState<string | null>(null);
   const [ragUsers, setRagUsers] = useState<User[]>([]);
@@ -88,7 +92,9 @@ function AdminPageInner() {
 
   useLayoutEffect(() => {
     const sp = new URLSearchParams(searchParams.toString());
-    if (sp.get("section") === "usage") setSection("usage");
+    const sec = sp.get("section");
+    if (sec === "usage") setSection("usage");
+    if (sec === "audit") setSection("audit");
     const uid = sp.get("user_id");
     if (uid && /^\d+$/.test(uid.trim())) setStatsDeepLinkUserId(uid.trim());
     else setStatsDeepLinkUserId(null);
@@ -278,7 +284,7 @@ function AdminPageInner() {
       {/* Header */}
       <header className="border-b border-app-border bg-app-input px-6 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <Link
               href="/"
               className="text-app-muted hover:text-app-text transition-colors"
@@ -289,7 +295,7 @@ function AdminPageInner() {
               <Table size={18} className="text-app-accent" />
               <span className="font-semibold">元数据管理</span>
             </div>
-            <div className="hidden sm:flex items-center rounded-lg border border-app-border p-0.5 bg-app-input">
+            <div className="hidden sm:flex sm:flex-wrap items-center gap-0.5 rounded-lg border border-app-border p-0.5 bg-app-input max-w-full">
               <button
                 type="button"
                 onClick={() => setSection("tables")}
@@ -342,6 +348,19 @@ function AdminPageInner() {
                 <BarChart3 size={12} />
                 使用统计
               </button>
+              <button
+                type="button"
+                onClick={() => setSection("audit")}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all",
+                  section === "audit"
+                    ? "bg-app-accent/15 text-app-accent"
+                    : "text-app-muted hover:text-app-text"
+                )}
+              >
+                <ClipboardList size={12} />
+                审计
+              </button>
             </div>
             <Link
               href="/users"
@@ -349,6 +368,18 @@ function AdminPageInner() {
             >
               <Users size={12} />
               用户管理
+            </Link>
+            <Link
+              href="/admin?section=audit"
+              className={cn(
+                "flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border transition-all",
+                section === "audit"
+                  ? "text-app-accent border-app-accent/40 bg-app-accent/10"
+                  : "text-app-muted border-app-border hover:text-app-text hover:border-app-accent/50"
+              )}
+            >
+              <ClipboardList size={12} />
+              登录与查询审计
             </Link>
             <Link
               href="/settings"
@@ -471,6 +502,19 @@ function AdminPageInner() {
             <BarChart3 size={12} />
             统计
           </button>
+          <button
+            type="button"
+            onClick={() => setSection("audit")}
+            className={cn(
+              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium min-w-[33%]",
+              section === "audit"
+                ? "bg-app-accent/15 text-app-accent"
+                : "text-app-muted"
+            )}
+          >
+            <ClipboardList size={12} />
+            审计
+          </button>
         </div>
 
         {/* Stats */}
@@ -502,7 +546,7 @@ function AdminPageInner() {
         )}
 
         {/* Filter tabs */}
-        {section !== "rag" && section !== "usage" && (
+        {section !== "rag" && section !== "usage" && section !== "audit" && (
         <div className="flex items-center gap-2 mb-4 flex-wrap">
           {(["all", "hive", "postgresql", "mysql", "oracle"] as const).map((f) => (
             <button
@@ -557,6 +601,11 @@ function AdminPageInner() {
               theme="app"
               initialUserId={statsDeepLinkUserId}
             />
+          </div>
+        ) : section === "audit" ? (
+          <div className="max-w-5xl space-y-4">
+            <h2 className="text-lg font-semibold text-app-text">登录与查询审计</h2>
+            <AdminAuditPanel />
           </div>
         ) : section === "rag" ? (
           <div className="space-y-6 max-w-4xl">

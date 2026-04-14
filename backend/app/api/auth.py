@@ -18,6 +18,7 @@ from app.core.security import create_access_token, verify_password
 from app.deps.auth import get_current_active_user
 from app.models.schemas import TokenResponse, UserMeResponse
 from app.models.user import User
+from app.services.audit_write import record_login_audit
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/token", response_model=TokenResponse)
 async def login_access_token(
+    request: Request,
     form: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TokenResponse:
@@ -44,6 +46,7 @@ async def login_access_token(
     if not user.is_active:
         raise HTTPException(status_code=400, detail="用户已停用")
     token = create_access_token(subject=str(user.id))
+    await record_login_audit(db, user_id=user.id, login_method="password", request=request)
     return TokenResponse(access_token=token, token_type="bearer")
 
 
@@ -143,4 +146,5 @@ async def trusted_login(
         user.username,
         user.id,
     )
+    await record_login_audit(db, user_id=user.id, login_method="trusted_sso", request=request)
     return RedirectResponse(url=location, status_code=status.HTTP_302_FOUND)

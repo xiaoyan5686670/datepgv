@@ -26,6 +26,8 @@ async def run_migrations() -> None:
         await _ensure_rag_chunks_table(conn)
         await _ensure_users_rag_permission_override(conn)
         await _ensure_chat_messages_stats_indexes(conn)
+        await _ensure_login_audit_table(conn)
+        await _ensure_chat_messages_elapsed_ms(conn)
 
 
 async def _fix_user_id_column_type(conn) -> None:  # type: ignore[type-arg]
@@ -374,3 +376,58 @@ async def _ensure_chat_messages_stats_indexes(conn) -> None:  # type: ignore[typ
             "ON public.chat_messages (role, created_at DESC)"
         )
     )
+
+
+async def _ensure_login_audit_table(conn) -> None:  # type: ignore[type-arg]
+    row = await conn.execute(
+        text(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = 'login_audit' LIMIT 1"
+        )
+    )
+    if row.scalar() is None:
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE login_audit (
+                    id              SERIAL PRIMARY KEY,
+                    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    login_method    VARCHAR(32) NOT NULL,
+                    client_ip       VARCHAR(128) NULL,
+                    user_agent      VARCHAR(512) NULL,
+                    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS login_audit_user_created_idx "
+                "ON login_audit (user_id, created_at DESC)"
+            )
+        )
+        logger.info("DB migration: created table login_audit.")
+
+
+async def _ensure_chat_messages_elapsed_ms(conn) -> None:  # type: ignore[type-arg]
+    col = await conn.execute(
+        text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'chat_messages' "
+            "AND column_name = 'elapsed_ms'"
+        )
+    )
+    if col.scalar() is not None:
+        return
+    exists = await conn.execute(
+        text(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = 'chat_messages' LIMIT 1"
+        )
+    )
+    if exists.scalar() is None:
+        return
+    await conn.execute(
+        text("ALTER TABLE chat_messages ADD COLUMN elapsed_ms INTEGER NULL")
+    )
+    logger.info("DB migration: added chat_messages.elapsed_ms.")

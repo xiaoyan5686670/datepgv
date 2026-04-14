@@ -20,7 +20,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
 if TYPE_CHECKING:
-    pass
+    from app.models.login_audit import LoginAudit
 
 user_roles = Table(
     "user_roles",
@@ -80,4 +80,7 @@ class User(Base):
 
     roles: Mapped[list[Role]] = relationship(
         secondary=user_roles, back_populates="users"
+    )
+    login_audits: Mapped[list["LoginAudit"]] = relationship(
+        "LoginAudit", back_populates="user"
     )

@@ -2,6 +2,7 @@ from app.models.analytics_db_connection import AnalyticsDbConnection
 from app.models.chat import ChatMessage, ChatSession
 from app.models.data_scope_policy import DataScopePolicy
 from app.models.llm_config import LLMConfig, LLMConfigRuntime
+from app.models.login_audit import LoginAudit
 from app.models.metadata import TableMetadata, TableMetadataEdge
 from app.models.schemas import (
     UserCreate,
@@ -18,6 +19,7 @@ __all__ = [
     "TableMetadataEdge",
     "ChatSession",
     "ChatMessage",
+    "LoginAudit",
     "DataScopePolicy",
     "LLMConfig",
     "LLMConfigRuntime",

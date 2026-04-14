@@ -5,6 +5,8 @@ import type {
   AuthUser,
   ChatSessionSummary,
   ChatQueryStatsResponse,
+  LoginAuditListResponse,
+  QueryAuditListResponse,
   OrgGraphResponse,
   SqlType,
   SyncOrgCsvResponse,
@@ -355,6 +357,60 @@ export async function fetchAdminChatQueryStats(
   return res.json();
 }
 
+function auditQueryString(
+  params: Record<string, string | number | undefined>
+): string {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === "") continue;
+    sp.set(k, String(v));
+  }
+  const q = sp.toString();
+  return q ? `?${q}` : "";
+}
+
+export async function fetchAuditLogins(params: {
+  user_id?: number;
+  date_from?: string;
+  date_to?: string;
+  skip?: number;
+  limit?: number;
+} = {}): Promise<LoginAuditListResponse> {
+  const res = await apiFetch(
+    `${apiV1Prefix()}/audit/logins${auditQueryString({
+      user_id: params.user_id,
+      date_from: params.date_from,
+      date_to: params.date_to,
+      skip: params.skip,
+      limit: params.limit,
+    })}`
+  );
+  if (!res.ok) throw new ApiError(res.status, await res.text());
+  return res.json();
+}
+
+export async function fetchAuditQueries(params: {
+  user_id?: number;
+  session_id?: string;
+  date_from?: string;
+  date_to?: string;
+  skip?: number;
+  limit?: number;
+} = {}): Promise<QueryAuditListResponse> {
+  const res = await apiFetch(
+    `${apiV1Prefix()}/audit/queries${auditQueryString({
+      user_id: params.user_id,
+      session_id: params.session_id,
+      date_from: params.date_from,
+      date_to: params.date_to,
+      skip: params.skip,
+      limit: params.limit,
+    })}`
+  );
+  if (!res.ok) throw new ApiError(res.status, await res.text());
+  return res.json();
+}
+
 export async function downloadAdminChatQueryTopCsv(params: {
   user_id?: number;
   date_from?: string;
@@ -405,6 +461,7 @@ export async function fetchChatHistory(
       rows: Record<string, unknown>[];
       truncated?: boolean;
     } | null;
+    elapsed_ms?: number | null;
     created_at: string;
   }[]
 > {

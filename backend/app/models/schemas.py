@@ -150,6 +150,47 @@ class ChatQueryStatsResponse(BaseModel):
     filters: ChatQueryStatsFiltersBlock
 
 
+# ── Admin audit (login + NL→SQL) ───────────────────────────────────────────────
+
+class LoginAuditItem(BaseModel):
+    id: int
+    user_id: int
+    username: str
+    full_name: str | None = None
+    login_method: str
+    client_ip: str | None = None
+    user_agent: str | None = None
+    created_at: datetime
+
+
+class LoginAuditListResponse(BaseModel):
+    items: list[LoginAuditItem]
+    total: int
+    skip: int
+    limit: int
+
+
+class QueryAuditItem(BaseModel):
+    session_id: str
+    user_id: int
+    username: str
+    full_name: str | None = None
+    user_message_at: datetime
+    assistant_message_at: datetime
+    user_query: str
+    generated_sql: str
+    sql_type: str | None = None
+    executed: bool | None = None
+    elapsed_ms: int | None = None
+
+
+class QueryAuditListResponse(BaseModel):
+    items: list[QueryAuditItem]
+    total: int
+    skip: int
+    limit: int
+
+
 # ── DDL Import ────────────────────────────────────────────────────────────────
 
 class DDLImportRequest(BaseModel):

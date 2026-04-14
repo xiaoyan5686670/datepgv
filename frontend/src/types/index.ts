@@ -274,6 +274,46 @@ export interface ChatQueryStatsResponse {
   filters: ChatQueryStatsFiltersBlock;
 }
 
+/** GET /audit/logins | /audit/queries */
+export interface LoginAuditItem {
+  id: number;
+  user_id: number;
+  username: string;
+  full_name: string | null;
+  login_method: string;
+  client_ip: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
+export interface LoginAuditListResponse {
+  items: LoginAuditItem[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
+export interface QueryAuditItem {
+  session_id: string;
+  user_id: number;
+  username: string;
+  full_name: string | null;
+  user_message_at: string;
+  assistant_message_at: string;
+  user_query: string;
+  generated_sql: string;
+  sql_type: SqlType | null;
+  executed: boolean | null;
+  elapsed_ms: number | null;
+}
+
+export interface QueryAuditListResponse {
+  items: QueryAuditItem[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
 // ── LLM Config ────────────────────────────────────────────────────────────────
 
 export interface LLMConfig {

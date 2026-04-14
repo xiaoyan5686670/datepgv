@@ -251,6 +251,7 @@ async def _save_messages(
     executed: bool | None = None,
     exec_error: str | None = None,
     result_preview: dict | None = None,
+    assistant_elapsed_ms: int | None = None,
 ) -> None:
     db.add(ChatMessage(session_id=session_id, role="user", content=user_query))
     db.add(
@@ -263,6 +264,7 @@ async def _save_messages(
             executed=executed,
             exec_error=exec_error,
             result_preview=result_preview,
+            elapsed_ms=assistant_elapsed_ms,
         )
     )
     await db.commit()
@@ -335,6 +337,7 @@ async def chat_stream(
         )
 
     async def event_generator() -> AsyncGenerator[bytes, None]:
+        t_stream_start = time.perf_counter()
         full_response = ""
 
         t_meta = time.perf_counter()
@@ -563,6 +566,7 @@ async def chat_stream(
         yield f"data: {json.dumps(done, ensure_ascii=False, default=str)}\n\n".encode()
 
         t_save = time.perf_counter()
+        assistant_elapsed_ms = int((t_save - t_stream_start) * 1000)
         await _save_messages(
             session_id,
             request.query,
@@ -573,6 +577,7 @@ async def chat_stream(
             executed=executed,
             exec_error=exec_error,
             result_preview=result_preview,
+            assistant_elapsed_ms=assistant_elapsed_ms,
         )
         save_ms = (time.perf_counter() - t_save) * 1000
 
@@ -623,6 +628,7 @@ async def get_history(
             "executed": m.executed,
             "exec_error": m.exec_error,
             "result_preview": m.result_preview,
+            "elapsed_ms": m.elapsed_ms,
             "created_at": m.created_at.isoformat(),
         }
         for m in msgs
