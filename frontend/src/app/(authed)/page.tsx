@@ -2,24 +2,17 @@
 
 import {
   BarChart3,
-  Database,
   Menu,
   MessageSquarePlus,
-  Settings,
-  Table,
   Trash2,
-  Users,
   X,
 } from "lucide-react";
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
-import { AuthGuard } from "@/components/AuthGuard";
 import { ChatBox } from "@/components/ChatBox";
 import { ChatQueryStatsPanel } from "@/components/ChatQueryStatsPanel";
 import { ModelSwitcher } from "@/components/ModelSwitcher";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { UserChip } from "@/components/UserChip";
+import { AppTopNav } from "@/components/navigation/AppTopNav";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { deleteChatSession, fetchChatSessions } from "@/lib/api";
@@ -121,123 +114,66 @@ function HomePageInner() {
 
   return (
     <div className="flex flex-col h-screen bg-app-bg">
-      {/* Top nav */}
-      <header className="flex flex-wrap items-center gap-3 justify-between px-3 sm:px-6 py-3 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => setMobileSidebarOpen(true)}
-            className="md:hidden p-2 rounded-lg border bg-background hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
-            aria-label="打开历史会话"
-          >
-            <Menu size={16} />
-          </button>
-          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shadow-sm border border-primary/20">
-            <Database size={18} className="text-primary" />
-          </div>
-          <div className="flex flex-col">
-            <span className="font-bold text-sm tracking-tight">DATEPGV</span>
-            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider hidden sm:block">
-              NL-to-SQL System
-            </span>
-          </div>
-        </div>
-
-        <div className="w-full lg:w-auto flex flex-wrap items-center justify-end gap-2 sm:gap-3">
-          {/* SQL type toggle */}
-          {isAdmin ? (
-            <div className="flex flex-col items-end gap-1 ml-auto">
-          <div className="flex items-center bg-muted/50 border rounded-full p-1 max-w-full overflow-x-auto">
+      <AppTopNav
+        activeKey="home"
+        title="DATEPGV"
+        subtitle="NL-to-SQL System"
+        rightActions={
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setSqlType("hive")}
-              className={cn(
-                "px-3 sm:px-4 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
-                sqlType === "hive"
-                  ? "bg-amber-500 text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
+              type="button"
+              onClick={() => setMobileSidebarOpen(true)}
+              className="md:hidden p-2 rounded-lg border bg-background hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
+              aria-label="打开历史会话"
             >
-              Hive
+              <Menu size={16} />
             </button>
-            <button
-              onClick={() => setSqlType("postgresql")}
-              className={cn(
-                "px-3 sm:px-4 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
-                sqlType === "postgresql"
-                  ? "bg-blue-500 text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              PostgreSQL
-            </button>
-            <button
-              onClick={() => setSqlType("mysql")}
-              className={cn(
-                "px-3 sm:px-4 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
-                sqlType === "mysql"
-                  ? "bg-orange-500 text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              MySQL
-            </button>
-            <button
-              onClick={() => setSqlType("oracle")}
-              className={cn(
-                "px-3 sm:px-4 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
-                sqlType === "oracle"
-                  ? "bg-emerald-500 text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              Oracle
-            </button>
-          </div>
-          <span className="text-[10px] text-muted-foreground max-w-[280px] text-right leading-snug hidden lg:block">
-            PostgreSQL / MySQL: 可执行 · Hive / Oracle: 仅生成
-          </span>
-          </div>
-          ) : (
-            <div className="ml-auto" />
-          )}
-
-          <div className="hidden md:block h-8 w-px bg-border mx-1" />
-
-          <ModelSwitcher />
-
-          <div className="hidden md:block h-8 w-px bg-border mx-1" />
-
-          <ThemeToggle className="p-2 rounded-full border bg-background hover:bg-accent text-muted-foreground hover:text-foreground transition-all" />
-          
-          {user?.roles.includes("admin") ? (
-            <div className="hidden sm:flex items-center gap-2">
-              <Link
-                href="/users"
-                className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground px-3 py-2 rounded-full border bg-background hover:bg-accent transition-all"
-              >
-                <Users size={14} />
-                用户
-              </Link>
-              <Link
-                href="/admin"
-                className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground px-3 py-2 rounded-full border bg-background hover:bg-accent transition-all"
-              >
-                <Table size={14} />
-                元数据
-              </Link>
-              <Link
-                href="/settings"
-                className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground px-3 py-2 rounded-full border bg-background hover:bg-accent transition-all"
-              >
-                <Settings size={14} />
-                配置
-              </Link>
+            <div className="hidden sm:block">
+              <ModelSwitcher />
             </div>
-          ) : null}
-          
-          <UserChip />
-        </div>
-      </header>
+            {isAdmin ? (
+              <div className="hidden lg:flex items-center bg-muted/50 border rounded-full p-1 max-w-full overflow-x-auto">
+                <button
+                  onClick={() => setSqlType("hive")}
+                  className={cn(
+                    "px-3 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
+                    sqlType === "hive" ? "bg-amber-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Hive
+                </button>
+                <button
+                  onClick={() => setSqlType("postgresql")}
+                  className={cn(
+                    "px-3 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
+                    sqlType === "postgresql" ? "bg-blue-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  PostgreSQL
+                </button>
+                <button
+                  onClick={() => setSqlType("mysql")}
+                  className={cn(
+                    "px-3 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
+                    sqlType === "mysql" ? "bg-orange-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  MySQL
+                </button>
+                <button
+                  onClick={() => setSqlType("oracle")}
+                  className={cn(
+                    "px-3 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
+                    sqlType === "oracle" ? "bg-emerald-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  Oracle
+                </button>
+              </div>
+            ) : null}
+          </div>
+        }
+      />
 
       {/* Main: sidebar + chat */}
       <main className="flex-1 overflow-hidden flex">
@@ -427,9 +363,5 @@ function HomePageInner() {
 }
 
 export default function HomePage() {
-  return (
-    <AuthGuard>
-      <HomePageInner />
-    </AuthGuard>
-  );
+  return <HomePageInner />;
 }

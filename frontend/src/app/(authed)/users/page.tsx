@@ -1,14 +1,12 @@
 "use client";
 
 import {
-  ArrowLeft,
   BarChart3,
   Download,
   Edit2,
   GitBranch,
   Loader2,
   Search,
-  Settings,
   Shield,
   Trash2,
   Upload,
@@ -16,11 +14,11 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { UserChip } from "@/components/UserChip";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AuthGuard } from "@/components/AuthGuard";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { AppTopNav } from "@/components/navigation/AppTopNav";
+import { PageSectionTabs } from "@/components/navigation/PageSectionTabs";
 import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import {
@@ -831,6 +829,9 @@ function OrgTreeNode({
 }
 
 function UsersPageInner() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -898,6 +899,15 @@ function UsersPageInner() {
   }, [loadUsers]);
 
   useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "list" || tab === "org") {
+      setActiveTab(tab);
+      return;
+    }
+    setActiveTab("list");
+  }, [searchParams]);
+
+  useEffect(() => {
     if (activeTab === "org") {
       loadOrgGraph();
     }
@@ -952,6 +962,14 @@ function UsersPageInner() {
   };
 
   const forest = buildOrgForest(orgNodes, orgEdges);
+  const setTabInUrl = useCallback(
+    (tab: "list" | "org") => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("tab", tab);
+      router.replace(`${pathname}?${params.toString()}`);
+    },
+    [pathname, router, searchParams]
+  );
   const selectedOrgNode = (() => {
     const map = new Map(forest.flatMap((r) => {
       const acc: OrgNode[] = [];
@@ -970,77 +988,22 @@ function UsersPageInner() {
 
   return (
     <div className="min-h-screen bg-app-bg flex flex-col">
-      {/* Header */}
-      <header className="flex items-center justify-between px-4 sm:px-8 py-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-30">
-        <div className="flex items-center gap-3">
-          <Link
-            href="/"
-            className="p-2 rounded-lg border bg-background hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
-            title="返回首页"
-          >
-            <ArrowLeft size={16} />
-          </Link>
-          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shadow-sm border border-primary/20">
-            <Users size={18} className="text-primary" />
-          </div>
-          <div>
-            <h1 className="text-base font-bold tracking-tight">用户管理</h1>
-            <p className="text-[10px] text-muted-foreground font-medium">
-              管理系统用户、组织层级与权限
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {isAdmin && (
-            <div className="flex items-center gap-2">
-              <Link
-                href="/admin"
-                className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground px-3 py-2 rounded-full border bg-background hover:bg-accent transition-all"
-              >
-                <Users size={14} />
-                元数据
-              </Link>
-              <Link
-                href="/settings"
-                className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground px-3 py-2 rounded-full border bg-background hover:bg-accent transition-all"
-              >
-                <Settings size={14} />
-                配置
-              </Link>
-            </div>
-          )}
-          <ThemeToggle className="p-2 rounded-full border bg-background hover:bg-accent text-muted-foreground hover:text-foreground transition-all" />
-          <UserChip />
-        </div>
-      </header>
+      <AppTopNav
+        activeKey="users"
+        title="用户管理"
+        subtitle="管理系统用户、组织层级与权限"
+      />
 
       <div className="px-4 sm:px-8 py-2 border-b bg-background/60">
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
-          <div className="flex bg-muted/50 border rounded-full p-1 w-fit">
-            <button
-              onClick={() => setActiveTab("list")}
-              className={cn(
-                "px-4 py-1.5 rounded-full text-xs font-semibold transition-all",
-                activeTab === "list"
-                  ? "bg-primary text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              用户列表
-            </button>
-            <button
-              onClick={() => setActiveTab("org")}
-              className={cn(
-                "px-4 py-1.5 rounded-full text-xs font-semibold transition-all",
-                activeTab === "org"
-                  ? "bg-primary text-white shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              组织架构
-            </button>
-          </div>
+          <PageSectionTabs
+            items={[
+              { key: "list", label: "用户列表" },
+              { key: "org", label: "组织架构" },
+            ]}
+            active={activeTab}
+            onChange={setTabInUrl}
+          />
           <div className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs text-muted-foreground">
             <Shield size={12} />
             当前可见范围：{scopeLabel}
@@ -1386,9 +1349,5 @@ function UsersPageInner() {
 }
 
 export default function UsersPage() {
-  return (
-    <AuthGuard>
-      <UsersPageInner />
-    </AuthGuard>
-  );
+  return <UsersPageInner />;
 }

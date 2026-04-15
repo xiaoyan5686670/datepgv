@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ArrowLeft,
   BarChart3,
   ChevronDown,
   ChevronRight,
@@ -13,24 +12,23 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
-  Settings,
   Share2,
   Shield,
   Table,
   Trash2,
   Upload,
-  Users,
 } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { AdminAuditPanel } from "@/components/AdminAuditPanel";
 import { AuthGuard } from "@/components/AuthGuard";
 import { ChatQueryStatsPanel } from "@/components/ChatQueryStatsPanel";
 import { DDLImportModal } from "@/components/DDLImportModal";
 import { MetadataForm } from "@/components/MetadataForm";
+import { AppTopNav } from "@/components/navigation/AppTopNav";
+import { PageSectionTabs } from "@/components/navigation/PageSectionTabs";
 import { TableRelationsPanel } from "@/components/TableRelationsPanel";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { cn } from "@/lib/utils";
 import {
   deleteMetadata,
@@ -50,6 +48,8 @@ import type {
 } from "@/types";
 
 function AdminPageInner() {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const [tables, setTables] = useState<TableMetadata[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,12 +93,25 @@ function AdminPageInner() {
   useLayoutEffect(() => {
     const sp = new URLSearchParams(searchParams.toString());
     const sec = sp.get("section");
-    if (sec === "usage") setSection("usage");
-    if (sec === "audit") setSection("audit");
+    if (sec === "tables" || sec === "relations" || sec === "rag" || sec === "usage" || sec === "audit") {
+      setSection(sec);
+    } else {
+      setSection("tables");
+    }
     const uid = sp.get("user_id");
     if (uid && /^\d+$/.test(uid.trim())) setStatsDeepLinkUserId(uid.trim());
     else setStatsDeepLinkUserId(null);
   }, [searchParams]);
+
+  const setSectionInUrl = useCallback(
+    (next: "tables" | "relations" | "rag" | "usage" | "audit") => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("section", next);
+      if (next !== "usage") params.delete("user_id");
+      router.replace(`${pathname}?${params.toString()}`);
+    },
+    [pathname, router, searchParams]
+  );
 
   useEffect(() => {
     if (section !== "rag") return;
@@ -278,120 +291,25 @@ function AdminPageInner() {
   const mysqlCount = tables.filter((t) => t.db_type === "mysql").length;
   const oracleCount = tables.filter((t) => t.db_type === "oracle").length;
   const withEmbedding = tables.filter((t) => t.has_embedding).length;
+  const sectionLabelMap: Record<typeof section, string> = {
+    tables: "表目录",
+    relations: "表关系",
+    rag: "RAG权限",
+    usage: "使用统计",
+    audit: "审计",
+  };
 
   return (
     <div className="min-h-screen bg-app-bg text-app-text">
-      {/* Header */}
-      <header className="border-b border-app-border bg-app-input px-6 py-4">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex flex-wrap items-center gap-3">
-            <Link
-              href="/"
-              className="text-app-muted hover:text-app-text transition-colors"
-            >
-              <ArrowLeft size={18} />
-            </Link>
-            <div className="flex items-center gap-2">
-              <Table size={18} className="text-app-accent" />
-              <span className="font-semibold">元数据管理</span>
-            </div>
-            <div className="hidden sm:flex sm:flex-wrap items-center gap-0.5 rounded-lg border border-app-border p-0.5 bg-app-input max-w-full">
-              <button
-                type="button"
-                onClick={() => setSection("tables")}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all",
-                  section === "tables"
-                    ? "bg-app-accent/15 text-app-accent"
-                    : "text-app-muted hover:text-app-text"
-                )}
-              >
-                <Table size={12} />
-                表目录
-              </button>
-              <button
-                type="button"
-                onClick={() => setSection("relations")}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all",
-                  section === "relations"
-                    ? "bg-app-accent/15 text-app-accent"
-                    : "text-app-muted hover:text-app-text"
-                )}
-              >
-                <GitBranch size={12} />
-                表关系
-              </button>
-              <button
-                type="button"
-                onClick={() => setSection("rag")}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all",
-                  section === "rag"
-                    ? "bg-app-accent/15 text-app-accent"
-                    : "text-app-muted hover:text-app-text"
-                )}
-              >
-                <Shield size={12} />
-                RAG 权限
-              </button>
-              <button
-                type="button"
-                onClick={() => setSection("usage")}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all",
-                  section === "usage"
-                    ? "bg-app-accent/15 text-app-accent"
-                    : "text-app-muted hover:text-app-text"
-                )}
-              >
-                <BarChart3 size={12} />
-                使用统计
-              </button>
-              <button
-                type="button"
-                onClick={() => setSection("audit")}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all",
-                  section === "audit"
-                    ? "bg-app-accent/15 text-app-accent"
-                    : "text-app-muted hover:text-app-text"
-                )}
-              >
-                <ClipboardList size={12} />
-                审计
-              </button>
-            </div>
-            <Link
-              href="/users"
-              className="flex items-center gap-1.5 text-xs text-app-muted hover:text-app-text px-2.5 py-1 rounded-lg border border-app-border hover:border-app-accent/50 transition-all"
-            >
-              <Users size={12} />
-              用户管理
-            </Link>
-            <Link
-              href="/admin?section=audit"
-              className={cn(
-                "flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border transition-all",
-                section === "audit"
-                  ? "text-app-accent border-app-accent/40 bg-app-accent/10"
-                  : "text-app-muted border-app-border hover:text-app-text hover:border-app-accent/50"
-              )}
-            >
-              <ClipboardList size={12} />
-              登录与查询审计
-            </Link>
-            <Link
-              href="/settings"
-              className="flex items-center gap-1.5 text-xs text-app-muted hover:text-app-text px-2.5 py-1 rounded-lg border border-app-border hover:border-app-accent/50 transition-all"
-            >
-              <Settings size={12} />
-              模型配置
-            </Link>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <ThemeToggle className="p-2 rounded-lg border border-app-border text-app-muted hover:text-app-text hover:border-app-accent/50 transition-all" />
+      <AppTopNav
+        activeKey="admin"
+        title="管理控制台"
+        breadcrumbs={[
+          { label: "管理" },
+          { label: sectionLabelMap[section] },
+        ]}
+        rightActions={
+          <>
             {section === "tables" && (
             <button
               onClick={handleReembed}
@@ -406,7 +324,6 @@ function AdminPageInner() {
               重新生成向量
             </button>
             )}
-
             {section === "tables" && (
             <button
               onClick={() => fileRef.current?.click()}
@@ -416,14 +333,6 @@ function AdminPageInner() {
               CSV 导入
             </button>
             )}
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              className="hidden"
-              onChange={handleCSVUpload}
-            />
-
             {section === "tables" && (
             <button
               onClick={() => setShowDDL(true)}
@@ -433,7 +342,6 @@ function AdminPageInner() {
               DDL 导入
             </button>
             )}
-
             {section === "tables" && (
             <button
               onClick={() => setShowForm(true)}
@@ -443,80 +351,31 @@ function AdminPageInner() {
               新增表
             </button>
             )}
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".csv,.xlsx,.xls"
+        className="hidden"
+        onChange={handleCSVUpload}
+      />
+      <div className="mx-auto max-w-6xl px-6 py-3">
+        <PageSectionTabs
+          items={[
+            { key: "tables", label: "表目录", icon: Table },
+            { key: "relations", label: "表关系", icon: GitBranch },
+            { key: "rag", label: "RAG权限", icon: Shield },
+            { key: "usage", label: "使用统计", icon: BarChart3, shortLabel: "统计" },
+            { key: "audit", label: "审计", icon: ClipboardList },
+          ]}
+          active={section}
+          onChange={setSectionInUrl}
+        />
+      </div>
 
       <main className="max-w-6xl mx-auto px-6 py-6">
-        {/* Mobile section tabs */}
-        <div className="sm:hidden flex flex-wrap rounded-lg border border-app-border p-0.5 bg-app-input mb-4 gap-0.5">
-          <button
-            type="button"
-            onClick={() => setSection("tables")}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium",
-              section === "tables"
-                ? "bg-app-accent/15 text-app-accent"
-                : "text-app-muted"
-            )}
-          >
-            <Table size={12} />
-            表目录
-          </button>
-          <button
-            type="button"
-            onClick={() => setSection("relations")}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium",
-              section === "relations"
-                ? "bg-app-accent/15 text-app-accent"
-                : "text-app-muted"
-            )}
-          >
-            <GitBranch size={12} />
-            表关系
-          </button>
-          <button
-            type="button"
-            onClick={() => setSection("rag")}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium",
-              section === "rag"
-                ? "bg-app-accent/15 text-app-accent"
-                : "text-app-muted"
-            )}
-          >
-            <Shield size={12} />
-            RAG
-          </button>
-          <button
-            type="button"
-            onClick={() => setSection("usage")}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium min-w-[33%]",
-              section === "usage"
-                ? "bg-app-accent/15 text-app-accent"
-                : "text-app-muted"
-            )}
-          >
-            <BarChart3 size={12} />
-            统计
-          </button>
-          <button
-            type="button"
-            onClick={() => setSection("audit")}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium min-w-[33%]",
-              section === "audit"
-                ? "bg-app-accent/15 text-app-accent"
-                : "text-app-muted"
-            )}
-          >
-            <ClipboardList size={12} />
-            审计
-          </button>
-        </div>
-
         {/* Stats */}
         {section === "tables" && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">

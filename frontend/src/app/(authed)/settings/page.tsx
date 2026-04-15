@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  ArrowLeft,
   CheckCircle,
   Database,
   Edit2,
@@ -18,11 +17,12 @@ import {
   XCircle,
   Zap,
 } from "lucide-react";
-import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AuthGuard } from "@/components/AuthGuard";
 import { LLMConfigModal } from "@/components/LLMConfigModal";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { AppTopNav } from "@/components/navigation/AppTopNav";
+import { PageSectionTabs } from "@/components/navigation/PageSectionTabs";
 import { cn } from "@/lib/utils";
 import {
   activateConfig,
@@ -40,6 +40,10 @@ import {
   deleteScopePolicy,
   bulkSetScopePoliciesEnabled,
   previewScopeForUser,
+  fetchProvinceAliases,
+  createProvinceAlias,
+  updateProvinceAlias,
+  deleteProvinceAlias,
 } from "@/lib/api";
 import type {
   AnalyticsDbConnection,
@@ -47,11 +51,15 @@ import type {
   LLMConfigTestResult,
   DataScopePolicy,
   DataScopePreview,
+  ProvinceAlias,
 } from "@/types";
 
 type TabType = "llm" | "embedding" | "analytics" | "scope";
 
 function SettingsPageInner() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<TabType>("llm");
   const [configs, setConfigs] = useState<LLMConfig[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,6 +109,16 @@ function SettingsPageInner() {
     priority: 100,
     enabled: true,
     note: "",
+  });
+  const [provinceAliases, setProvinceAliases] = useState<ProvinceAlias[]>([]);
+  const [provinceAliasLoading, setProvinceAliasLoading] = useState(false);
+  const [provinceAliasSaving, setProvinceAliasSaving] = useState(false);
+  const [editingProvinceAliasId, setEditingProvinceAliasId] = useState<number | null>(null);
+  const [provinceAliasForm, setProvinceAliasForm] = useState({
+    canonical_name: "",
+    alias: "",
+    priority: 100,
+    enabled: true,
   });
   const resetConnectionForm = useCallback(() => {
     setEditingId(null);
@@ -159,17 +177,48 @@ function SettingsPageInner() {
     }
   }, []);
 
+  const resetProvinceAliasEditor = useCallback(() => {
+    setEditingProvinceAliasId(null);
+    setProvinceAliasForm({
+      canonical_name: "",
+      alias: "",
+      priority: 100,
+      enabled: true,
+    });
+  }, []);
+
+  const loadProvinceAliases = useCallback(async () => {
+    setProvinceAliasLoading(true);
+    try {
+      setProvinceAliases(await fetchProvinceAliases());
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "加载省份别名失败");
+    } finally {
+      setProvinceAliasLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "llm" || tab === "embedding" || tab === "analytics" || tab === "scope") {
+      setActiveTab(tab);
+      return;
+    }
+    setActiveTab("llm");
+  }, [searchParams]);
 
   useEffect(() => {
     if (activeTab === "analytics") {
       loadConnections();
     } else if (activeTab === "scope") {
       loadScopePolicies();
+      loadProvinceAliases();
     }
-  }, [activeTab, loadConnections, loadScopePolicies]);
+  }, [activeTab, loadConnections, loadScopePolicies, loadProvinceAliases]);
 
   const displayed =
     activeTab === "analytics"
@@ -409,25 +458,64 @@ function SettingsPageInner() {
     }
   };
 
+  const submitProvinceAlias = async () => {
+    if (!provinceAliasForm.canonical_name.trim() || !provinceAliasForm.alias.trim()) {
+      alert("请填写标准名与别名");
+      return;
+    }
+    setProvinceAliasSaving(true);
+    try {
+      const payload = {
+        canonical_name: provinceAliasForm.canonical_name.trim(),
+        alias: provinceAliasForm.alias.trim(),
+        priority: provinceAliasForm.priority,
+        enabled: provinceAliasForm.enabled,
+      };
+      if (editingProvinceAliasId) {
+        await updateProvinceAlias(editingProvinceAliasId, payload);
+      } else {
+        await createProvinceAlias(payload);
+      }
+      await loadProvinceAliases();
+      resetProvinceAliasEditor();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "保存省份别名失败");
+    } finally {
+      setProvinceAliasSaving(false);
+    }
+  };
+
+  const removeProvinceAlias = async (id: number) => {
+    if (!confirm(`确认删除省份别名 #${id} ?`)) return;
+    await deleteProvinceAlias(id);
+    await loadProvinceAliases();
+    if (editingProvinceAliasId === id) {
+      resetProvinceAliasEditor();
+    }
+  };
+
+  const setTabInUrl = useCallback(
+    (tab: TabType) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("tab", tab);
+      router.replace(`${pathname}?${params.toString()}`);
+    },
+    [pathname, router, searchParams]
+  );
+
   return (
     <div className="min-h-screen bg-app-bg text-app-text">
-      {/* Header */}
-      <header className="border-b border-app-border bg-app-input px-6 py-4">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="text-app-muted hover:text-app-text transition-colors"
-            >
-              <ArrowLeft size={18} />
-            </Link>
-            <Settings size={18} className="text-app-accent" />
-            <span className="font-semibold">
-              {activeTab === "analytics" ? "数据连接" : activeTab === "scope" ? "数据权限策略" : "模型配置"}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <ThemeToggle className="p-2 rounded-lg border border-app-border text-app-muted hover:text-app-text hover:border-app-accent/50 transition-all" />
+      <AppTopNav
+        activeKey="settings"
+        title="配置中心"
+        breadcrumbs={[
+          { label: "设置" },
+          {
+            label: activeTab === "analytics" ? "数据连接" : activeTab === "scope" ? "数据权限策略" : "模型配置",
+          },
+        ]}
+        rightActions={
+          <>
             {activeTab !== "analytics" && activeTab !== "scope" && (
               <button
                 onClick={() => {
@@ -440,9 +528,9 @@ function SettingsPageInner() {
                 新增配置
               </button>
             )}
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <main className="max-w-4xl mx-auto px-6 py-6">
         {/* Explanation banner */}
@@ -472,35 +560,17 @@ function SettingsPageInner() {
         )}
 
         {/* Tabs */}
-        <div className="flex gap-1 mb-6 bg-app-surface border border-app-border rounded-xl p-1 w-fit flex-wrap">
-          {(["llm", "embedding", "analytics", "scope"] as TabType[]).map((tab) => {
-            const active =
-              tab !== "analytics" &&
-              configs.find((c) => c.config_type === tab && c.is_active);
-            return (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={cn(
-                  "px-5 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2",
-                  activeTab === tab
-                    ? "bg-app-accent/10 text-app-accent border border-app-accent/30"
-                    : "text-app-muted hover:text-app-text"
-                )}
-              >
-                {tab === "llm"
-                  ? "LLM 模型"
-                  : tab === "embedding"
-                    ? "Embedding 模型"
-                    : tab === "analytics"
-                      ? "数据连接"
-                      : "权限策略"}
-                {active && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                )}
-              </button>
-            );
-          })}
+        <div className="mb-6 flex flex-wrap items-center gap-2">
+          <PageSectionTabs
+            items={[
+              { key: "llm", label: "LLM模型" },
+              { key: "embedding", label: "Embedding模型", shortLabel: "Embedding" },
+              { key: "analytics", label: "数据连接" },
+              { key: "scope", label: "权限策略" },
+            ]}
+            active={activeTab}
+            onChange={setTabInUrl}
+          />
           <button
             onClick={() => (
               activeTab === "analytics"
@@ -1026,6 +1096,126 @@ function SettingsPageInner() {
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Province Alias Panel */}
+              <div className="relative overflow-hidden bg-app-surface border border-app-border rounded-2xl p-5 shadow-lg space-y-4">
+                <div className="flex items-center justify-between gap-2 text-sm font-semibold text-app-text">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-sky-500/10 text-sky-500">
+                      <Database size={16} />
+                    </div>
+                    省份别名表
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetProvinceAliasEditor();
+                    }}
+                    className="px-2 py-1 text-[10px] rounded-md border border-app-border text-app-subtle hover:text-app-text"
+                  >
+                    清空
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <input
+                    value={provinceAliasForm.canonical_name}
+                    onChange={(e) =>
+                      setProvinceAliasForm((s) => ({ ...s, canonical_name: e.target.value }))
+                    }
+                    placeholder="标准名，如 广西"
+                    className="rounded-xl bg-app-input border border-app-border px-3 py-2 text-xs"
+                  />
+                  <input
+                    value={provinceAliasForm.alias}
+                    onChange={(e) =>
+                      setProvinceAliasForm((s) => ({ ...s, alias: e.target.value }))
+                    }
+                    placeholder="别名，如 广西壮族自治区"
+                    className="rounded-xl bg-app-input border border-app-border px-3 py-2 text-xs"
+                  />
+                  <input
+                    type="number"
+                    value={provinceAliasForm.priority}
+                    onChange={(e) =>
+                      setProvinceAliasForm((s) => ({ ...s, priority: Number(e.target.value || 100) }))
+                    }
+                    className="rounded-xl bg-app-input border border-app-border px-3 py-2 text-xs"
+                    placeholder="优先级"
+                  />
+                  <label className="flex items-center gap-2 text-xs text-app-muted px-2">
+                    <input
+                      type="checkbox"
+                      checked={provinceAliasForm.enabled}
+                      onChange={(e) =>
+                        setProvinceAliasForm((s) => ({ ...s, enabled: e.target.checked }))
+                      }
+                    />
+                    启用
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={submitProvinceAlias}
+                    disabled={provinceAliasSaving}
+                    className="px-4 py-2 rounded-xl bg-app-accent hover:bg-app-accent-hover text-white text-xs font-medium disabled:opacity-50"
+                  >
+                    {provinceAliasSaving ? "保存中..." : editingProvinceAliasId ? "更新别名" : "新增别名"}
+                  </button>
+                  {editingProvinceAliasId ? (
+                    <button
+                      type="button"
+                      onClick={resetProvinceAliasEditor}
+                      className="px-3 py-2 rounded-xl border border-app-border text-xs"
+                    >
+                      取消编辑
+                    </button>
+                  ) : null}
+                </div>
+
+                <div className="max-h-56 overflow-y-auto space-y-2 border border-app-border/60 rounded-xl p-2 bg-app-input/20">
+                  {provinceAliasLoading ? (
+                    <div className="py-6 text-center text-xs text-app-subtle">加载中...</div>
+                  ) : provinceAliases.length === 0 ? (
+                    <div className="py-6 text-center text-xs text-app-subtle">暂无省份别名</div>
+                  ) : (
+                    provinceAliases.map((a) => (
+                      <div key={a.id} className="flex items-center justify-between gap-2 rounded-lg border border-app-border px-2 py-1.5 bg-app-surface/70">
+                        <div className="min-w-0">
+                          <div className="text-xs text-app-text font-medium truncate">{a.alias} → {a.canonical_name}</div>
+                          <div className="text-[10px] text-app-subtle">#{a.id} · priority {a.priority} · {a.enabled ? "enabled" : "disabled"}</div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            className="p-1.5 rounded-md hover:bg-app-input"
+                            onClick={() => {
+                              setEditingProvinceAliasId(a.id);
+                              setProvinceAliasForm({
+                                canonical_name: a.canonical_name,
+                                alias: a.alias,
+                                priority: a.priority,
+                                enabled: a.enabled,
+                              });
+                            }}
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            className="p-1.5 rounded-md hover:bg-red-500/10 text-app-subtle hover:text-red-500"
+                            onClick={() => removeProvinceAlias(a.id)}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
 
               {/* Editor Panel */}
