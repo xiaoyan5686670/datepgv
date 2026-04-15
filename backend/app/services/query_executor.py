@@ -39,6 +39,7 @@ _SCOPE_NAME_COLUMNS = (
     "owner",
     "sales_name",
     "manager_name",
+    "mgr_name",
     "username",
 )
 _SCOPE_PROVINCE_COLUMNS = (
@@ -46,6 +47,7 @@ _SCOPE_PROVINCE_COLUMNS = (
     "province",
     "province_name",
     "prov",
+    "prov_name",
 )
 _SCOPE_REGION_COLUMNS = (
     "daqua",

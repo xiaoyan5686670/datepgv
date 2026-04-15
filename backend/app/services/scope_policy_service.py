@@ -63,6 +63,25 @@ def is_known_province_literal(raw: str | None) -> bool:
     return canonical_province_name(raw) in _CANONICAL_TO_ALIASES
 
 
+def province_canonicals_mentioned_in_text(text: str) -> set[str]:
+    """
+    Detect province names as substrings (e.g. LIKE '%河南%' / '%河南省%').
+    Longer aliases are checked first so 广西壮族自治区 matches before 广西 when both apply.
+    """
+    if not text:
+        return set()
+    out: set[str] = set()
+    for alias in sorted(_ALIAS_TO_CANONICAL.keys(), key=len, reverse=True):
+        if len(alias) < 2:
+            continue
+        if alias in text:
+            out.add(_ALIAS_TO_CANONICAL[alias])
+    for canon in _CANONICAL_TO_ALIASES:
+        if len(canon) >= 2 and canon in text:
+            out.add(canon)
+    return out
+
+
 def normalize_region_name(raw: str | None) -> str:
     return str(raw or "").strip()
 
@@ -84,16 +103,43 @@ def _apply_policy_values(
     return out
 
 
+def _apply_staff_peer_isolated_scope(user: User, scope: ResolvedScope) -> None:
+    """
+    业务经理（staff）：仅本人标识可见；地理维度不得与同省同事 OR 放宽。
+    在 scope 上就地修改。
+    """
+    if (user.employee_level or "staff").strip() != "staff":
+        return
+    own = get_user_scope_codes(user)
+    if own is None:
+        return
+    scope.province_values.clear()
+    scope.region_values.clear()
+    scope.district_values.clear()
+    if scope.employee_values:
+        scope.employee_values = scope.employee_values & own
+    else:
+        scope.employee_values = set(own)
+
+
 async def resolve_user_scope(user: User, db: AsyncSession) -> ResolvedScope:
     role_names = {r.name for r in user.roles} if user.roles else set()
     if "admin" in role_names:
         return ResolvedScope(unrestricted=True, source="admin")
 
+    uname = (user.username or "").strip()
     subject_pairs: list[tuple[str, str]] = [
         ("user_id", str(user.id)),
-        ("user_name", user.username),
-        ("level", (user.employee_level or "staff").strip()),
     ]
+    # Policies may use subject_type=user_id with business login / 工号 (e.g. XY001475), not only DB id.
+    if uname:
+        subject_pairs.append(("user_id", uname))
+    subject_pairs.extend(
+        [
+            ("user_name", uname),
+            ("level", (user.employee_level or "staff").strip()),
+        ]
+    )
     for r in sorted(role_names):
         subject_pairs.append(("role", r))
 
@@ -123,7 +169,7 @@ async def resolve_user_scope(user: User, db: AsyncSession) -> ResolvedScope:
             province_values = {prov} if prov else set()
             region_values = {region} if region else set()
             district_values = {district} if district else set()
-            return ResolvedScope(
+            fb_scope = ResolvedScope(
                 unrestricted=False,
                 province_values=province_values,
                 employee_values=set(fallback_codes),
@@ -131,6 +177,8 @@ async def resolve_user_scope(user: User, db: AsyncSession) -> ResolvedScope:
                 district_values=district_values,
                 source="csv_fallback",
             )
+            _apply_staff_peer_isolated_scope(user, fb_scope)
+            return fb_scope
         # Policy-only mode: no matching policy means no data visibility.
         return ResolvedScope(unrestricted=False, source="policy_empty")
 
@@ -174,4 +222,5 @@ async def resolve_user_scope(user: User, db: AsyncSession) -> ResolvedScope:
                 out.district_values, allow, deny, p.merge_mode
             )
 
+    _apply_staff_peer_isolated_scope(user, out)
     return out

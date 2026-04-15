@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import {
   createUser,
   fetchOrgGraph,
+  fetchUser,
   deleteUser,
   fetchUsers,
   importUsers,
@@ -1258,7 +1259,15 @@ function UsersPageInner() {
                                 <BarChart3 size={14} />
                               </Link>
                               <button
-                                onClick={() => setEditTarget(u)}
+                                onClick={async () => {
+                                  try {
+                                    const detail = await fetchUser(u.id);
+                                    setEditTarget(detail);
+                                  } catch {
+                                    // Fallback to list data if detail fetch fails
+                                    setEditTarget(u);
+                                  }
+                                }}
                                 className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                                 title="编辑"
                               >

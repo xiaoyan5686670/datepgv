@@ -326,8 +326,6 @@ class DataScopePolicyBase(BaseModel):
 
     @model_validator(mode="after")
     def validate_policy_consistency(self) -> "DataScopePolicyBase":
-        if self.subject_type in ("user", "user_id") and not self.subject_key.isdigit():
-            raise ValueError("subject_type=user_id 时 subject_key 必须是数字用户ID")
         overlap = set(self.allowed_values) & set(self.deny_values)
         if overlap:
             raise ValueError(f"allowed_values 与 deny_values 不能重叠: {sorted(overlap)}")

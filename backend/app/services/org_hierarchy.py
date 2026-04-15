@@ -556,8 +556,16 @@ def filter_rows_by_scope(
         "manager_code",
         "user_code",
     )
-    name_columns = ("yewujingli", "full_name", "owner", "sales_name", "manager_name", "username")
-    province_columns = ("shengfen", "province", "province_name", "prov")
+    name_columns = (
+        "yewujingli",
+        "full_name",
+        "owner",
+        "sales_name",
+        "manager_name",
+        "mgr_name",
+        "username",
+    )
+    province_columns = ("shengfen", "province", "province_name", "prov", "prov_name")
     region_columns = ("daqua", "org_region", "region", "region_name")
     district_columns = ("quyud", "district", "district_name", "area_name")
     employee_scope = set(scope.employee_values)

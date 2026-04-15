@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import dataclass
+from unittest.mock import patch
 
+from app.core.config import settings
 from app.models.data_scope_policy import DataScopePolicy
+from app.models.schemas import DataScopePolicyCreate
 from app.services.query_executor import _build_scoped_wrapped_sql
 from app.services.scope_policy_service import resolve_user_scope
 from app.services.scope_types import ResolvedScope
@@ -49,7 +52,45 @@ class _FakeSession:
         return _FakeExecuteResult(self._rows)
 
 
+class DataScopePolicySchemaTest(unittest.TestCase):
+    def test_user_id_subject_key_accepts_business_login_code(self) -> None:
+        p = DataScopePolicyCreate(
+            subject_type="user_id",
+            subject_key="XY001475",
+            dimension="province",
+            allowed_values=["广东"],
+        )
+        self.assertEqual(p.subject_key, "XY001475")
+
+
 class ScopePolicyResolutionTest(unittest.IsolatedAsyncioTestCase):
+    async def test_resolve_scope_user_id_policy_matches_username_not_only_db_id(
+        self,
+    ) -> None:
+        user = _FakeUser(
+            id=99,
+            username="XY001475",
+            employee_level="province_manager",
+            roles=[_FakeRole(name="user")],
+        )
+        policies = [
+            DataScopePolicy(
+                id=30,
+                subject_type="user_id",
+                subject_key="XY001475",
+                dimension="province",
+                allowed_values=["广东"],
+                deny_values=[],
+                merge_mode="replace",
+                priority=100,
+                enabled=True,
+            ),
+        ]
+        scope = await resolve_user_scope(user, _FakeSession(policies))
+        self.assertFalse(scope.unrestricted)
+        self.assertEqual(scope.province_values, {"广东"})
+        self.assertIn(30, scope.policy_ids)
+
     async def test_resolve_scope_supports_all_dimensions(self) -> None:
         user = _FakeUser(
             id=7,
@@ -123,6 +164,127 @@ class ScopePolicyResolutionTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(scope.unrestricted)
         self.assertEqual(scope.source, "policy_empty")
         self.assertFalse(scope.has_any_constraint)
+
+    async def test_resolve_scope_staff_strips_geo_uses_own_codes(self) -> None:
+        user = _FakeUser(
+            id=9,
+            username="XY009",
+            employee_level="staff",
+            province="广东",
+            org_region="华南",
+            district="深圳",
+            roles=[_FakeRole(name="user")],
+        )
+        policies = [
+            DataScopePolicy(
+                id=10,
+                subject_type="user_id",
+                subject_key="9",
+                dimension="province",
+                allowed_values=["广东"],
+                deny_values=[],
+                merge_mode="replace",
+                priority=100,
+                enabled=True,
+            ),
+            DataScopePolicy(
+                id=11,
+                subject_type="user_id",
+                subject_key="9",
+                dimension="region",
+                allowed_values=["华南"],
+                deny_values=[],
+                merge_mode="replace",
+                priority=110,
+                enabled=True,
+            ),
+        ]
+        with patch(
+            "app.services.scope_policy_service.get_user_scope_codes",
+            return_value={"XY009", "小张"},
+        ):
+            scope = await resolve_user_scope(user, _FakeSession(policies))
+        self.assertFalse(scope.unrestricted)
+        self.assertEqual(scope.province_values, set())
+        self.assertEqual(scope.region_values, set())
+        self.assertEqual(scope.district_values, set())
+        self.assertEqual(scope.employee_values, {"XY009", "小张"})
+
+    async def test_resolve_scope_staff_employee_policy_intersects_own(self) -> None:
+        user = _FakeUser(
+            id=10,
+            username="XY010",
+            employee_level="staff",
+            roles=[_FakeRole(name="user")],
+        )
+        policies = [
+            DataScopePolicy(
+                id=20,
+                subject_type="user_id",
+                subject_key="10",
+                dimension="employee",
+                allowed_values=["XY010", "intruder"],
+                deny_values=[],
+                merge_mode="replace",
+                priority=50,
+                enabled=True,
+            ),
+        ]
+        with patch(
+            "app.services.scope_policy_service.get_user_scope_codes",
+            return_value={"XY010"},
+        ):
+            scope = await resolve_user_scope(user, _FakeSession(policies))
+        self.assertEqual(scope.employee_values, {"XY010"})
+
+    async def test_resolve_scope_staff_employee_policy_disjoint_yields_empty(self) -> None:
+        user = _FakeUser(
+            id=11,
+            username="XY011",
+            employee_level="staff",
+            roles=[_FakeRole(name="user")],
+        )
+        policies = [
+            DataScopePolicy(
+                id=21,
+                subject_type="user_id",
+                subject_key="11",
+                dimension="employee",
+                allowed_values=["someone_else"],
+                deny_values=[],
+                merge_mode="replace",
+                priority=50,
+                enabled=True,
+            ),
+        ]
+        with patch(
+            "app.services.scope_policy_service.get_user_scope_codes",
+            return_value={"XY011"},
+        ):
+            scope = await resolve_user_scope(user, _FakeSession(policies))
+        self.assertEqual(scope.employee_values, set())
+        self.assertFalse(scope.has_any_constraint)
+
+    async def test_csv_fallback_staff_clears_geo(self) -> None:
+        user = _FakeUser(
+            id=12,
+            username="XY012",
+            employee_level="staff",
+            province="广东",
+            org_region="华南",
+            district="深圳",
+            roles=[_FakeRole(name="user")],
+        )
+        with patch.object(settings, "SCOPE_POLICY_CSV_FALLBACK_ENABLED", True), patch(
+            "app.services.scope_policy_service.get_user_scope_codes",
+            return_value={"XY012"},
+        ):
+            scope = await resolve_user_scope(user, _FakeSession([]))
+        self.assertEqual(scope.source, "csv_fallback")
+        self.assertEqual(scope.employee_values, {"XY012"})
+        self.assertEqual(scope.province_values, set())
+        self.assertEqual(scope.region_values, set())
+        self.assertEqual(scope.district_values, set())
 
 
 class ScopedSqlWrapperTest(unittest.TestCase):

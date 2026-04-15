@@ -59,8 +59,6 @@ def _normalize_scope_policy_payload(data: dict) -> dict:
         data["subject_key"] = data["subject_key"].strip()
     if data.get("subject_type") == "user_id":
         data["subject_key"] = str(data.get("subject_key") or "").strip()
-        if data["subject_key"] and not data["subject_key"].isdigit():
-            raise HTTPException(status_code=422, detail="subject_type=user_id 时 subject_key 必须是数字")
     allow = set(data.get("allowed_values") or [])
     deny = set(data.get("deny_values") or [])
     overlap = sorted(allow & deny)

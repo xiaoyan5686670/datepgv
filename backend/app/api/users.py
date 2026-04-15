@@ -124,42 +124,89 @@ def _build_user_visibility_clause(scope: ResolvedScope, viewer_user_id: int) -> 
         return User.id == -1
     return or_(*conds)
 
-def _user_matches_scope(user: User, scope: ResolvedScope) -> bool:
+def _user_matches_scope(viewer: User, target: User, scope: ResolvedScope) -> bool:
     if scope.unrestricted:
         return True
-    if str(user.id) in scope.employee_values:
+    if (viewer.employee_level or "staff").strip() == "staff":
+        return target.id == viewer.id
+    if str(target.id) in scope.employee_values:
         return True
-    if user.username and user.username in scope.employee_values:
+    if target.username and target.username in scope.employee_values:
         return True
-    if user.full_name and user.full_name in scope.employee_values:
+    if target.full_name and target.full_name in scope.employee_values:
         return True
-    if user.province and canonical_province_name(user.province) in scope.province_values:
+    if target.province and canonical_province_name(target.province) in scope.province_values:
         return True
-    if user.org_region and user.org_region in scope.region_values:
+    if target.org_region and target.org_region in scope.region_values:
         return True
-    if user.district and user.district in scope.district_values:
+    if target.district and target.district in scope.district_values:
         return True
     return False
 
 
-async def _get_user_data_scope(db: AsyncSession, username: str) -> list[UserScopeItem]:
-    """Fetch individual scope policies for a specific user."""
+_DATA_SCOPE_DIM_ORDER = ("province", "region", "district", "employee")
+
+
+async def _get_user_data_scope(db: AsyncSession, user: User) -> list[UserScopeItem]:
+    """
+    合并「用户管理」与「权限策略」中针对该用户的配置。
+    含 subject_type=user_name（用户表单写入）以及 user_id（策略页常用：库内 id 或工号如 XY001475）。
+    """
     from app.models.data_scope_policy import DataScopePolicy
     from app.models.schemas import UserScopeItem
 
-    result = await db.execute(
+    pairs: list[tuple[str, str]] = [("user_name", user.username)]
+    pairs.append(("user_id", str(user.id)))
+    uname = (user.username or "").strip()
+    if uname:
+        pairs.append(("user_id", uname))
+
+    seen: set[tuple[str, str]] = set()
+    unique_pairs: list[tuple[str, str]] = []
+    for st, sk in pairs:
+        key = (st, sk)
+        if sk and key not in seen:
+            seen.add(key)
+            unique_pairs.append(key)
+
+    conds = [
+        (DataScopePolicy.subject_type == st) & (DataScopePolicy.subject_key == sk)
+        for st, sk in unique_pairs
+    ]
+    stmt = (
         select(DataScopePolicy)
-        .where(DataScopePolicy.subject_type == "user_name")
-        .where(DataScopePolicy.subject_key == username)
+        .where(DataScopePolicy.enabled.is_(True))
+        .where(or_(*conds))
     )
+    result = await db.execute(stmt)
     policies = result.scalars().all()
-    # Group by dimension if needed, but the model has one dimension per row
+
+    by_dim: dict[str, list[str]] = {}
+    seen_vals: dict[str, set[str]] = {}
+    for p in policies:
+        dim = p.dimension
+        if dim not in seen_vals:
+            seen_vals[dim] = set()
+            by_dim[dim] = []
+        for v in p.allowed_values or []:
+            text = str(v).strip()
+            if text and text not in seen_vals[dim]:
+                seen_vals[dim].add(text)
+                by_dim[dim].append(text)
+
+    ordered_dims = sorted(
+        by_dim.keys(),
+        key=lambda d: (
+            _DATA_SCOPE_DIM_ORDER.index(d) if d in _DATA_SCOPE_DIM_ORDER else 99,
+            d,
+        ),
+    )
     return [
         UserScopeItem(
-            dimension=p.dimension,  # type: ignore[arg-type]
-            allowed_values=p.allowed_values,
+            dimension=d,  # type: ignore[arg-type]
+            allowed_values=by_dim[d],
         )
-        for p in policies
+        for d in ordered_dims
     ]
 
 
@@ -441,10 +488,13 @@ async def list_users(
     stmt = select(User).options(selectinload(User.roles))
 
     if "admin" not in current_roles:
-        scope = await resolve_user_scope(current_user, db)
-        visibility_clause = _build_user_visibility_clause(scope, current_user.id)
-        if visibility_clause is not None:
-            stmt = stmt.where(visibility_clause)
+        if (current_user.employee_level or "staff").strip() == "staff":
+            stmt = stmt.where(User.id == current_user.id)
+        else:
+            scope = await resolve_user_scope(current_user, db)
+            visibility_clause = _build_user_visibility_clause(scope, current_user.id)
+            if visibility_clause is not None:
+                stmt = stmt.where(visibility_clause)
 
     if province:
         stmt = stmt.where(User.province == province)
@@ -514,7 +564,7 @@ async def create_user(
         select(User).where(User.id == user.id).options(selectinload(User.roles))
     )
     db_user = result.scalar_one()
-    scope = await _get_user_data_scope(db, db_user.username)
+    scope = await _get_user_data_scope(db, db_user)
     return _user_to_response(db_user, data_scope=scope)
 
 
@@ -534,11 +584,13 @@ async def get_user(
 
     current_roles = {r.name for r in current_user.roles} if current_user.roles else set()
     if user.id != current_user.id and "admin" not in current_roles:
+        if (current_user.employee_level or "staff").strip() == "staff":
+            raise HTTPException(status_code=403, detail="无权查看此用户")
         scope = await resolve_user_scope(current_user, db)
-        if not _user_matches_scope(user, scope):
+        if not _user_matches_scope(current_user, user, scope):
             raise HTTPException(status_code=403, detail="无权查看此用户")
 
-    effective_scope = await _get_user_data_scope(db, user.username)
+    effective_scope = await _get_user_data_scope(db, user)
     return _user_to_response(user, data_scope=effective_scope)
 
 
@@ -593,7 +645,7 @@ async def update_user(
         select(User).where(User.id == user_id).options(selectinload(User.roles))
     )
     db_user = refreshed.scalar_one()
-    scope = await _get_user_data_scope(db, db_user.username)
+    scope = await _get_user_data_scope(db, db_user)
     return _user_to_response(db_user, data_scope=scope)
 
 

@@ -37,6 +37,53 @@ class SqlScopeGuardTest(unittest.TestCase):
         self.assertFalse(result.scope_applied)
         self.assertEqual(result.sql, sql)
 
+    def test_rewrite_prov_name_like_disallowed_for_staff_home_province(self) -> None:
+        class _Viewer:
+            employee_level = "staff"
+            province = "广西"
+
+        scope = ResolvedScope(
+            unrestricted=False, province_values=set(), employee_values={"尹朋"}
+        )
+        sql = (
+            "SELECT `PROV_NAME`, `MGR_NAME`, SUM(`CLAIMED_AMOUNT`) AS x "
+            "FROM `DWD`.`DWD_SLS_PAYMENT_ACK_STAFF` "
+            "WHERE `PROV_NAME` LIKE '%河南%' AND `MGR_NAME` = '尹朋' "
+            "GROUP BY `PROV_NAME`, `MGR_NAME`"
+        )
+        result = rewrite_sql_with_scope(sql, "mysql", scope, _Viewer())
+        self.assertTrue(result.scope_applied)
+        self.assertNotIn("%河南%", result.sql)
+        self.assertIn("河南", " ".join(result.mentioned_disallowed_provinces))
+        self.assertIsNotNone(result.rewrite_note)
+        assert result.rewrite_note is not None
+        self.assertIn("自己的数据", result.rewrite_note)
+
+    def test_rewrite_staff_no_profile_province_blocks_any_province_literal(self) -> None:
+        class _Viewer:
+            employee_level = "staff"
+            province = None
+
+        scope = ResolvedScope(unrestricted=False, province_values=set(), employee_values={"u"})
+        sql = "SELECT * FROM t WHERE PROV_NAME LIKE '%河南%'"
+        result = rewrite_sql_with_scope(sql, "mysql", scope, _Viewer())
+        self.assertTrue(result.scope_applied)
+
+
+class SqlScopeGuardFriendlyNoteTest(unittest.TestCase):
+    def test_rewrite_note_uses_jurisdiction_hint_for_region_executive(self) -> None:
+        class _Viewer:
+            employee_level = "region_executive"
+            province = None
+
+        scope = ResolvedScope(unrestricted=False, province_values={"广东", "广西"})
+        sql = "SELECT * FROM t WHERE renkuan = '河南省'"
+        result = rewrite_sql_with_scope(sql, "mysql", scope, _Viewer())
+        self.assertTrue(result.scope_applied)
+        self.assertIsNotNone(result.rewrite_note)
+        assert result.rewrite_note is not None
+        self.assertIn("辖区", result.rewrite_note)
+
 
 if __name__ == "__main__":
     unittest.main()

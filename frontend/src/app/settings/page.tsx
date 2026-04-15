@@ -774,7 +774,7 @@ function SettingsPageInner() {
                     <option value="all">全部主体</option>
                     <option value="level">Level</option>
                     <option value="role">Role</option>
-                    <option value="user_id">User ID</option>
+                    <option value="user_id">User ID（数字 id 或工号）</option>
                     <option value="user_name">User Name</option>
                   </select>
                   <select
@@ -1065,7 +1065,7 @@ function SettingsPageInner() {
                         >
                           <option value="level">Level</option>
                           <option value="role">Role</option>
-                          <option value="user_id">User ID</option>
+                          <option value="user_id">User ID（数字 id 或工号）</option>
                           <option value="user_name">User Name</option>
                         </select>
                       </div>
@@ -1073,7 +1073,7 @@ function SettingsPageInner() {
                         <label className="text-[10px] uppercase text-app-subtle font-semibold ml-1">Subject Key</label>
                         <input
                           className="w-full rounded-xl bg-app-input border border-app-border px-3 py-2 text-xs font-mono transition-all focus:border-app-accent/50 focus:ring-2 focus:ring-app-accent/20 focus:outline-none focus:bg-app-surface"
-                          placeholder="e.g. admin"
+                          placeholder="e.g. 42、XY001475、zhangsan"
                           value={scopeForm.subject_key}
                           onChange={(e) =>
                             setScopeForm((s) => ({ ...s, subject_key: e.target.value }))

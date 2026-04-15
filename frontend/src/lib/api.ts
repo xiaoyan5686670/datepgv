@@ -801,6 +801,14 @@ export async function deleteUser(id: number): Promise<void> {
   }
 }
 
+export async function fetchUser(id: number): Promise<User> {
+  const res = await apiFetch(`${apiV1Prefix()}/users/${id}`);
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "加载用户详情失败"));
+  }
+  return res.json();
+}
+
 export async function importUsers(payload: UserImportRequest): Promise<UserImportResponse> {
   const res = await apiFetch(`${apiV1Prefix()}/users/import`, {
     method: "POST",

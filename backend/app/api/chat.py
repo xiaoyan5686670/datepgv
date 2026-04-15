@@ -29,7 +29,7 @@ from app.models.user import User
 from app.services.query_executor import QueryExecutorError, QueryResult, run_analytics_query
 from app.services.org_hierarchy import filter_rows_by_scope
 from app.services.rag import RAGEngine, qualified_table_label
-from app.services.sql_generator import process_llm_output
+from app.services.sql_generator import process_llm_output, fix_ifnull_string_numerics
 from app.services.sql_column_repair import repair_sql_unknown_columns, repair_sql_unknown_tables
 from app.services.viewer_sql_context import build_viewer_sql_context
 from app.services.sql_metadata_guard import find_unknown_columns, find_unknown_tables
@@ -492,7 +492,9 @@ async def chat_stream(
                     )
                 scope = await resolve_user_scope(current_user, db)
                 if settings.SCOPE_REWRITE_ENABLED:
-                    rewrite = rewrite_sql_with_scope(clean_sql, request.sql_type, scope)
+                    rewrite = rewrite_sql_with_scope(
+                        clean_sql, request.sql_type, scope, current_user
+                    )
                     effective_sql = rewrite.sql
                     scope_applied = rewrite.scope_applied
                     scope_rewrite_note = rewrite.rewrite_note
@@ -508,13 +510,41 @@ async def chat_stream(
                         )
                 else:
                     effective_sql = clean_sql
-                qres = await run_analytics_query(
-                    request.sql_type,
-                    effective_sql,
-                    db,
-                    scope=scope,
-                    connection_id=request.execute_connection_id,
-                )
+                try:
+                    qres = await run_analytics_query(
+                        request.sql_type,
+                        effective_sql,
+                        db,
+                        scope=scope,
+                        connection_id=request.execute_connection_id,
+                    )
+                except (QueryExecutorError, Exception) as first_err:
+                    # Auto-retry for Doris/StarRocks type-mismatch errors:
+                    # e.g. "sum requires a numeric parameter: sum(ifnull(col, '0'))"
+                    err_str = str(first_err).lower()
+                    is_type_err = (
+                        "requires a numeric parameter" in err_str
+                        or "requires a decimal parameter" in err_str
+                        or ("errcode" in err_str and "type" in err_str and "mismatch" in err_str)
+                    )
+                    if is_type_err:
+                        fixed_sql = fix_ifnull_string_numerics(effective_sql)
+                        if fixed_sql != effective_sql:
+                            logger.info(
+                                "doris_type_error_autofix: retrying after ifnull string→numeric fix"
+                            )
+                            effective_sql = fixed_sql
+                            qres = await run_analytics_query(
+                                request.sql_type,
+                                effective_sql,
+                                db,
+                                scope=scope,
+                                connection_id=request.execute_connection_id,
+                            )
+                        else:
+                            raise
+                    else:
+                        raise
                 if not scope.unrestricted:
                     scoped_rows = filter_rows_by_scope(qres.rows, scope)
                     qres = QueryResult(

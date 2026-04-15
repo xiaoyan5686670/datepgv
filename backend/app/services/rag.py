@@ -62,6 +62,11 @@ MySQL 5.x 规范：
 - 使用 LIMIT / OFFSET 分页
 - 窗口函数在 MySQL 8+ 可用；在 MySQL 5.7 及以下请用变量或子查询替代 ROW_NUMBER
 - NULL 处理：IFNULL / COALESCE；避免 SELECT *
+- 【重要·类型安全】在 IFNULL / COALESCE 中，默认值的类型必须与字段类型一致。
+  对于数值型字段，必须写 IFNULL(col, 0)（不带引号），禁止写 IFNULL(col, '0')（带引号的字符串）。
+  错误示例：SUM(IFNULL(amount, '0'))  ← 会导致 Doris/StarRocks 报 "sum requires a numeric parameter"
+  正确示例：SUM(IFNULL(amount, 0))    ← 无引号的数值
+  若需确保类型安全，可用 CAST：SUM(CAST(IFNULL(amount, 0) AS DECIMAL(20,2)))
 """.strip()
 
 
