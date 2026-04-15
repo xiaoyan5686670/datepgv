@@ -7,10 +7,11 @@ import sqlglot
 from sqlglot import exp
 
 from app.services.query_executor import assert_single_read_statement
-from app.services.scope_policy_service import (
+from app.services.province_alias_service import (
     canonical_province_name,
     is_known_province_literal,
     province_canonicals_mentioned_in_text,
+    province_alias_literals_for_canonicals,
 )
 from app.services.scope_types import ResolvedScope
 
@@ -39,6 +40,8 @@ class ScopeRewriteResult:
     scope_applied: bool
     rewrite_note: str | None
     mentioned_disallowed_provinces: list[str]
+    should_block: bool
+    block_reason: str | None
 
 
 def _norm_text(s: str | None) -> str:
@@ -176,15 +179,16 @@ def _rewrite_province_conditions(parsed: exp.Expression, allowed: list[str]) -> 
                 continue
             if not _is_province_column(node.this):
                 continue
-            pat = pat_expr.this
-            mentioned = province_canonicals_mentioned_in_text(pat)
             allow_set = set(allowed)
             if not allow_set:
                 node.replace(exp.false())
                 changed = True
-            elif mentioned and not mentioned <= allow_set:
-                node.replace(exp.false())
-                changed = True
+                continue
+
+            # Province dimension forbids LIKE: always rewrite to equality set (IN).
+            # This avoids slow/fuzzy province joins and keeps behavior deterministic.
+            node.replace(exp.In(this=node.this.copy(), expressions=allowed_literals))
+            changed = True
     return changed
 
 
@@ -198,6 +202,8 @@ def rewrite_sql_with_scope(
             scope_applied=False,
             rewrite_note=None,
             mentioned_disallowed_provinces=[],
+            should_block=False,
+            block_reason=None,
         )
 
     allow = _effective_province_allowlist_for_rewrite(scope, viewer)
@@ -207,9 +213,12 @@ def rewrite_sql_with_scope(
             scope_applied=False,
             rewrite_note=None,
             mentioned_disallowed_provinces=[],
+            should_block=False,
+            block_reason=None,
         )
 
     allowed = sorted(allow)
+    allowed_literals = sorted(province_alias_literals_for_canonicals(set(allowed)))
     dialect = _SQLGLOT_DIALECT.get(sql_type, sql_type)
     try:
         parsed = sqlglot.parse_one(safe, dialect=dialect)
@@ -222,19 +231,29 @@ def rewrite_sql_with_scope(
             scope_applied=False,
             rewrite_note=_join_scope_rewrite_lines(_scope_access_hint(viewer), fallback),
             mentioned_disallowed_provinces=[],
+            should_block=False,
+            block_reason=None,
         )
 
     mentioned = _extract_mentioned_provinces(parsed)
     allow_set = set(allowed)
     disallowed = sorted([p for p in mentioned if p not in allow_set])
+    should_block = bool(disallowed)
+    block_reason = (
+        f"查询包含未授权省份：{'、'.join(disallowed)}。"
+        if should_block
+        else None
+    )
 
-    changed = _rewrite_province_conditions(parsed, allowed)
+    changed = _rewrite_province_conditions(parsed, allowed_literals)
     if not changed:
         return ScopeRewriteResult(
             sql=safe,
             scope_applied=False,
             rewrite_note=None,
             mentioned_disallowed_provinces=disallowed,
+            should_block=should_block,
+            block_reason=block_reason,
         )
 
     if not allowed:
@@ -243,7 +262,10 @@ def rewrite_sql_with_scope(
             "若账号未维护所属省份，将无法按省份筛选外部区域数据。"
         )
     else:
-        detail = f"本次查询已将省份相关条件限定为：{'、'.join(allowed)}。"
+        detail = (
+            f"本次查询已将省份条件改写为等值匹配（= / IN），并限定为：{'、'.join(allowed)}。"
+            "为保证查询性能与准确性，系统不会在省份字段上使用 LIKE。"
+        )
     if disallowed:
         detail += f" 以下未授权省份已从条件中移除：{'、'.join(disallowed)}。"
 
@@ -255,4 +277,6 @@ def rewrite_sql_with_scope(
         scope_applied=changed,
         rewrite_note=note,
         mentioned_disallowed_provinces=disallowed,
+        should_block=should_block,
+        block_reason=block_reason,
     )

@@ -225,6 +225,9 @@ export interface ChatMessage {
   result_preview?: ResultPreview | null;
   scope_applied?: boolean;
   scope_rewrite_note?: string | null;
+  scope_blocked?: boolean;
+  scope_block_reason?: string | null;
+  scope_disallowed_provinces?: string[];
   effective_sql?: string;
   isError?: boolean;
 }
@@ -398,7 +401,24 @@ export interface DataScopePreview {
   district_values: string[];
 }
 
+export interface ProvinceAlias {
+  id: number;
+  canonical_name: string;
+  alias: string;
+  enabled: boolean;
+  priority: number;
+  updated_by?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ── SSE Events ────────────────────────────────────────────────────────────────
+
+export interface WaitingTipSuggestion {
+  id: string;
+  text: string;
+  rewrite_query: string;
+}
 
 export interface MetaEvent {
   type: "meta";
@@ -406,6 +426,7 @@ export interface MetaEvent {
   referenced_tables: string[];
   model: string;
   sql_type: SqlType;
+  waiting_tips?: WaitingTipSuggestion[];
 }
 
 export interface TokenEvent {
@@ -423,6 +444,9 @@ export interface DoneEvent {
   result_preview?: ResultPreview | null;
   scope_applied?: boolean;
   scope_rewrite_note?: string | null;
+  scope_blocked?: boolean;
+  scope_block_reason?: string | null;
+  scope_disallowed_provinces?: string[];
 }
 
 export interface ErrorEvent {

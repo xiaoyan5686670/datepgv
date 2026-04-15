@@ -18,6 +18,8 @@ class SqlScopeGuardTest(unittest.TestCase):
         self.assertTrue(result.scope_applied)
         self.assertIn("广西", result.sql)
         self.assertIn("河南", " ".join(result.mentioned_disallowed_provinces))
+        self.assertTrue(result.should_block)
+        self.assertIsNotNone(result.block_reason)
 
     def test_rewrite_preserves_valid_filter_and_adds_scope(self) -> None:
         scope = ResolvedScope(unrestricted=False, province_values={"广西"})
@@ -29,6 +31,7 @@ class SqlScopeGuardTest(unittest.TestCase):
         self.assertTrue(result.scope_applied)
         self.assertIn("dt", result.sql)
         self.assertEqual(result.mentioned_disallowed_provinces, [])
+        self.assertFalse(result.should_block)
 
     def test_unrestricted_scope_no_rewrite(self) -> None:
         scope = ResolvedScope(unrestricted=True)
@@ -36,6 +39,31 @@ class SqlScopeGuardTest(unittest.TestCase):
         result = rewrite_sql_with_scope(sql, "mysql", scope)
         self.assertFalse(result.scope_applied)
         self.assertEqual(result.sql, sql)
+        self.assertFalse(result.should_block)
+
+    def test_rewrite_province_like_always_to_in_for_performance(self) -> None:
+        scope = ResolvedScope(unrestricted=False, province_values={"广西", "广东"})
+        sql = "SELECT * FROM t WHERE PROV_NAME LIKE '%广西%'"
+        result = rewrite_sql_with_scope(sql, "mysql", scope)
+        self.assertTrue(result.scope_applied)
+        self.assertIn("PROV_NAME IN", result.sql)
+        self.assertNotIn("LIKE", result.sql.upper())
+
+    def test_rewrite_includes_province_alias_literals(self) -> None:
+        scope = ResolvedScope(unrestricted=False, province_values={"广西"})
+        sql = "SELECT * FROM t WHERE PROV_NAME LIKE '%广西%'"
+        result = rewrite_sql_with_scope(sql, "mysql", scope)
+        self.assertTrue(result.scope_applied)
+        self.assertIn("广西", result.sql)
+        self.assertIn("广西壮族自治区", result.sql)
+
+    def test_inner_mongolia_alias_supported(self) -> None:
+        scope = ResolvedScope(unrestricted=False, province_values={"内蒙古"})
+        sql = "SELECT * FROM t WHERE PROV_NAME LIKE '%内蒙%'"
+        result = rewrite_sql_with_scope(sql, "mysql", scope)
+        self.assertTrue(result.scope_applied)
+        self.assertIn("内蒙古", result.sql)
+        self.assertIn("内蒙古自治区", result.sql)
 
     def test_rewrite_prov_name_like_disallowed_for_staff_home_province(self) -> None:
         class _Viewer:
@@ -68,6 +96,8 @@ class SqlScopeGuardTest(unittest.TestCase):
         sql = "SELECT * FROM t WHERE PROV_NAME LIKE '%河南%'"
         result = rewrite_sql_with_scope(sql, "mysql", scope, _Viewer())
         self.assertTrue(result.scope_applied)
+        self.assertTrue(result.should_block)
+        self.assertIn("河南", " ".join(result.mentioned_disallowed_provinces))
 
 
 class SqlScopeGuardFriendlyNoteTest(unittest.TestCase):

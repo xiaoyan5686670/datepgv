@@ -30,6 +30,7 @@ import type {
   SqlType,
   SSEEvent,
   TokenEvent,
+  WaitingTipSuggestion,
 } from "@/types";
 import { MarkdownViewer } from "./MarkdownViewer";
 import { QueryResultPreview } from "./QueryResultPreview";
@@ -166,6 +167,48 @@ interface MessageListProps {
   /** 默认话术模式下展示「换一组」 */
   welcomeShowShuffle: boolean;
   onShuffleWelcomeGroup?: () => void;
+  waitingAssistantId?: string | null;
+  waitingPhaseText?: string | null;
+  waitingTips?: WaitingTipSuggestion[];
+  waitingTipIndex?: number;
+  onApplyWaitingTip?: (tip: WaitingTipSuggestion) => void;
+}
+
+type StreamPhase =
+  | "understanding"
+  | "planning_sql"
+  | "generating_sql"
+  | "executing"
+  | "summarizing";
+
+const STREAM_PHASE_LABEL: Record<StreamPhase, string> = {
+  understanding: "正在理解你的问题...",
+  planning_sql: "正在规划查询思路...",
+  generating_sql: "正在生成 SQL...",
+  executing: "正在执行查询并拉取结果...",
+  summarizing: "正在整理结果并生成结论...",
+};
+
+const DEFAULT_WAITING_TIPS: WaitingTipSuggestion[] = [
+  {
+    id: "time_range",
+    text: "补充时间范围（如 2026Q1）通常能更快得到稳定结果。",
+    rewrite_query: "请帮我把当前问题限定在最近30天",
+  },
+  {
+    id: "dimension",
+    text: "指定分析维度（省份/团队/产品）可以显著减少歧义。",
+    rewrite_query: "请帮我按省份维度拆分展示",
+  },
+  {
+    id: "metric",
+    text: "若有多个指标，请明确口径（如业绩=签约额或回款额）。",
+    rewrite_query: "请帮我按回款额口径统计业绩",
+  },
+];
+
+function pickTipRewriteQuery(tip: WaitingTipSuggestion): string {
+  return (tip.rewrite_query || "").trim();
 }
 
 function formatDuration(ms: number): string {
@@ -205,6 +248,11 @@ const MessageList = memo(function MessageList({
   welcomeFromPersonal,
   welcomeShowShuffle,
   onShuffleWelcomeGroup,
+  waitingAssistantId,
+  waitingPhaseText,
+  waitingTips,
+  waitingTipIndex,
+  onApplyWaitingTip,
 }: MessageListProps) {
   return (
     <>
@@ -373,12 +421,42 @@ const MessageList = memo(function MessageList({
                     ) : null}
                   </div>
                 ) : null}
-                {msg.isStreaming && !msg.sql && !msg.content && (
-                  <div className="flex items-center gap-3 text-sm text-muted-foreground bg-muted/30 px-5 py-3 rounded-2xl border border-dashed">
-                    <Loader2 size={16} className="animate-spin text-primary" />
-                    <span>思考中，正在生成 SQL...</span>
+                {msg.isStreaming ? (
+                  <div className="bg-muted/30 px-5 py-3 rounded-2xl border border-dashed space-y-1.5">
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                      <Loader2 size={16} className="animate-spin text-primary" />
+                      <span>
+                        {waitingAssistantId != null && msg.id === waitingAssistantId
+                          ? (waitingPhaseText ?? "正在处理中...")
+                          : "正在处理中..."}
+                      </span>
+                    </div>
+                    {(() => {
+                      const activeTip =
+                        waitingTips && waitingTips.length > 0
+                          ? waitingTips[(waitingTipIndex ?? 0) % waitingTips.length]
+                          : undefined;
+                      const fallbackText =
+                        "你可以补充时间范围、维度和指标口径，通常会更快得到准确结果。";
+                      return (
+                        <div className="space-y-2">
+                          <p className="text-xs text-muted-foreground/90 leading-relaxed">
+                            提示：{activeTip?.text ?? fallbackText}
+                          </p>
+                          {activeTip && onApplyWaitingTip ? (
+                            <button
+                              type="button"
+                              onClick={() => onApplyWaitingTip(activeTip)}
+                              className="inline-flex items-center rounded-full border border-primary/30 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+                            >
+                              一键改写并重发
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
                   </div>
-                )}
+                ) : null}
                 {assistantShouldShowRetryButton(msg, idx, messages) ? (
                   <div className="mt-2 flex items-center justify-start">
                     <button
@@ -428,6 +506,7 @@ export function ChatBox({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const inFlightRef = useRef(false);
+  const pendingResendRef = useRef<string | null>(null);
   /** 避免重试里 setTimeout 调用到过期的 send（闭包 isLoading 仍为 true 会静默 return） */
   const sendRef = useRef<(query: string) => void>(() => {});
   const requestStartedAtRef = useRef<number | null>(null);
@@ -445,6 +524,12 @@ export function ChatBox({
   );
   const [welcomeShortcutsLoading, setWelcomeShortcutsLoading] = useState(!!user?.id);
   const [welcomeFromPersonal, setWelcomeFromPersonal] = useState(false);
+  const [waitingAssistantId, setWaitingAssistantId] = useState<string | null>(null);
+  const [waitingPhase, setWaitingPhase] = useState<StreamPhase>("understanding");
+  const [waitingTips, setWaitingTips] = useState<WaitingTipSuggestion[]>(
+    DEFAULT_WAITING_TIPS
+  );
+  const [waitingTipIndex, setWaitingTipIndex] = useState(0);
 
   useLayoutEffect(() => {
     setDefaultGroupIdx(pickWelcomeGroupIndex(user?.id));
@@ -556,6 +641,23 @@ export function ChatBox({
     return () => window.clearInterval(id);
   }, [isLoading]);
 
+  useEffect(() => {
+    if (!isLoading || waitingTips.length <= 1) return;
+    const id = window.setInterval(() => {
+      setWaitingTipIndex((idx) => (idx + 1) % waitingTips.length);
+    }, 4500);
+    return () => window.clearInterval(id);
+  }, [isLoading, waitingTips]);
+
+  useEffect(() => {
+    if (!isLoading || !executeQuery || waitingAssistantId == null) return;
+    const current = messages.find((m) => m.id === waitingAssistantId);
+    if (!current) return;
+    if (current.isStreaming && (current.sql?.trim()?.length ?? 0) > 20) {
+      setWaitingPhase("executing");
+    }
+  }, [isLoading, executeQuery, waitingAssistantId, messages]);
+
   // Load history when sessionId changes
   useEffect(() => {
     // 403 重试后 session 已切换，但消息已在 UI 中，跳过本次历史加载
@@ -645,6 +747,20 @@ export function ChatBox({
     abortRef.current?.abort();
   }, []);
 
+  const applyWaitingTip = useCallback(
+    (tip: WaitingTipSuggestion) => {
+      const rewritten = pickTipRewriteQuery(tip);
+      if (!rewritten) return;
+      if (inFlightRef.current) {
+        pendingResendRef.current = rewritten;
+        abortRef.current?.abort();
+        return;
+      }
+      sendRef.current(rewritten);
+    },
+    []
+  );
+
 
 
   const elapsedCompletedMs = messages.reduce(
@@ -682,6 +798,10 @@ export function ChatBox({
         sql_type: sqlType,
         isStreaming: true,
       };
+      setWaitingAssistantId(assistantMsgId);
+      setWaitingPhase("understanding");
+      setWaitingTips(DEFAULT_WAITING_TIPS);
+      setWaitingTipIndex(0);
 
       setMessages((prev) => [...prev, userMsg, assistantMsg]);
       setIsLoading(true);
@@ -775,7 +895,14 @@ export function ChatBox({
 
             if (event.type === "meta") {
               if (metaAt === null) metaAt = performance.now();
+              setWaitingPhase("planning_sql");
               const meta = event as MetaEvent;
+              setWaitingTips(
+                meta.waiting_tips && meta.waiting_tips.length > 0
+                  ? meta.waiting_tips
+                  : DEFAULT_WAITING_TIPS
+              );
+              setWaitingTipIndex(0);
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsgId
@@ -789,6 +916,7 @@ export function ChatBox({
               );
             } else if (event.type === "token") {
               if (firstTokenAt === null) firstTokenAt = performance.now();
+              setWaitingPhase("generating_sql");
               const token = event as TokenEvent;
               accumulatedSQL += token.text;
               pendingSQL = accumulatedSQL;
@@ -799,6 +927,7 @@ export function ChatBox({
                 }, 50);
               }
             } else if (event.type === "done") {
+              setWaitingPhase("summarizing");
               if (flushTimer !== null) {
                 clearTimeout(flushTimer);
                 flushTimer = null;
@@ -846,10 +975,15 @@ export function ChatBox({
                     result_preview: doneEvt.result_preview ?? undefined,
                     scope_applied: doneEvt.scope_applied ?? undefined,
                     scope_rewrite_note: doneEvt.scope_rewrite_note ?? undefined,
+                    scope_blocked: doneEvt.scope_blocked ?? undefined,
+                    scope_block_reason: doneEvt.scope_block_reason ?? undefined,
+                    scope_disallowed_provinces:
+                      doneEvt.scope_disallowed_provinces ?? undefined,
                     effective_sql: doneEvt.effective_sql ?? undefined,
                   };
                 })
               );
+              setWaitingAssistantId(null);
             } else if (event.type === "error") {
               if (flushTimer !== null) {
                 clearTimeout(flushTimer);
@@ -872,6 +1006,7 @@ export function ChatBox({
                     : m
                 )
               );
+              setWaitingAssistantId(null);
             }
           }
         }
@@ -917,11 +1052,19 @@ export function ChatBox({
             )
           );
         }
+        setWaitingAssistantId(null);
       } finally {
         inFlightRef.current = false;
         setIsLoading(false);
         requestStartedAtRef.current = null;
         abortRef.current = null;
+        const pendingResend = pendingResendRef.current;
+        pendingResendRef.current = null;
+        if (pendingResend) {
+          window.setTimeout(() => {
+            sendRef.current(pendingResend);
+          }, 0);
+        }
       }
     },
     [
@@ -988,6 +1131,11 @@ export function ChatBox({
           welcomeFromPersonal={welcomeFromPersonal}
           welcomeShowShuffle={!welcomeFromPersonal && !welcomeShortcutsLoading}
           onShuffleWelcomeGroup={bumpWelcomeGroup}
+          waitingAssistantId={waitingAssistantId}
+          waitingPhaseText={STREAM_PHASE_LABEL[waitingPhase]}
+          waitingTips={waitingTips}
+          waitingTipIndex={waitingTipIndex}
+          onApplyWaitingTip={applyWaitingTip}
         />
 
         <div ref={bottomRef} />

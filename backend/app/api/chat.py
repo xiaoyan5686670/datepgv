@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import uuid
 from typing import AsyncGenerator
@@ -36,6 +37,7 @@ from app.services.sql_metadata_guard import find_unknown_columns, find_unknown_t
 from app.services.scope_policy_service import resolve_user_scope
 from app.services.sql_scope_guard import rewrite_sql_with_scope
 from app.services.error_formatter import format_execution_error
+from app.services.scope_types import ResolvedScope
 
 router = APIRouter(
     prefix="/chat",
@@ -96,6 +98,104 @@ def _history_turn_text(m: ChatMessage) -> str:
     if m.generated_sql:
         return m.content
     return m.content
+
+
+def _build_scope_block_message(scope_provinces: set[str], disallowed: list[str]) -> str:
+    allowed = sorted([v for v in scope_provinces if v])
+    if allowed:
+        return (
+            f"当前账号仅允许查询以下省份的数据：{'、'.join(allowed)}。"
+            f"您本次请求包含未授权省份：{'、'.join(disallowed)}。"
+            "请调整查询范围后重试。"
+        )
+    return (
+        f"您本次请求包含未授权省份：{'、'.join(disallowed)}。"
+        "当前账号无可用省份权限，无法执行该查询。"
+    )
+
+
+def _build_personalized_waiting_tips(
+    user_query: str,
+    scope: ResolvedScope,
+    history: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    query = (user_query or "").strip()
+    tips: list[dict[str, str]] = []
+    lower_query = query.lower()
+
+    def _add_tip(tip_id: str, text: str, rewrite_query: str) -> None:
+        if not text.strip() or not rewrite_query.strip():
+            return
+        if any(t["id"] == tip_id for t in tips):
+            return
+        tips.append(
+            {
+                "id": tip_id,
+                "text": text.strip(),
+                "rewrite_query": rewrite_query.strip(),
+            }
+        )
+
+    if not re.search(r"\d{4}|本月|上月|本周|上周|今年|去年|季度|q[1-4]|近\d+天", lower_query):
+        _add_tip(
+            "time_range",
+            "补充时间范围会更快得到稳定结果，例如“最近30天”或“2026Q1”。",
+            f"{query}，时间范围限定在最近30天",
+        )
+
+    if not re.search(r"省|市|区|县|大区|区域|团队|部门|产品|品类", query):
+        _add_tip(
+            "dimension",
+            "建议指定分析维度（如省份/团队/产品），可以减少歧义。",
+            f"{query}，按省份维度展示",
+        )
+
+    if re.search(r"业绩|销售|回款|金额|订单|gmv", lower_query) and not re.search(
+        r"口径|签约|回款|实收|含税|不含税", query
+    ):
+        _add_tip(
+            "metric_definition",
+            "建议补充指标口径（如业绩=签约额或回款额），结论会更准确。",
+            f"{query}，其中业绩口径按回款额统计",
+        )
+
+    if not re.search(r"top|前\d+|排序|升序|降序|最高|最低", lower_query):
+        _add_tip(
+            "ranking",
+            "可补充排序和TopN，例如“按回款额降序取Top10”。",
+            f"{query}，按回款额降序取Top10",
+        )
+
+    if not scope.unrestricted and scope.province_values:
+        allowed = sorted([v for v in scope.province_values if v])
+        allowed_text = "、".join(allowed[:5])
+        _add_tip(
+            "scope_hint",
+            f"权限提示：当前账号可查询省份为 {allowed_text}。",
+            f"{query}（仅查询{allowed_text}范围）",
+        )
+
+    recent_user_queries = [
+        (h.get("content") or "").strip()
+        for h in history
+        if (h.get("role") == "user" and (h.get("content") or "").strip())
+    ]
+    if recent_user_queries:
+        last_query = recent_user_queries[-1]
+        _add_tip(
+            "history_followup",
+            f"可基于你上一问继续追问：{last_query[:30]}...",
+            f"{last_query}，并给出同比变化",
+        )
+
+    if not tips:
+        _add_tip(
+            "default_refine",
+            "可补充时间范围、统计口径和排序方式，通常会显著提升结果质量。",
+            f"{query}，并补充时间范围与统计口径",
+        )
+
+    return tips[:6]
 
 
 async def _summarize_query_result(
@@ -308,6 +408,10 @@ async def chat_stream(
     t = time.perf_counter()
     history = await _load_history(session_id, db)
     history_ms = (time.perf_counter() - t) * 1000
+    scope = await resolve_user_scope(current_user, db)
+    personalized_waiting_tips = _build_personalized_waiting_tips(
+        request.query, scope, history
+    )
 
     t = time.perf_counter()
     messages = rag.build_prompt(
@@ -349,6 +453,7 @@ async def chat_stream(
             "referenced_tables": referenced,
             "model": model_name,
             "sql_type": request.sql_type,
+            "waiting_tips": personalized_waiting_tips,
         }
         yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n".encode()
 
@@ -386,6 +491,9 @@ async def chat_stream(
         scope_applied = False
         scope_rewrite_note: str | None = None
         effective_sql = clean_sql if clean_sql else ""
+        scope_blocked = False
+        scope_block_reason: str | None = None
+        blocked_disallowed_provinces: list[str] = []
 
         t_exec_block = time.perf_counter()
         
@@ -490,7 +598,6 @@ async def chat_stream(
                         _SQL_COLUMN_REPAIR_MAX_ROUNDS,
                         still,
                     )
-                scope = await resolve_user_scope(current_user, db)
                 if settings.SCOPE_REWRITE_ENABLED:
                     rewrite = rewrite_sql_with_scope(
                         clean_sql, request.sql_type, scope, current_user
@@ -498,6 +605,9 @@ async def chat_stream(
                     effective_sql = rewrite.sql
                     scope_applied = rewrite.scope_applied
                     scope_rewrite_note = rewrite.rewrite_note
+                    scope_blocked = rewrite.should_block
+                    scope_block_reason = rewrite.block_reason
+                    blocked_disallowed_provinces = rewrite.mentioned_disallowed_provinces
                     if scope_applied:
                         logger.info(
                             "scope_rewrite_applied user_id=%s source=%s policy_ids=%s note=%s original_sql=%s effective_sql=%s",
@@ -508,67 +618,80 @@ async def chat_stream(
                             clean_sql,
                             effective_sql,
                         )
+                    if scope_blocked:
+                        answer = _build_scope_block_message(
+                            scope.province_values, blocked_disallowed_provinces
+                        )
+                        exec_error = scope_block_reason or answer
+                        logger.info(
+                            "scope_rewrite_blocked user_id=%s source=%s policy_ids=%s disallowed=%s",
+                            current_user.id,
+                            scope.source,
+                            scope.policy_ids,
+                            blocked_disallowed_provinces,
+                        )
                 else:
                     effective_sql = clean_sql
-                try:
-                    qres = await run_analytics_query(
-                        request.sql_type,
-                        effective_sql,
-                        db,
-                        scope=scope,
-                        connection_id=request.execute_connection_id,
-                    )
-                except (QueryExecutorError, Exception) as first_err:
-                    # Auto-retry for Doris/StarRocks type-mismatch errors:
-                    # e.g. "sum requires a numeric parameter: sum(ifnull(col, '0'))"
-                    err_str = str(first_err).lower()
-                    is_type_err = (
-                        "requires a numeric parameter" in err_str
-                        or "requires a decimal parameter" in err_str
-                        or ("errcode" in err_str and "type" in err_str and "mismatch" in err_str)
-                    )
-                    if is_type_err:
-                        fixed_sql = fix_ifnull_string_numerics(effective_sql)
-                        if fixed_sql != effective_sql:
-                            logger.info(
-                                "doris_type_error_autofix: retrying after ifnull string→numeric fix"
-                            )
-                            effective_sql = fixed_sql
-                            qres = await run_analytics_query(
-                                request.sql_type,
-                                effective_sql,
-                                db,
-                                scope=scope,
-                                connection_id=request.execute_connection_id,
-                            )
+                if not scope_blocked:
+                    try:
+                        qres = await run_analytics_query(
+                            request.sql_type,
+                            effective_sql,
+                            db,
+                            scope=scope,
+                            connection_id=request.execute_connection_id,
+                        )
+                    except (QueryExecutorError, Exception) as first_err:
+                        # Auto-retry for Doris/StarRocks type-mismatch errors:
+                        # e.g. "sum requires a numeric parameter: sum(ifnull(col, '0'))"
+                        err_str = str(first_err).lower()
+                        is_type_err = (
+                            "requires a numeric parameter" in err_str
+                            or "requires a decimal parameter" in err_str
+                            or ("errcode" in err_str and "type" in err_str and "mismatch" in err_str)
+                        )
+                        if is_type_err:
+                            fixed_sql = fix_ifnull_string_numerics(effective_sql)
+                            if fixed_sql != effective_sql:
+                                logger.info(
+                                    "doris_type_error_autofix: retrying after ifnull string→numeric fix"
+                                )
+                                effective_sql = fixed_sql
+                                qres = await run_analytics_query(
+                                    request.sql_type,
+                                    effective_sql,
+                                    db,
+                                    scope=scope,
+                                    connection_id=request.execute_connection_id,
+                                )
+                            else:
+                                raise
                         else:
                             raise
-                    else:
-                        raise
-                if not scope.unrestricted:
-                    scoped_rows = filter_rows_by_scope(qres.rows, scope)
-                    qres = QueryResult(
-                        columns=qres.columns,
-                        rows=scoped_rows,
-                        truncated=qres.truncated or (len(scoped_rows) < len(qres.rows)),
-                    )
-                executed = True
-                result_preview = {
-                    "columns": qres.columns,
-                    "rows": qres.rows,
-                    "truncated": qres.truncated,
-                }
-                try:
-                    answer = await _summarize_query_result(
-                        llm, db, request.query, qres
-                    )
-                except Exception as sum_err:
-                    logger.exception("Summarizing query result failed: %s", sum_err)
-                    answer, _ = format_execution_error(sum_err, _user_is_admin(current_user))
-                    if _user_is_admin(current_user):
-                        answer = f"查询已成功执行，但在生成自然语言总结时出现错误。原始信息：{sum_err}"
-                    else:
-                        answer = "查询已成功执行，但在生成总结时遇到一点小问题。您可以先查看下方的数据报表。"
+                    if not scope.unrestricted:
+                        scoped_rows = filter_rows_by_scope(qres.rows, scope)
+                        qres = QueryResult(
+                            columns=qres.columns,
+                            rows=scoped_rows,
+                            truncated=qres.truncated or (len(scoped_rows) < len(qres.rows)),
+                        )
+                    executed = True
+                    result_preview = {
+                        "columns": qres.columns,
+                        "rows": qres.rows,
+                        "truncated": qres.truncated,
+                    }
+                    try:
+                        answer = await _summarize_query_result(
+                            llm, db, request.query, qres
+                        )
+                    except Exception as sum_err:
+                        logger.exception("Summarizing query result failed: %s", sum_err)
+                        answer, _ = format_execution_error(sum_err, _user_is_admin(current_user))
+                        if _user_is_admin(current_user):
+                            answer = f"查询已成功执行，但在生成自然语言总结时出现错误。原始信息：{sum_err}"
+                        else:
+                            answer = "查询已成功执行，但在生成总结时遇到一点小问题。您可以先查看下方的数据报表。"
             except QueryExecutorError as e:
                 logger.warning("Query execution failed (QueryExecutorError): %s", e)
                 answer, exec_error = format_execution_error(e, _user_is_admin(current_user))
@@ -592,6 +715,9 @@ async def chat_stream(
             "result_preview": result_preview,
             "scope_applied": scope_applied,
             "scope_rewrite_note": scope_rewrite_note,
+            "scope_blocked": scope_blocked,
+            "scope_block_reason": scope_block_reason,
+            "scope_disallowed_provinces": blocked_disallowed_provinces,
         }
         yield f"data: {json.dumps(done, ensure_ascii=False, default=str)}\n\n".encode()
 
