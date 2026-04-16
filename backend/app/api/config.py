@@ -20,6 +20,7 @@ from app.deps.auth import require_admin
 from app.models.analytics_db_connection import AnalyticsDbConnection
 from app.models.llm_config import LLMConfig
 from app.models.data_scope_policy import DataScopePolicy
+from app.models.province_alias import ProvinceAlias
 from app.models.user import User
 from app.models.schemas import (
     AnalyticsDbConnectionCreate,
@@ -29,6 +30,9 @@ from app.models.schemas import (
     DataScopePolicyCreate,
     DataScopePolicyResponse,
     DataScopePolicyUpdate,
+    ProvinceAliasCreate,
+    ProvinceAliasResponse,
+    ProvinceAliasUpdate,
     LLMConfigCreate,
     LLMConfigResponse,
     LLMConfigTestResult,
@@ -39,6 +43,7 @@ from app.services.litellm_kwargs import (
     build_completion_kwargs,
     build_embedding_kwargs,
 )
+from app.services.province_alias_service import reload_province_alias_cache
 from app.services.scope_policy_service import resolve_user_scope
 
 router = APIRouter(
@@ -68,6 +73,13 @@ def _normalize_scope_policy_payload(data: dict) -> dict:
             detail=f"allowed_values 与 deny_values 不能重叠: {overlap}",
         )
     return data
+
+
+
+
+async def _reload_province_alias_cache_from_session(db: AsyncSession) -> None:
+    conn = await db.connection()
+    await reload_province_alias_cache(conn)
 
 
 def _to_response(row: LLMConfig) -> LLMConfigResponse:
@@ -376,6 +388,117 @@ async def bulk_set_scope_policies_enabled(
     for row in policies:
         await db.refresh(row)
     return [DataScopePolicyResponse.model_validate(r) for r in policies]
+
+
+@router.get("/province-aliases", response_model=list[ProvinceAliasResponse])
+async def list_province_aliases(
+    db: AsyncSession = Depends(get_db),
+) -> list[ProvinceAliasResponse]:
+    rows = await db.execute(
+        select(ProvinceAlias).order_by(
+            ProvinceAlias.enabled.desc(),
+            ProvinceAlias.priority.asc(),
+            ProvinceAlias.id.asc(),
+        )
+    )
+    return [ProvinceAliasResponse.model_validate(r) for r in rows.scalars().all()]
+
+
+@router.post("/province-aliases", response_model=ProvinceAliasResponse, status_code=201)
+async def create_province_alias(
+    payload: ProvinceAliasCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> ProvinceAliasResponse:
+    exists = await db.execute(
+        select(ProvinceAlias).where(ProvinceAlias.alias == payload.alias)
+    )
+    if exists.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="alias 已存在")
+    row = ProvinceAlias(
+        canonical_name=payload.canonical_name,
+        alias=payload.alias,
+        enabled=payload.enabled,
+        priority=payload.priority,
+        updated_by=current_user.username,
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    await _reload_province_alias_cache_from_session(db)
+    return ProvinceAliasResponse.model_validate(row)
+
+
+@router.put("/province-aliases/{alias_id}", response_model=ProvinceAliasResponse)
+async def update_province_alias(
+    alias_id: int,
+    payload: ProvinceAliasUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> ProvinceAliasResponse:
+    row = await db.get(ProvinceAlias, alias_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="省份别名不存在")
+
+    data = payload.model_dump(exclude_unset=True)
+    new_alias = data.get("alias")
+    if isinstance(new_alias, str) and new_alias != row.alias:
+        exists = await db.execute(
+            select(ProvinceAlias).where(ProvinceAlias.alias == new_alias)
+        )
+        if exists.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="alias 已存在")
+
+    data["updated_by"] = current_user.username
+    for k, v in data.items():
+        setattr(row, k, v)
+    await db.commit()
+    await db.refresh(row)
+    await _reload_province_alias_cache_from_session(db)
+    return ProvinceAliasResponse.model_validate(row)
+
+
+@router.delete("/province-aliases/{alias_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+async def delete_province_alias(
+    alias_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    row = await db.get(ProvinceAlias, alias_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="省份别名不存在")
+    await db.delete(row)
+    await db.commit()
+    await _reload_province_alias_cache_from_session(db)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/province-aliases/bulk-set-enabled", response_model=list[ProvinceAliasResponse])
+async def bulk_set_province_aliases_enabled(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+) -> list[ProvinceAliasResponse]:
+    ids = payload.get("ids")
+    enabled = payload.get("enabled")
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(status_code=422, detail="ids 不能为空")
+    if not isinstance(enabled, bool):
+        raise HTTPException(status_code=422, detail="enabled 必须是布尔值")
+
+    cast_ids = [int(i) for i in ids if str(i).isdigit()]
+    if not cast_ids:
+        raise HTTPException(status_code=422, detail="ids 无有效ID")
+
+    rows = await db.execute(select(ProvinceAlias).where(ProvinceAlias.id.in_(cast_ids)))
+    aliases = rows.scalars().all()
+    for row in aliases:
+        row.enabled = enabled
+        row.updated_by = current_user.username
+    await db.commit()
+    for row in aliases:
+        await db.refresh(row)
+    await _reload_province_alias_cache_from_session(db)
+    return [ProvinceAliasResponse.model_validate(r) for r in aliases]
 
 
 @router.get("/scope-policies/preview/{user_id}")

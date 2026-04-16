@@ -17,6 +17,11 @@ from app.core.config import settings
 from app.models.metadata import TableMetadata, TableMetadataEdge
 from app.models.user import User
 from app.services.embedding import EmbeddingService
+from app.services.sql_skill_service import (
+    SQLSkill,
+    list_skill_descriptions,
+    render_loaded_skills,
+)
 from app.services.viewer_sql_context import build_viewer_sql_context
 
 SQLType = Literal["hive", "postgresql", "oracle", "mysql"]
@@ -387,6 +392,8 @@ class RAGEngine:
         sql_type: SQLType,
         join_paths: list[str] | None = None,
         current_user: User | None = None,
+        selected_skills: list[SQLSkill] | None = None,
+        available_skills: list[SQLSkill] | None = None,
     ) -> list[dict[str, str]]:
         """Construct the messages list for the LLM."""
         if sql_type == "hive":
@@ -399,6 +406,11 @@ class RAGEngine:
             rules = ORACLE_RULES
 
         schemas = "\n\n".join(_format_table_schema(t) for t in tables)
+        skill_descriptions = "\n".join(list_skill_descriptions(available_skills or []))
+        loaded_skills = render_loaded_skills(selected_skills or [])
+        loaded_skills_block = (
+            f"\n\n已加载技能详情：\n{loaded_skills}" if loaded_skills else ""
+        )
         
         path_str = ""
         if join_paths:
@@ -415,11 +427,20 @@ class RAGEngine:
 
 {rules}
 
+可用技能（按需加载）：
+{skill_descriptions}
+
+请优先遵守已加载技能中的规则；若未加载任何技能，则仅按通用规则与表结构生成。
+{loaded_skills_block}
+
 严格要求：
 - 如果用户的请求是查询具体数据，请仅返回 SQL 代码块（```sql ... ```），并且不要附加任何额外解释。
 - SQL 中的「表名」与「列名」必须严格依据下方「可用的表结构」；不可臆造、自行翻译或缺失后缀。
 - 若「已知表之间的关联路径参考」给出了 JOIN ON 条件，应优先采用这些 ON 条件连接表。
-- 对于地区（省份、城市）、名称、部门等维度的文本过滤，用户往往使用简称（例如只说“广西”而不是完整的“广西壮族自治区”），请尽量使用 `LIKE '%词汇%'` 进行模糊匹配，或凭借常识补全完整名称，以避免数据漏查。
+- 对于地区（省份、城市）、名称、部门等维度过滤：
+  - 省份维度【禁止】使用 LIKE 模糊匹配与 LIKE 关联（例如 `PROV_NAME LIKE '%广西%'` 或 `A.PROV_NAME LIKE CONCAT('%', B.shengfen, '%')`）。
+  - 省份必须使用等值方式（`=` / `IN`）并优先采用规范值（如“广西壮族自治区”）或已知同义值集合（如“广西壮族自治区”与“广西”）。
+  - 仅非省份文本字段可按需使用 LIKE（如人员备注、自由文本）。
 - 如果用户的请求是宽泛的问答（例如“我可以查哪些数据”、“解释一下表的意思”）、打招呼，或者仅仅询问表结构，请直接用易于阅读的「自然语言」回答，并在回答中综合参考下方的「可用的表结构」。此种情况【不要】生成任何 SQL 语句。
 
 若无需生成SQL，请直接输出中文文本即可。"""

@@ -29,10 +29,12 @@ import {
   fetchUsers,
   importUsers,
   importUsersCsv,
+  previewScopeForUser,
   syncUsersFromOrgCsv,
   updateUser,
 } from "@/lib/api";
 import type {
+  DataScopePreview,
   EmployeeOrgLevel,
   OrgGraphNode,
   User,
@@ -99,6 +101,24 @@ function normalizeEmployeeLevel(v: string | undefined): EmployeeOrgLevel {
   return "staff";
 }
 
+type ScopeMode = "union" | "replace";
+
+function scopeModeLabel(mode: ScopeMode): string {
+  return mode === "replace" ? "个人覆盖" : "默认规则 + 个人叠加";
+}
+
+function collectScopeValues(
+  scope: UserScopeItem[],
+  dimension: "province" | "region" | "district"
+): string[] {
+  const item = scope.find((s) => s.dimension === dimension);
+  return item?.allowed_values ?? [];
+}
+
+function hasAnyCustomScope(scope: UserScopeItem[]): boolean {
+  return scope.some((s) => s.allowed_values.length > 0);
+}
+
 function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
   const [username, setUsername] = useState(editUser?.username ?? "");
   const [password, setPassword] = useState("");
@@ -117,10 +137,38 @@ function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
       { dimension: "district", allowed_values: [] },
     ]
   );
+  const initialMode = (
+    editUser?.data_scope?.find((s) => s.allowed_values.length > 0)?.merge_mode ?? "union"
+  ) as ScopeMode;
+  const [scopeMode, setScopeMode] = useState<ScopeMode>(initialMode);
+  const [scopePreview, setScopePreview] = useState<DataScopePreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const isEdit = !!editUser;
+
+  useEffect(() => {
+    if (!editUser?.id) {
+      setScopePreview(null);
+      return;
+    }
+    let cancelled = false;
+    setPreviewLoading(true);
+    previewScopeForUser(editUser.id)
+      .then((res) => {
+        if (!cancelled) setScopePreview(res);
+      })
+      .catch(() => {
+        if (!cancelled) setScopePreview(null);
+      })
+      .finally(() => {
+        if (!cancelled) setPreviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editUser?.id]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -135,7 +183,10 @@ function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
           district: district || null,
           employee_level: employeeLevel,
           is_active: isActive,
-          data_scope: dataScope,
+          data_scope: dataScope.map((item) => ({
+            ...item,
+            merge_mode: scopeMode,
+          })),
         };
         if (password.trim()) payload.password = password;
         if (username.trim() && username.trim() !== editUser.username) {
@@ -157,7 +208,10 @@ function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
           district: district || null,
           employee_level: employeeLevel,
           is_active: isActive,
-          data_scope: dataScope,
+          data_scope: dataScope.map((item) => ({
+            ...item,
+            merge_mode: scopeMode,
+          })),
         };
         await createUser(payload);
       }
@@ -306,9 +360,34 @@ function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
               <Shield size={16} className="text-primary" />
               数据范围权限 (Data Scope)
             </h3>
-            <p className="text-[11px] text-muted-foreground bg-muted/30 p-2 rounded border border-dashed">
-              单独为该用户配置允许查看的范围（覆盖或叠加在职级规则之上）。留空则使用默认规则。
-            </p>
+            <div className="text-[11px] text-muted-foreground bg-muted/30 p-2 rounded border border-dashed space-y-2">
+              <p>配置个人可见范围时，请明确选择生效方式，不再使用“留空=默认规则”的隐式逻辑。</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                {([
+                  { value: "union", label: "在默认规则上叠加" },
+                  { value: "replace", label: "覆盖默认规则" },
+                ] as const).map((item) => (
+                  <label
+                    key={item.value}
+                    className={cn(
+                      "flex items-center gap-2 rounded-md border px-2 py-1.5 cursor-pointer",
+                      scopeMode === item.value ? "border-primary bg-primary/5 text-foreground" : "border-border"
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="scope-mode"
+                      checked={scopeMode === item.value}
+                      onChange={() => setScopeMode(item.value)}
+                    />
+                    <span>{item.label}</span>
+                  </label>
+                ))}
+                <div className="rounded-md border px-2 py-1.5 text-muted-foreground">
+                  未配置个人范围时，按默认规则生效
+                </div>
+              </div>
+            </div>
 
             {(["province", "region", "district"] as const).map((dim) => {
               const labelMap: Record<string, string> = {
@@ -382,6 +461,82 @@ function UserFormModal({ editUser, onClose, onSaved }: UserFormModalProps) {
                 </div>
               );
             })}
+
+            <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
+              <div className="text-xs font-semibold">生效范围摘要</div>
+              {!hasAnyCustomScope(dataScope) ? (
+                <p className="text-xs text-muted-foreground">
+                  当前未配置个人范围，已自动使用默认规则。
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  当前模式：{scopeModeLabel(scopeMode)}。
+                  {scopeMode === "replace"
+                    ? "仅使用个人配置的省份/大区/区域。"
+                    : "在默认规则基础上增加个人配置。"}
+                </p>
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                {(["province", "region", "district"] as const).flatMap((dim) =>
+                  collectScopeValues(dataScope, dim).map((v) => (
+                    <span
+                      key={`${dim}-${v}`}
+                      className="text-[11px] px-2 py-0.5 rounded-full border bg-background"
+                    >
+                      {v}
+                      <span className="ml-1 text-muted-foreground">
+                        [{scopeMode === "replace" ? "个人覆盖" : "个人叠加"}]
+                      </span>
+                    </span>
+                  ))
+                )}
+                {!hasAnyCustomScope(dataScope) && (
+                  <span className="text-[11px] px-2 py-0.5 rounded-full border border-dashed text-muted-foreground">
+                    [默认规则]
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-lg border bg-background p-3 space-y-2">
+              <div className="text-xs font-semibold flex items-center justify-between">
+                <span>最终权限预览</span>
+                {previewLoading && <Loader2 size={12} className="animate-spin text-muted-foreground" />}
+              </div>
+              {scopePreview ? (
+                <div className="space-y-2">
+                  <p className="text-[11px] text-muted-foreground">
+                    服务端当前生效来源：{scopePreview.source}；策略ID：
+                    {scopePreview.policy_ids.length > 0 ? scopePreview.policy_ids.join(", ") : " 无"}。
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {([
+                      ...scopePreview.province_values.map((v) => `省:${v}`),
+                      ...scopePreview.region_values.map((v) => `大区:${v}`),
+                      ...scopePreview.district_values.map((v) => `区域:${v}`),
+                    ] as string[]).map((v) => (
+                      <span key={v} className="text-[11px] px-2 py-0.5 rounded-full border bg-muted/20">
+                        {v}
+                        <span className="ml-1 text-muted-foreground">
+                          [{hasAnyCustomScope(dataScope) ? "默认规则/个人配置" : "默认规则"}]
+                        </span>
+                      </span>
+                    ))}
+                    {scopePreview.unrestricted && (
+                      <span className="text-[11px] px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700">
+                        全量可见 [管理员]
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  {isEdit
+                    ? "暂无可用预览，请保存后重试。"
+                    : "新建用户暂无法调用服务端预览，保存后可查看最终权限。"}
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-2">
@@ -1156,6 +1311,7 @@ function UsersPageInner() {
                       <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">大区</th>
                       <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">省份</th>
                       <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">区域/片区</th>
+                      <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">生效范围摘要</th>
                       <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">状态</th>
                       <th className="text-left px-4 py-3 font-semibold text-xs uppercase tracking-wider text-muted-foreground">创建时间</th>
                       {isAdmin && (
@@ -1193,6 +1349,25 @@ function UsersPageInner() {
                         </td>
                         <td className="px-4 py-3 text-muted-foreground">
                           {u.district || <span className="text-muted-foreground/50">-</span>}
+                        </td>
+                        <td className="px-4 py-3">
+                          {hasAnyCustomScope(u.data_scope || []) ? (
+                            <div className="text-xs">
+                              <div className="font-medium">
+                                {scopeModeLabel(
+                                  (u.data_scope.find((s) => s.allowed_values.length > 0)?.merge_mode ??
+                                    "union") as ScopeMode
+                                )}
+                              </div>
+                              <div className="text-muted-foreground">
+                                省{collectScopeValues(u.data_scope, "province").length} /
+                                区{collectScopeValues(u.data_scope, "region").length} /
+                                片{collectScopeValues(u.data_scope, "district").length}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">默认规则</span>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <span className={cn(

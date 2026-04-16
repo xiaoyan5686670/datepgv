@@ -183,11 +183,13 @@ async def _get_user_data_scope(db: AsyncSession, user: User) -> list[UserScopeIt
 
     by_dim: dict[str, list[str]] = {}
     seen_vals: dict[str, set[str]] = {}
+    merge_modes: dict[str, str] = {}
     for p in policies:
         dim = p.dimension
         if dim not in seen_vals:
             seen_vals[dim] = set()
             by_dim[dim] = []
+            merge_modes[dim] = (p.merge_mode or "union")
         for v in p.allowed_values or []:
             text = str(v).strip()
             if text and text not in seen_vals[dim]:
@@ -205,6 +207,7 @@ async def _get_user_data_scope(db: AsyncSession, user: User) -> list[UserScopeIt
         UserScopeItem(
             dimension=d,  # type: ignore[arg-type]
             allowed_values=by_dim[d],
+            merge_mode=merge_modes.get(d, "union"),  # type: ignore[arg-type]
         )
         for d in ordered_dims
     ]
@@ -234,6 +237,7 @@ async def _sync_user_data_scope(
             subject_key=username,
             dimension=item.dimension,
             allowed_values=item.allowed_values,
+            merge_mode=(item.merge_mode or "union"),
             updated_by=updated_by,
             enabled=True,
             priority=1,  # Individual overrides usually have high priority

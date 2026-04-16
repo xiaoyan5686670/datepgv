@@ -76,7 +76,7 @@ def build_viewer_sql_context(user: User) -> str:
         if province:
             lines.append(
                 f"- 数据范围：仅本省。业务表中若存在省份/地区类字段，应对「{province}」"
-                "做等值或兼容匹配（取值须与业务数据一致，勿改写省份名称）。"
+                "做等值匹配（= / IN），禁止在省份字段上使用 LIKE 模糊匹配或 LIKE 关联。"
             )
         else:
             lines.append("- 数据范围：省区经理账号但未配置省份，请在有人员/工号类字段时尽量限制到与当前用户相关的行。")

@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  BarChart3,
+  ClipboardList,
   Menu,
   MessageSquarePlus,
   Trash2,
@@ -9,8 +9,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
+import Link from "next/link";
 import { ChatBox } from "@/components/ChatBox";
-import { ChatQueryStatsPanel } from "@/components/ChatQueryStatsPanel";
 import { ModelSwitcher } from "@/components/ModelSwitcher";
 import { AppTopNav } from "@/components/navigation/AppTopNav";
 import { useAuth } from "@/contexts/AuthContext";
@@ -48,7 +48,6 @@ function HomePageInner() {
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [refreshKey, setRefreshKey] = useState(0);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [showMyStats, setShowMyStats] = useState(false);
 
   // Reset session when the logged-in account changes (same browser, different user).
   useEffect(() => {
@@ -132,43 +131,53 @@ function HomePageInner() {
               <ModelSwitcher />
             </div>
             {isAdmin ? (
-              <div className="hidden lg:flex items-center bg-muted/50 border rounded-full p-1 max-w-full overflow-x-auto">
-                <button
-                  onClick={() => setSqlType("hive")}
-                  className={cn(
-                    "px-3 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
-                    sqlType === "hive" ? "bg-amber-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                  )}
+              <div className="hidden lg:flex items-center gap-2">
+                <div className="flex items-center bg-muted/50 border rounded-full p-1 max-w-full overflow-x-auto">
+                  <button
+                    onClick={() => setSqlType("hive")}
+                    className={cn(
+                      "px-3 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
+                      sqlType === "hive" ? "bg-amber-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    Hive
+                  </button>
+                  <button
+                    onClick={() => setSqlType("postgresql")}
+                    className={cn(
+                      "px-3 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
+                      sqlType === "postgresql" ? "bg-blue-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    PostgreSQL
+                  </button>
+                  <button
+                    onClick={() => setSqlType("mysql")}
+                    className={cn(
+                      "px-3 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
+                      sqlType === "mysql" ? "bg-orange-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    MySQL
+                  </button>
+                  <button
+                    onClick={() => setSqlType("oracle")}
+                    className={cn(
+                      "px-3 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
+                      sqlType === "oracle" ? "bg-emerald-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    Oracle
+                  </button>
+                </div>
+                <Link
+                  href="/admin?section=audit"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
+                  title="查看命中技能与阻断原因"
                 >
-                  Hive
-                </button>
-                <button
-                  onClick={() => setSqlType("postgresql")}
-                  className={cn(
-                    "px-3 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
-                    sqlType === "postgresql" ? "bg-blue-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  PostgreSQL
-                </button>
-                <button
-                  onClick={() => setSqlType("mysql")}
-                  className={cn(
-                    "px-3 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
-                    sqlType === "mysql" ? "bg-orange-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  MySQL
-                </button>
-                <button
-                  onClick={() => setSqlType("oracle")}
-                  className={cn(
-                    "px-3 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
-                    sqlType === "oracle" ? "bg-emerald-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  Oracle
-                </button>
+                  <ClipboardList size={13} />
+                  SQL 审计
+                </Link>
               </div>
             ) : null}
           </div>
@@ -188,21 +197,7 @@ function HomePageInner() {
               <MessageSquarePlus size={16} />
               开启新对话
             </button>
-            <button
-              type="button"
-              onClick={() => setShowMyStats((v) => !v)}
-              className="mt-2 flex items-center justify-center gap-2 w-full px-4 py-2 text-xs font-medium text-muted-foreground hover:text-foreground border rounded-xl bg-background hover:bg-muted/40 transition-all"
-            >
-              <BarChart3 size={14} />
-              {showMyStats ? "收起提问统计" : "我的提问统计"}
-            </button>
           </div>
-
-          {showMyStats && (
-            <div className="px-3 pb-3 max-h-[50vh] overflow-y-auto">
-              <ChatQueryStatsPanel variant="me" theme="default" />
-            </div>
-          )}
 
           {/* Session list */}
           <div className="flex-1 overflow-y-auto px-2 pb-4">
@@ -284,20 +279,7 @@ function HomePageInner() {
                   <MessageSquarePlus size={16} />
                   开启新对话
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setShowMyStats((v) => !v)}
-                  className="mt-2 flex items-center justify-center gap-2 w-full px-4 py-2 text-xs font-medium text-muted-foreground hover:text-foreground border rounded-xl bg-background hover:bg-muted/40 transition-all"
-                >
-                  <BarChart3 size={14} />
-                  {showMyStats ? "收起提问统计" : "我的提问统计"}
-                </button>
               </div>
-              {showMyStats && (
-                <div className="px-3 pb-3 max-h-[40vh] overflow-y-auto border-b">
-                  <ChatQueryStatsPanel variant="me" theme="default" />
-                </div>
-              )}
               <div className="flex-1 overflow-y-auto px-2 pb-4">
                 {sessions.length === 0 ? (
                   <div className="px-4 py-8 text-xs text-muted-foreground text-center italic">

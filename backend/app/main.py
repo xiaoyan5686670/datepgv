@@ -11,6 +11,7 @@ from app.api import (
     config,
     metadata,
     rag,
+    sql_skills,
     stats_chat_queries,
     users,
 )
@@ -46,6 +47,7 @@ app.include_router(metadata.router, prefix="/api/v1")
 app.include_router(config.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
 app.include_router(rag.router, prefix="/api/v1")
+app.include_router(sql_skills.router, prefix="/api/v1")
 app.include_router(stats_chat_queries.router, prefix="/api/v1")
 app.include_router(audit.router, prefix="/api/v1")
 app.include_router(admin_rag_permission.router, prefix="/api/v1")

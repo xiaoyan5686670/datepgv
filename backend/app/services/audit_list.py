@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.login_audit import LoginAudit
 from app.models.user import User
 
-_ORDERED_CTE = """
+_ORDERED_CTE_TEMPLATE = """
 WITH ordered AS (
   SELECT
     m.id AS mid,
@@ -22,6 +22,7 @@ WITH ordered AS (
     m.sql_type,
     m.executed,
     m.elapsed_ms,
+    {decision_trace_expr},
     m.created_at AS assistant_at,
     LAG(m.role) OVER w AS prev_role,
     LAG(m.content) OVER w AS prev_content,
@@ -96,11 +97,25 @@ async def list_query_audits(
     *,
     user_id: int | None,
     session_id: str | None,
+    skill_name: str | None,
+    blocked_only: bool | None,
+    executed: bool | None,
     day_from: date | None,
     day_to: date | None,
     skip: int,
     limit: int,
 ) -> tuple[list[dict[str, Any]], int]:
+    decision_trace_exists = bool(
+        (
+            await db.execute(
+                text(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_schema = 'public' AND table_name = 'chat_messages' "
+                    "AND column_name = 'decision_trace' LIMIT 1"
+                )
+            )
+        ).scalar()
+    )
     where_parts = [
         "o.role = 'assistant'",
         "o.generated_sql IS NOT NULL",
@@ -113,6 +128,17 @@ async def list_query_audits(
     if session_id:
         where_parts.append("o.session_id = :session_id")
         binds["session_id"] = session_id
+    if blocked_only is True and decision_trace_exists:
+        where_parts.append("COALESCE(o.decision_trace->>'scope_blocked', 'false') = 'true'")
+    if executed is True:
+        where_parts.append("o.executed IS TRUE")
+    elif executed is False:
+        where_parts.append("COALESCE(o.executed, FALSE) IS FALSE")
+    if skill_name and decision_trace_exists:
+        where_parts.append(
+            "EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(o.decision_trace->'selected_skill_names', '[]'::jsonb)) AS sn WHERE sn = :skill_name)"
+        )
+        binds["skill_name"] = skill_name
     if day_from is not None:
         where_parts.append("o.assistant_at >= :day_from_ts")
         binds["day_from_ts"] = _utc_day_start(day_from)
@@ -121,8 +147,16 @@ async def list_query_audits(
         binds["day_to_end_ts"] = _utc_day_end_exclusive(day_to)
 
     where_sql = " AND ".join(where_parts)
+    cte_decision_trace_expr = (
+        "m.decision_trace AS decision_trace"
+        if decision_trace_exists
+        else "NULL::jsonb AS decision_trace"
+    )
+    ordered_cte = _ORDERED_CTE_TEMPLATE.format(
+        decision_trace_expr=cte_decision_trace_expr
+    )
     from_sql = f"""
-{_ORDERED_CTE}
+{ordered_cte}
 SELECT
   o.session_id,
   s.user_id,
@@ -134,7 +168,8 @@ SELECT
   o.generated_sql,
   o.sql_type,
   o.executed,
-  o.elapsed_ms
+  o.elapsed_ms,
+  o.decision_trace
 FROM ordered o
 JOIN chat_sessions s ON s.session_id = o.session_id
 JOIN users u ON u.id = s.user_id
@@ -148,4 +183,13 @@ WHERE {where_sql}
     result = await db.execute(text(page_sql), binds_page)
     # 勿用 row._mapping：RowMapping 会把属性当作列名，触发 NoSuchColumnError('_mapping')
     items = [dict(r) for r in result.mappings().all()]
+    for item in items:
+        dt = item.get("decision_trace") or {}
+        if not isinstance(dt, dict):
+            dt = {}
+        names = dt.get("selected_skill_names")
+        item["selected_skill_names"] = names if isinstance(names, list) else []
+        item["scope_block_reason"] = dt.get("scope_block_reason")
+        item["execution_error_category"] = dt.get("execution_error_category")
+        item.pop("decision_trace", None)
     return items, total

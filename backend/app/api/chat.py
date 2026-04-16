@@ -28,16 +28,21 @@ from app.services.analytics_db_connection_service import resolve_execute_url
 from app.core.config import settings
 from app.models.user import User
 from app.services.query_executor import QueryExecutorError, QueryResult, run_analytics_query
-from app.services.org_hierarchy import filter_rows_by_scope
+from app.services.org_hierarchy import filter_rows_by_scope, load_org_data, org_identity_names
 from app.services.rag import RAGEngine, qualified_table_label
 from app.services.sql_generator import process_llm_output, fix_ifnull_string_numerics
 from app.services.sql_column_repair import repair_sql_unknown_columns, repair_sql_unknown_tables
+from app.services.sql_skill_service import choose_sql_skills, list_enabled_sql_skills
 from app.services.viewer_sql_context import build_viewer_sql_context
 from app.services.sql_metadata_guard import find_unknown_columns, find_unknown_tables
 from app.services.scope_policy_service import resolve_user_scope
 from app.services.sql_scope_guard import rewrite_sql_with_scope
 from app.services.error_formatter import format_execution_error
 from app.services.scope_types import ResolvedScope
+from app.services.province_alias_service import (
+    canonical_province_name,
+    province_canonicals_mentioned_in_text,
+)
 
 router = APIRouter(
     prefix="/chat",
@@ -112,6 +117,62 @@ def _build_scope_block_message(scope_provinces: set[str], disallowed: list[str])
         f"您本次请求包含未授权省份：{'、'.join(disallowed)}。"
         "当前账号无可用省份权限，无法执行该查询。"
     )
+
+
+def _build_employee_scope_block_message(disallowed: list[str]) -> str:
+    return (
+        f"您本次请求包含未授权员工：{'、'.join(disallowed)}。"
+        "普通员工仅允许查询本人数据，请调整查询条件后重试。"
+    )
+
+
+def _staff_scope_precheck(
+    user_query: str,
+    scope: ResolvedScope,
+    current_user: User,
+) -> tuple[list[str], list[str]]:
+    role_names = {r.name for r in current_user.roles} if current_user.roles else set()
+    if "admin" in role_names:
+        return [], []
+
+    disallowed_provinces: list[str] = []
+    disallowed_employees: list[str] = []
+    query_text = (user_query or "").strip()
+    if not query_text:
+        return disallowed_provinces, disallowed_employees
+
+    # Province precheck (works even when LLM does not produce SQL).
+    allowed_provinces = {canonical_province_name(v) for v in scope.province_values if v}
+    if not allowed_provinces and (current_user.employee_level or "staff").strip() == "staff":
+        own_prov = canonical_province_name(current_user.province)
+        if own_prov:
+            allowed_provinces.add(own_prov)
+    if allowed_provinces:
+        mentioned = province_canonicals_mentioned_in_text(query_text)
+        disallowed_provinces = sorted([p for p in mentioned if p not in allowed_provinces])
+
+    # Staff: querying other employees should be hard-blocked.
+    if (current_user.employee_level or "staff").strip() == "staff":
+        allowed_employees = {str(v).strip() for v in scope.employee_values if str(v).strip()}
+        org = load_org_data()
+        known_names = sorted(
+            [name for name in org.by_name_codes.keys() if len(str(name).strip()) >= 2],
+            key=len,
+            reverse=True,
+        )
+        mentions: set[str] = set()
+        for name in known_names:
+            if name in query_text:
+                mentions.add(name)
+        mentions.update(re.findall(r"\b[A-Za-z]{1,4}\d{3,}\b", query_text))
+        own_aliases = set(org_identity_names(current_user, org))
+        own_aliases.add((current_user.username or "").strip())
+        own_aliases.add((current_user.full_name or "").strip())
+        disallowed_employees = sorted(
+            [m for m in mentions if m and m not in allowed_employees and m not in own_aliases]
+        )
+
+    return disallowed_provinces, disallowed_employees
 
 
 def _build_personalized_waiting_tips(
@@ -352,6 +413,7 @@ async def _save_messages(
     exec_error: str | None = None,
     result_preview: dict | None = None,
     assistant_elapsed_ms: int | None = None,
+    decision_trace: dict | None = None,
 ) -> None:
     db.add(ChatMessage(session_id=session_id, role="user", content=user_query))
     db.add(
@@ -365,6 +427,7 @@ async def _save_messages(
             exec_error=exec_error,
             result_preview=result_preview,
             elapsed_ms=assistant_elapsed_ms,
+            decision_trace=decision_trace,
         )
     )
     await db.commit()
@@ -409,17 +472,38 @@ async def chat_stream(
     history = await _load_history(session_id, db)
     history_ms = (time.perf_counter() - t) * 1000
     scope = await resolve_user_scope(current_user, db)
+    precheck_disallowed_provinces, precheck_disallowed_employees = _staff_scope_precheck(
+        request.query, scope, current_user
+    )
+    precheck_block_message: str | None = None
+    if precheck_disallowed_provinces:
+        precheck_block_message = _build_scope_block_message(
+            scope.province_values, precheck_disallowed_provinces
+        )
+    elif precheck_disallowed_employees:
+        precheck_block_message = _build_employee_scope_block_message(
+            precheck_disallowed_employees
+        )
     personalized_waiting_tips = _build_personalized_waiting_tips(
         request.query, scope, history
     )
 
     t = time.perf_counter()
+    available_skills = list(await list_enabled_sql_skills(db))
+    selected_skills = choose_sql_skills(
+        request.query,
+        request.sql_type,
+        tables,
+        available_skills,
+    )
     messages = rag.build_prompt(
         request.query,
         tables,
         request.sql_type,
         join_paths,
         current_user=current_user,
+        selected_skills=selected_skills,
+        available_skills=available_skills,
     )
     if history:
         messages = [messages[0]] + history + [messages[1]]
@@ -457,6 +541,54 @@ async def chat_stream(
         }
         yield f"data: {json.dumps(meta, ensure_ascii=False)}\n\n".encode()
 
+        if precheck_block_message:
+            done = {
+                "type": "done",
+                "sql": "",
+                "effective_sql": "",
+                "answer": precheck_block_message,
+                "executed": False,
+                "exec_error": precheck_block_message,
+                "result_preview": None,
+                "scope_applied": False,
+                "scope_rewrite_note": None,
+                "scope_blocked": True,
+                "scope_block_reason": precheck_block_message,
+                "scope_disallowed_provinces": precheck_disallowed_provinces,
+                "selected_skill_names": [s.name for s in selected_skills],
+                "selected_skill_ids": [s.id for s in selected_skills if s.id is not None],
+            }
+            yield f"data: {json.dumps(done, ensure_ascii=False, default=str)}\n\n".encode()
+            await _save_messages(
+                session_id,
+                request.query,
+                precheck_block_message,
+                request.sql_type,
+                db,
+                generated_sql=None,
+                executed=False,
+                exec_error=precheck_block_message,
+                result_preview=None,
+                assistant_elapsed_ms=int((time.perf_counter() - t_stream_start) * 1000),
+                decision_trace={
+                    "selected_skill_names": [s.name for s in selected_skills],
+                    "selected_skill_ids": [s.id for s in selected_skills if s.id is not None],
+                    "scope_applied": False,
+                    "scope_blocked": True,
+                    "scope_block_reason": precheck_block_message,
+                    "scope_disallowed_provinces": precheck_disallowed_provinces,
+                    "scope_disallowed_employees": precheck_disallowed_employees,
+                    "sql_generated": False,
+                    "sql_executed": False,
+                    "execution_error_category": (
+                        "scope_blocked_province"
+                        if precheck_disallowed_provinces
+                        else "scope_blocked_employee"
+                    ),
+                },
+            )
+            return
+
         t_stream = time.perf_counter()
         first_token_ms: float | None = None
         try:
@@ -491,9 +623,12 @@ async def chat_stream(
         scope_applied = False
         scope_rewrite_note: str | None = None
         effective_sql = clean_sql if clean_sql else ""
+        selected_skill_names = [s.name for s in selected_skills]
+        selected_skill_ids = [s.id for s in selected_skills if s.id is not None]
         scope_blocked = False
         scope_block_reason: str | None = None
         blocked_disallowed_provinces: list[str] = []
+        scope_is_comprehensive = False
 
         t_exec_block = time.perf_counter()
         
@@ -600,7 +735,7 @@ async def chat_stream(
                     )
                 if settings.SCOPE_REWRITE_ENABLED:
                     rewrite = rewrite_sql_with_scope(
-                        clean_sql, request.sql_type, scope, current_user
+                        clean_sql, request.sql_type, scope, current_user, tables
                     )
                     effective_sql = rewrite.sql
                     scope_applied = rewrite.scope_applied
@@ -608,6 +743,15 @@ async def chat_stream(
                     scope_blocked = rewrite.should_block
                     scope_block_reason = rewrite.block_reason
                     blocked_disallowed_provinces = rewrite.mentioned_disallowed_provinces
+                    scope_is_comprehensive = rewrite.is_comprehensive
+                    logger.info(
+                        "DEBUG_EXECUTION: scope_rewrite context user=%s scope_source=%s comprehensive=%s applied=%s sql_pasted=%s",
+                        current_user.username,
+                        scope.source,
+                        scope_is_comprehensive,
+                        scope_applied,
+                        effective_sql[:200]
+                    )
                     if scope_applied:
                         logger.info(
                             "scope_rewrite_applied user_id=%s source=%s policy_ids=%s note=%s original_sql=%s effective_sql=%s",
@@ -640,6 +784,7 @@ async def chat_stream(
                             db,
                             scope=scope,
                             connection_id=request.execute_connection_id,
+                            skip_wrapper=scope_is_comprehensive,
                         )
                     except (QueryExecutorError, Exception) as first_err:
                         # Auto-retry for Doris/StarRocks type-mismatch errors:
@@ -663,18 +808,38 @@ async def chat_stream(
                                     db,
                                     scope=scope,
                                     connection_id=request.execute_connection_id,
+                                    skip_wrapper=scope_is_comprehensive,
                                 )
                             else:
                                 raise
                         else:
                             raise
-                    if not scope.unrestricted:
+                    logger.info(
+                        "DEBUG_EXECUTION: query_result user=%s raw_rows=%s columns=%s exec_sql=%s",
+                        current_user.username,
+                        len(qres.rows),
+                        qres.columns,
+                        effective_sql[:300]
+                    )
+                    if not scope.unrestricted and not scope_is_comprehensive:
                         scoped_rows = filter_rows_by_scope(qres.rows, scope)
+                        logger.info(
+                            "DEBUG_EXECUTION: scope_filter_applied user=%s before=%s after=%s",
+                            current_user.username,
+                            len(qres.rows),
+                            len(scoped_rows)
+                        )
                         qres = QueryResult(
                             columns=qres.columns,
                             rows=scoped_rows,
-                            truncated=qres.truncated or (len(scoped_rows) < len(qres.rows)),
+                            truncated=qres.truncated,
                         )
+                    else:
+                        if scope_is_comprehensive:
+                            logger.info(
+                                "DEBUG_EXECUTION: skipping_post_filter user=%s reason=comprehensive",
+                                current_user.username
+                            )
                     executed = True
                     result_preview = {
                         "columns": qres.columns,
@@ -718,6 +883,8 @@ async def chat_stream(
             "scope_blocked": scope_blocked,
             "scope_block_reason": scope_block_reason,
             "scope_disallowed_provinces": blocked_disallowed_provinces,
+            "selected_skill_names": selected_skill_names,
+            "selected_skill_ids": selected_skill_ids,
         }
         yield f"data: {json.dumps(done, ensure_ascii=False, default=str)}\n\n".encode()
 
@@ -734,6 +901,21 @@ async def chat_stream(
             exec_error=exec_error,
             result_preview=result_preview,
             assistant_elapsed_ms=assistant_elapsed_ms,
+            decision_trace={
+                "selected_skill_names": selected_skill_names,
+                "selected_skill_ids": selected_skill_ids,
+                "scope_applied": scope_applied,
+                "scope_blocked": scope_blocked,
+                "scope_block_reason": scope_block_reason,
+                "scope_disallowed_provinces": blocked_disallowed_provinces,
+                "sql_generated": bool(clean_sql),
+                "sql_executed": executed,
+                "execution_error_category": (
+                    "scope_blocked"
+                    if scope_blocked
+                    else ("query_error" if exec_error else None)
+                ),
+            },
         )
         save_ms = (time.perf_counter() - t_save) * 1000
 

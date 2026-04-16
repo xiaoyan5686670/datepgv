@@ -182,6 +182,9 @@ class QueryAuditItem(BaseModel):
     sql_type: str | None = None
     executed: bool | None = None
     elapsed_ms: int | None = None
+    selected_skill_names: list[str] = Field(default_factory=list)
+    scope_block_reason: str | None = None
+    execution_error_category: str | None = None
 
 
 class QueryAuditListResponse(BaseModel):
@@ -189,6 +192,94 @@ class QueryAuditListResponse(BaseModel):
     total: int
     skip: int
     limit: int
+
+
+class SQLSkillBase(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    description: str = Field(..., min_length=1, max_length=300)
+    content: str = Field(..., min_length=1)
+    keywords: list[str] = Field(default_factory=list)
+    sql_types: list[Literal["hive", "postgresql", "oracle", "mysql"]] = Field(
+        default_factory=list
+    )
+    priority: int = Field(default=100, ge=0, le=10000)
+    enabled: bool = True
+    updated_by: str | None = None
+
+    @field_validator("name", "description", "content")
+    @classmethod
+    def normalize_text(cls, v: str) -> str:
+        out = str(v or "").strip()
+        if not out:
+            raise ValueError("字段不能为空")
+        return out
+
+    @field_validator("keywords", mode="before")
+    @classmethod
+    def normalize_keywords(cls, v: Any) -> list[str]:
+        if v is None:
+            return []
+        if not isinstance(v, list):
+            raise ValueError("keywords 必须是数组")
+        out: list[str] = []
+        seen: set[str] = set()
+        for item in v:
+            text = str(item or "").strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            out.append(text)
+        return out
+
+
+class SQLSkillCreate(SQLSkillBase):
+    pass
+
+
+class SQLSkillUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    description: str | None = Field(default=None, min_length=1, max_length=300)
+    content: str | None = None
+    keywords: list[str] | None = None
+    sql_types: list[Literal["hive", "postgresql", "oracle", "mysql"]] | None = None
+    priority: int | None = Field(default=None, ge=0, le=10000)
+    enabled: bool | None = None
+    updated_by: str | None = None
+
+    @field_validator("name", "description", "content")
+    @classmethod
+    def normalize_optional_text(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        out = str(v or "").strip()
+        if not out:
+            raise ValueError("字段不能为空")
+        return out
+
+    @field_validator("keywords", mode="before")
+    @classmethod
+    def normalize_optional_keywords(cls, v: Any) -> list[str] | None:
+        if v is None:
+            return None
+        if not isinstance(v, list):
+            raise ValueError("keywords 必须是数组")
+        out: list[str] = []
+        seen: set[str] = set()
+        for item in v:
+            text = str(item or "").strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            out.append(text)
+        return out
+
+
+class SQLSkillResponse(SQLSkillBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 # ── DDL Import ────────────────────────────────────────────────────────────────
@@ -384,6 +475,55 @@ class DataScopePolicyResponse(DataScopePolicyBase):
     model_config = {"from_attributes": True}
 
 
+# ── Province Aliases ───────────────────────────────────────────────────────────
+
+
+class ProvinceAliasBase(BaseModel):
+    canonical_name: str = Field(..., min_length=1, max_length=50)
+    alias: str = Field(..., min_length=1, max_length=50)
+    enabled: bool = True
+    priority: int = Field(default=100, ge=0, le=10000)
+    updated_by: str | None = None
+
+    @field_validator("canonical_name", "alias")
+    @classmethod
+    def normalize_text(cls, v: str) -> str:
+        out = str(v or "").strip()
+        if not out:
+            raise ValueError("字段不能为空")
+        return out
+
+
+class ProvinceAliasCreate(ProvinceAliasBase):
+    pass
+
+
+class ProvinceAliasUpdate(BaseModel):
+    canonical_name: str | None = Field(default=None, min_length=1, max_length=50)
+    alias: str | None = Field(default=None, min_length=1, max_length=50)
+    enabled: bool | None = None
+    priority: int | None = Field(default=None, ge=0, le=10000)
+    updated_by: str | None = None
+
+    @field_validator("canonical_name", "alias")
+    @classmethod
+    def normalize_optional_text(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        out = str(v or "").strip()
+        if not out:
+            raise ValueError("字段不能为空")
+        return out
+
+
+class ProvinceAliasResponse(ProvinceAliasBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # ── Auth ────────────────────────────────────────────────────────────────────────
 
 
@@ -420,6 +560,7 @@ EmployeeOrgLevel = Literal[
 class UserScopeItem(BaseModel):
     dimension: Literal["province", "employee", "region", "district"]
     allowed_values: list[str] = Field(default_factory=list)
+    merge_mode: Literal["union", "replace"] = "union"
 
 
 class UserBase(BaseModel):

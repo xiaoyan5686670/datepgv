@@ -21,6 +21,7 @@ export type EmployeeOrgLevel =
 export interface UserScopeItem {
   dimension: "province" | "employee" | "region" | "district";
   allowed_values: string[];
+  merge_mode?: "union" | "replace";
 }
 
 
@@ -308,6 +309,9 @@ export interface QueryAuditItem {
   sql_type: SqlType | null;
   executed: boolean | null;
   elapsed_ms: number | null;
+  selected_skill_names?: string[];
+  scope_block_reason?: string | null;
+  execution_error_category?: string | null;
 }
 
 export interface QueryAuditListResponse {

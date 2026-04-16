@@ -41,6 +41,13 @@ _SCOPE_NAME_COLUMNS = (
     "manager_name",
     "mgr_name",
     "username",
+    "area_mgr_name",
+    "area_mgr",
+    "mgr",
+    "manager",
+    "区域经理",
+    "业务经理",
+    "员工姓名",
 )
 _SCOPE_PROVINCE_COLUMNS = (
     "shengfen",
@@ -48,18 +55,23 @@ _SCOPE_PROVINCE_COLUMNS = (
     "province_name",
     "prov",
     "prov_name",
+    "省份",
+    "省",
 )
 _SCOPE_REGION_COLUMNS = (
     "daqua",
+    "daqu",
     "org_region",
     "region",
     "region_name",
+    "大区",
 )
 _SCOPE_DISTRICT_COLUMNS = (
     "quyud",
     "district",
     "district_name",
     "area_name",
+    "区域",
 )
 
 
@@ -265,7 +277,10 @@ async def _probe_postgresql_columns(conn: asyncpg.Connection, sql: str) -> list[
 
 
 async def _run_postgresql(
-    dsn: str, sql: str, scope: ResolvedScope | None = None
+    dsn: str,
+    sql: str,
+    scope: ResolvedScope | None = None,
+    skip_wrapper: bool = False,
 ) -> QueryResult:
     dsn = _normalize_postgres_dsn(dsn)
     timeout = float(settings.ANALYTICS_QUERY_TIMEOUT_SEC)
@@ -275,20 +290,28 @@ async def _run_postgresql(
         async with conn.transaction(readonly=True):
             ms = max(1000, int(timeout * 1000))
             await conn.execute(f"SET LOCAL statement_timeout = {ms}")
-            probe_columns = await _probe_postgresql_columns(conn, sql)
-            scoped_sql = _build_scoped_wrapped_sql(
-                "postgresql", sql, probe_columns, scope
-            )
+            
+            if not skip_wrapper and scope and not scope.unrestricted:
+                probe_columns = await _probe_postgresql_columns(conn, sql)
+                exec_sql = _build_scoped_wrapped_sql(
+                    "postgresql", sql, probe_columns, scope
+                )
+            else:
+                exec_sql = sql
+
             rows_out: list[dict[str, Any]] = []
             truncated = False
-            async for rec in conn.cursor(scoped_sql, timeout=timeout):
+            async for rec in conn.cursor(exec_sql, timeout=timeout):
                 if len(rows_out) >= max_rows:
                     truncated = True
                     break
                 d = {k: _truncate_cell(rec[k]) for k in rec.keys()}
                 rows_out.append(d)
             if not rows_out:
+                logger.info("DEBUG_EXECUTION: postgres_result_empty user_query=%s", exec_sql[:200])
                 return QueryResult(columns=[], rows=[], truncated=False)
+            
+            logger.info("DEBUG_EXECUTION: postgres_result_success count=%s", len(rows_out))
             columns = list(rows_out[0].keys())
             return QueryResult(columns=columns, rows=rows_out, truncated=truncated)
     finally:
@@ -386,7 +409,10 @@ async def _probe_mysql_columns(cur: Any, sql: str, timeout: float) -> list[str]:
 
 
 async def _run_mysql(
-    dsn: str, sql: str, scope: ResolvedScope | None = None
+    dsn: str,
+    sql: str,
+    scope: ResolvedScope | None = None,
+    skip_wrapper: bool = False,
 ) -> QueryResult:
     aiomysql = _require_aiomysql()
 
@@ -414,16 +440,21 @@ async def _run_mysql(
                 await cur.execute("SET SESSION TRANSACTION READ ONLY")
             except Exception:
                 pass
+            
+            if not skip_wrapper and scope and not scope.unrestricted:
+                try:
+                    probe_columns = await _probe_mysql_columns(cur, sql, timeout)
+                    exec_sql = _build_scoped_wrapped_sql(
+                        "mysql", sql, probe_columns, scope
+                    )
+                except Exception as e:
+                    hint = friendly_mysql_access_error(e)
+                    raise QueryExecutorError(hint or str(e)) from e
+            else:
+                exec_sql = sql
+
             try:
-                probe_columns = await _probe_mysql_columns(cur, sql, timeout)
-                scoped_sql = _build_scoped_wrapped_sql(
-                    "mysql", sql, probe_columns, scope
-                )
-            except Exception as e:
-                hint = friendly_mysql_access_error(e)
-                raise QueryExecutorError(hint or str(e)) from e
-            try:
-                await asyncio.wait_for(cur.execute(scoped_sql), timeout=timeout)
+                await asyncio.wait_for(cur.execute(exec_sql), timeout=timeout)
             except Exception as e:
                 hint = friendly_mysql_access_error(e)
                 raise QueryExecutorError(hint or str(e)) from e
@@ -439,6 +470,14 @@ async def _run_mysql(
                 batch = batch[:max_rows]
             rows_out = [{k: _truncate_cell(v) for k, v in row.items()} for row in batch]
         await conn.commit()
+        if not rows_out:
+            logger.info("DEBUG_EXECUTION: mysql_result_empty user_query=%s", exec_sql[:200])
+            # Special check: If it was a SUM/COUNT aggregation, it should normally return 1 row (possibly NULL)
+            # but if it returns 0 rows, it might be due to a WHERE 1=0 or similar.
+            if "SUM(" in exec_sql.upper() or "COUNT(" in exec_sql.upper():
+                logger.warning("AGGREGATION_EMPTY_RESULT: Query contains SUM/COUNT but returned 0 rows. SQL: %s", exec_sql)
+        
+        logger.info("DEBUG_EXECUTION: mysql_result_success count=%s", len(rows_out))
         columns = list(rows_out[0].keys()) if rows_out else []
         return QueryResult(columns=columns, rows=rows_out, truncated=truncated)
     finally:
@@ -451,6 +490,7 @@ async def run_analytics_query(
     db: AsyncSession,
     scope: ResolvedScope | None = None,
     connection_id: int | None = None,
+    skip_wrapper: bool = False,
 ) -> QueryResult:
     safe_sql = assert_single_read_statement(sql)
     threshold_ms = float(settings.ANALYTICS_SLOW_QUERY_LOG_MS)
@@ -463,13 +503,13 @@ async def run_analytics_query(
                     "无法连接 PostgreSQL 业务库：请在「设置 → 数据连接」配置，"
                     "或设置 DATABASE_URL / ANALYTICS_POSTGRES_URL。"
                 )
-            return await _run_postgresql(dsn, safe_sql, scope)
+            return await _run_postgresql(dsn, safe_sql, scope, skip_wrapper)
         dsn = await resolve_execute_url(db, "mysql", connection_id)
         if not dsn:
             raise QueryExecutorError(
                 "未配置 MySQL 连接：请在「设置 → 数据连接」填写，或设置 ANALYTICS_MYSQL_URL。"
             )
-        return await _run_mysql(dsn, safe_sql, scope)
+        return await _run_mysql(dsn, safe_sql, scope, skip_wrapper)
     finally:
         elapsed_ms = (time.perf_counter() - t0) * 1000
         if elapsed_ms >= threshold_ms:

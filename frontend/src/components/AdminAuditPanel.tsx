@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw, Search } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, fetchAuditLogins, fetchAuditQueries } from "@/lib/api";
 import type {
@@ -19,6 +19,11 @@ export function AdminAuditPanel() {
   const [sub, setSub] = useState<SubTab>("logins");
   const [userIdStr, setUserIdStr] = useState("");
   const [sessionId, setSessionId] = useState("");
+  const [skillName, setSkillName] = useState("");
+  const [blockedOnly, setBlockedOnly] = useState(false);
+  const [executedFilter, setExecutedFilter] = useState<"all" | "true" | "false">(
+    "all"
+  );
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [skip, setSkip] = useState(0);
@@ -26,6 +31,7 @@ export function AdminAuditPanel() {
   const [err, setErr] = useState<string | null>(null);
   const [logins, setLogins] = useState<LoginAuditListResponse | null>(null);
   const [queries, setQueries] = useState<QueryAuditListResponse | null>(null);
+  const [queryNonce, setQueryNonce] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -48,6 +54,12 @@ export function AdminAuditPanel() {
         const res = await fetchAuditQueries({
           user_id: uid,
           session_id: sessionId.trim() || undefined,
+          skill_name: skillName.trim() || undefined,
+          blocked_only: blockedOnly || undefined,
+          executed:
+            executedFilter === "all"
+              ? undefined
+              : executedFilter === "true",
           date_from: dateFrom || undefined,
           date_to: dateTo || undefined,
           skip,
@@ -62,15 +74,33 @@ export function AdminAuditPanel() {
     } finally {
       setLoading(false);
     }
-  }, [sub, userIdStr, sessionId, dateFrom, dateTo, skip]);
+  }, [
+    sub,
+    userIdStr,
+    sessionId,
+    skillName,
+    blockedOnly,
+    executedFilter,
+    dateFrom,
+    dateTo,
+    skip,
+  ]);
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, queryNonce]);
 
-  useEffect(() => {
-    setSkip(0);
-  }, [sub, userIdStr, sessionId, dateFrom, dateTo]);
+  const handleQuery = () => {
+    if (skip !== 0) {
+      setSkip(0);
+      return;
+    }
+    setQueryNonce((n) => n + 1);
+  };
+
+  const handleRefresh = () => {
+    setQueryNonce((n) => n + 1);
+  };
 
   const total = sub === "logins" ? logins?.total ?? 0 : queries?.total ?? 0;
   const canPrev = skip > 0;
@@ -122,16 +152,51 @@ export function AdminAuditPanel() {
           />
         </label>
         {sub === "queries" ? (
-          <label className="flex flex-col gap-0.5 text-xs min-w-[120px]">
-            <span className="text-app-muted">会话 ID</span>
-            <input
-              type="text"
-              className="rounded-lg border border-app-border bg-app-input px-2 py-1.5 text-xs"
-              placeholder="可选"
-              value={sessionId}
-              onChange={(e) => setSessionId(e.target.value)}
-            />
-          </label>
+          <>
+            <label className="flex flex-col gap-0.5 text-xs min-w-[120px]">
+              <span className="text-app-muted">会话 ID</span>
+              <input
+                type="text"
+                className="rounded-lg border border-app-border bg-app-input px-2 py-1.5 text-xs"
+                placeholder="可选"
+                value={sessionId}
+                onChange={(e) => setSessionId(e.target.value)}
+              />
+            </label>
+            <label className="flex flex-col gap-0.5 text-xs min-w-[120px]">
+              <span className="text-app-muted">技能名</span>
+              <input
+                type="text"
+                className="rounded-lg border border-app-border bg-app-input px-2 py-1.5 text-xs"
+                placeholder="如 province_filtering"
+                value={skillName}
+                onChange={(e) => setSkillName(e.target.value)}
+              />
+            </label>
+            <label className="flex flex-col gap-0.5 text-xs min-w-[100px]">
+              <span className="text-app-muted">执行状态</span>
+              <select
+                className="rounded-lg border border-app-border bg-app-input px-2 py-1.5 text-xs"
+                value={executedFilter}
+                onChange={(e) =>
+                  setExecutedFilter(e.target.value as "all" | "true" | "false")
+                }
+              >
+                <option value="all">全部</option>
+                <option value="true">已执行</option>
+                <option value="false">未执行</option>
+              </select>
+            </label>
+            <label className="inline-flex items-center gap-1.5 text-xs text-app-muted">
+              <input
+                type="checkbox"
+                checked={blockedOnly}
+                onChange={(e) => setBlockedOnly(e.target.checked)}
+                className="rounded border-app-border"
+              />
+              仅看被阻断
+            </label>
+          </>
         ) : null}
         <label className="flex flex-col gap-0.5 text-xs">
           <span className="text-app-muted">开始日期</span>
@@ -153,11 +218,20 @@ export function AdminAuditPanel() {
         </label>
         <button
           type="button"
-          onClick={() => void load()}
+          onClick={handleQuery}
+          disabled={loading}
+          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium bg-app-accent text-white hover:bg-app-accent-hover disabled:opacity-50"
+        >
+          {loading ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+          查询
+        </button>
+        <button
+          type="button"
+          onClick={handleRefresh}
           disabled={loading}
           className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium border border-app-border text-app-muted hover:text-app-text disabled:opacity-50"
         >
-          {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+          <RefreshCw size={14} />
           刷新
         </button>
       </div>
@@ -277,7 +351,29 @@ function QueryTable({ items }: { items: QueryAuditItem[] }) {
             </span>
             <span>{r.sql_type ?? "—"}</span>
             <span>{r.executed ? "已执行" : r.executed === false ? "未执行" : "—"}</span>
+            {r.execution_error_category ? (
+              <span className="px-1.5 py-0.5 rounded border border-app-border bg-app-bg text-[10px]">
+                {r.execution_error_category}
+              </span>
+            ) : null}
           </div>
+          {r.selected_skill_names && r.selected_skill_names.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {r.selected_skill_names.map((name) => (
+                <span
+                  key={`${r.session_id}-${name}`}
+                  className="text-[10px] px-1.5 py-0.5 rounded border border-app-accent/30 bg-app-accent/10 text-app-accent"
+                >
+                  {name}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {r.scope_block_reason ? (
+            <div className="text-[11px] text-amber-500 border border-amber-500/30 rounded px-2 py-1 bg-amber-500/5">
+              阻断原因：{r.scope_block_reason}
+            </div>
+          ) : null}
           <p className="text-sm text-app-text whitespace-pre-wrap break-words">{r.user_query}</p>
           <pre className="text-[11px] bg-app-bg border border-app-border rounded p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-40">
             {r.generated_sql}

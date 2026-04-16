@@ -20,6 +20,7 @@ import type {
   UserImportResponse,
   DataScopePolicy,
   DataScopePreview,
+  ProvinceAlias,
 } from "@/types";
 
 export const ACCESS_TOKEN_KEY = "datepgv_access_token";
@@ -392,6 +393,9 @@ export async function fetchAuditLogins(params: {
 export async function fetchAuditQueries(params: {
   user_id?: number;
   session_id?: string;
+  skill_name?: string;
+  blocked_only?: boolean;
+  executed?: boolean;
   date_from?: string;
   date_to?: string;
   skip?: number;
@@ -401,6 +405,10 @@ export async function fetchAuditQueries(params: {
     `${apiV1Prefix()}/audit/queries${auditQueryString({
       user_id: params.user_id,
       session_id: params.session_id,
+      skill_name: params.skill_name,
+      blocked_only:
+        params.blocked_only === undefined ? undefined : String(params.blocked_only),
+      executed: params.executed === undefined ? undefined : String(params.executed),
       date_from: params.date_from,
       date_to: params.date_to,
       skip: params.skip,
@@ -691,6 +699,59 @@ export async function bulkSetScopePoliciesEnabled(
 export async function previewScopeForUser(userId: number): Promise<DataScopePreview> {
   const res = await apiFetch(`${apiV1Prefix()}/config/scope-policies/preview/${userId}`);
   if (!res.ok) throw new Error(await readErrorMessage(res, "获取策略预览失败"));
+  return res.json();
+}
+
+export async function fetchProvinceAliases(): Promise<ProvinceAlias[]> {
+  const res = await apiFetch(`${apiV1Prefix()}/config/province-aliases`);
+  if (!res.ok) throw new Error(await readErrorMessage(res, "加载省份别名失败"));
+  return res.json();
+}
+
+export async function createProvinceAlias(
+  payload: Omit<ProvinceAlias, "id" | "created_at" | "updated_at">
+): Promise<ProvinceAlias> {
+  const res = await apiFetch(`${apiV1Prefix()}/config/province-aliases`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await readErrorMessage(res, "创建省份别名失败"));
+  return res.json();
+}
+
+export async function updateProvinceAlias(
+  id: number,
+  payload: Partial<Omit<ProvinceAlias, "id" | "created_at" | "updated_at">>
+): Promise<ProvinceAlias> {
+  const res = await apiFetch(`${apiV1Prefix()}/config/province-aliases/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await readErrorMessage(res, "更新省份别名失败"));
+  return res.json();
+}
+
+export async function deleteProvinceAlias(id: number): Promise<void> {
+  const res = await apiFetch(`${apiV1Prefix()}/config/province-aliases/${id}`, {
+    method: "DELETE",
+  });
+  if (!res.ok && res.status !== 204) {
+    throw new Error(await readErrorMessage(res, "删除省份别名失败"));
+  }
+}
+
+export async function bulkSetProvinceAliasesEnabled(
+  ids: number[],
+  enabled: boolean
+): Promise<ProvinceAlias[]> {
+  const res = await apiFetch(`${apiV1Prefix()}/config/province-aliases/bulk-set-enabled`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids, enabled }),
+  });
+  if (!res.ok) throw new Error(await readErrorMessage(res, "批量更新省份别名失败"));
   return res.json();
 }
 
