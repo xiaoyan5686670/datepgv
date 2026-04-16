@@ -115,11 +115,31 @@ def test_alias_injection():
     print("Result: " + result.sql)
     assert "s.shengfen" in result.sql
 
+def test_unauthorized_mention_blocking():
+    # Scenario: User '荀海琪' asks for '刘纪港'
+    scope = ResolvedScope(
+        unrestricted=False,
+        employee_values={'荀海琪'} # Only allowed to see themselves
+    )
+    user = MockUser(full_name='荀海琪', username='XY000896', employee_level='area_manager')
+    
+    # Query mentions '刘纪港'
+    sql = "SELECT SUM(amount) FROM sales WHERE mgr_name = '刘纪港'"
+    result = rewrite_sql_with_scope(sql, "mysql", scope, user)
+    
+    print("\nInput: " + sql)
+    print("Should Block:", result.should_block)
+    print("Block Reason:", result.block_reason)
+    
+    assert result.should_block is True
+    assert "刘纪港" in result.block_reason
+    assert "未授权员工" in result.block_reason
+
 if __name__ == "__main__":
     try:
         test_aggregation_scoping()
-        test_metadata_aware_injection()
         test_alias_injection()
+        test_unauthorized_mention_blocking()
         print("\nVerification SUCCESS!")
     except Exception as e:
         print(f"\nVerification FAILED: {e}")

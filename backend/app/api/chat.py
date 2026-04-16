@@ -126,7 +126,7 @@ def _build_employee_scope_block_message(disallowed: list[str]) -> str:
     )
 
 
-def _staff_scope_precheck(
+def _user_scope_precheck(
     user_query: str,
     scope: ResolvedScope,
     current_user: User,
@@ -151,10 +151,17 @@ def _staff_scope_precheck(
         mentioned = province_canonicals_mentioned_in_text(query_text)
         disallowed_provinces = sorted([p for p in mentioned if p not in allowed_provinces])
 
-    # Staff: querying other employees should be hard-blocked.
-    if (current_user.employee_level or "staff").strip() == "staff":
+    # Employee / Entity precheck: block querying others if restricted.
+    if not scope.unrestricted:
+        # Base allowed set: scope values + own identity (name, username)
         allowed_employees = {str(v).strip() for v in scope.employee_values if str(v).strip()}
         org = load_org_data()
+        
+        # Merge self into allowed set for pre-check
+        allowed_employees.update(org_identity_names(current_user, org))
+        allowed_employees.add((current_user.username or "").strip())
+        allowed_employees.add((current_user.full_name or "").strip())
+        
         known_names = sorted(
             [name for name in org.by_name_codes.keys() if len(str(name).strip()) >= 2],
             key=len,
@@ -164,12 +171,11 @@ def _staff_scope_precheck(
         for name in known_names:
             if name in query_text:
                 mentions.add(name)
+        # ID-like mentions (e.g. XY001234)
         mentions.update(re.findall(r"\b[A-Za-z]{1,4}\d{3,}\b", query_text))
-        own_aliases = set(org_identity_names(current_user, org))
-        own_aliases.add((current_user.username or "").strip())
-        own_aliases.add((current_user.full_name or "").strip())
+        
         disallowed_employees = sorted(
-            [m for m in mentions if m and m not in allowed_employees and m not in own_aliases]
+            [m for m in mentions if m and m not in allowed_employees]
         )
 
     return disallowed_provinces, disallowed_employees
@@ -472,7 +478,7 @@ async def chat_stream(
     history = await _load_history(session_id, db)
     history_ms = (time.perf_counter() - t) * 1000
     scope = await resolve_user_scope(current_user, db)
-    precheck_disallowed_provinces, precheck_disallowed_employees = _staff_scope_precheck(
+    precheck_disallowed_provinces, precheck_disallowed_employees = _user_scope_precheck(
         request.query, scope, current_user
     )
     precheck_block_message: str | None = None

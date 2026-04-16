@@ -239,33 +239,52 @@ def _effective_district_allowlist_for_rewrite(
     return None
 
 
-def _extract_mentioned_provinces(parsed: exp.Expression) -> set[str]:
+def _extract_mentioned_values(
+    parsed: exp.Expression,
+    is_col_fn: callable[[exp.Column], bool],
+    canonical_fn: callable[[str], str] | None = None,
+    is_lit_fn: callable[[str], bool] | None = None,
+) -> set[str]:
+    """Extract strings mentioned in SQL that seem related to a specific dimension."""
     out: set[str] = set()
     for node in parsed.walk():
         if isinstance(node, exp.EQ):
             left, right = node.left, node.right
             if isinstance(left, exp.Column) and isinstance(right, exp.Literal) and right.is_string:
-                lit = canonical_province_name(right.this)
-                if _is_province_column(left) or is_known_province_literal(lit):
-                    out.add(lit)
+                val = right.this
+                if canonical_fn: val = canonical_fn(val)
+                if is_col_fn(left) or (is_lit_fn and is_lit_fn(val)):
+                    out.add(val)
             elif isinstance(right, exp.Column) and isinstance(left, exp.Literal) and left.is_string:
-                lit = canonical_province_name(left.this)
-                if _is_province_column(right) or is_known_province_literal(lit):
-                    out.add(lit)
+                val = left.this
+                if canonical_fn: val = canonical_fn(val)
+                if is_col_fn(right) or (is_lit_fn and is_lit_fn(val)):
+                    out.add(val)
         elif isinstance(node, exp.In):
             if not isinstance(node.this, exp.Column):
                 continue
             for item in node.expressions or []:
                 if isinstance(item, exp.Literal) and item.is_string:
-                    lit = canonical_province_name(item.this)
-                    if _is_province_column(node.this) or is_known_province_literal(lit):
-                        out.add(lit)
+                    val = item.this
+                    if canonical_fn: val = canonical_fn(val)
+                    if is_col_fn(node.this) or (is_lit_fn and is_lit_fn(val)):
+                        out.add(val)
         elif isinstance(node, exp.Like):
             if not isinstance(node.this, exp.Column):
                 continue
             expr = node.expression
-            if isinstance(expr, exp.Literal) and expr.is_string and _is_province_column(node.this):
-                out |= province_canonicals_mentioned_in_text(expr.this)
+            if isinstance(expr, exp.Literal) and expr.is_string and is_col_fn(node.this):
+                # For LIKE, we might need special handling (e.g. text extraction)
+                if canonical_fn:
+                    # In some contexts (like provinces), we search for names within the pattern
+                    # This is mostly for 'province' dimension legacy support
+                    if is_col_fn == _is_province_column:
+                         out |= province_canonicals_mentioned_in_text(expr.this)
+                    else:
+                         val = canonical_fn(expr.this.strip("%"))
+                         out.add(val)
+                else:
+                    out.add(expr.this.strip("%"))
     return {v for v in out if v}
 
 
@@ -438,24 +457,41 @@ def rewrite_sql_with_scope(
     changed = False
     details = []
     
-    # 1. Province Scope
+    # 1. Provide Tracking for disallowed mentions across all dimensions
+    all_disallowed: dict[str, list[str]] = {
+        "province": [],
+        "employee": [],
+        "region": [],
+        "district": []
+    }
+
+    # Helper to check and record disallowed mentions
+    def _check_disallowed(dimension: str, mentioned: set[str], allowed: list[str] | None):
+        if allowed is None:
+            return
+        allowed_set = set(allowed)
+        for m in sorted(mentioned):
+            if m not in allowed_set:
+                all_disallowed[dimension].append(m)
+
+    # Dimension 1: Province
     prov_allow = _effective_province_allowlist_for_rewrite(scope, viewer)
-    mentioned_provinces = _extract_mentioned_provinces(parsed)
-    disallowed_provinces = []
+    mentioned_prov = _extract_mentioned_values(parsed, _is_province_column, canonical_fn=canonical_province_name, is_lit_fn=is_known_province_literal)
+    _check_disallowed("province", mentioned_prov, prov_allow)
+    
     if prov_allow is not None:
         prov_literals = sorted(province_alias_literals_for_canonicals(set(prov_allow)))
-        disallowed_provinces = sorted([p for p in mentioned_provinces if p not in set(prov_allow)])
-        
-        c1 = _rewrite_conditions(
-            parsed, prov_literals, _is_province_column, is_known_province_literal, canonical_province_name
-        )
+        c1 = _rewrite_conditions(parsed, prov_literals, _is_province_column, is_known_province_literal, canonical_province_name)
         c2 = _inject_conditions(parsed, prov_literals, _is_province_column, "province", tables_metadata)
         if c1 or c2:
             changed = True
             details.append(f"限定省份：{'、'.join(prov_allow) if prov_allow else '无'}")
 
-    # 2. Employee Scope
+    # Dimension 2: Employee
     emp_allow = _effective_employee_allowlist_for_rewrite(scope, viewer)
+    mentioned_emp = _extract_mentioned_values(parsed, _is_employee_column)
+    _check_disallowed("employee", mentioned_emp, emp_allow)
+
     if emp_allow is not None:
         c1 = _rewrite_conditions(parsed, emp_allow, _is_employee_column)
         c2 = _inject_conditions(parsed, emp_allow, _is_employee_column, "sales_name", tables_metadata)
@@ -463,8 +499,11 @@ def rewrite_sql_with_scope(
             changed = True
             details.append(f"限定员工：{'、'.join(emp_allow) if emp_allow else '无'}")
 
-    # 3. Region Scope
+    # Dimension 3: Region
     reg_allow = _effective_region_allowlist_for_rewrite(scope, viewer)
+    mentioned_reg = _extract_mentioned_values(parsed, _is_region_column)
+    _check_disallowed("region", mentioned_reg, reg_allow)
+
     if reg_allow is not None:
         c1 = _rewrite_conditions(parsed, reg_allow, _is_region_column)
         c2 = _inject_conditions(parsed, reg_allow, _is_region_column, "region", tables_metadata)
@@ -472,8 +511,11 @@ def rewrite_sql_with_scope(
             changed = True
             details.append(f"限定大区：{'、'.join(reg_allow) if reg_allow else '无'}")
 
-    # 4. District/Area Scope
+    # Dimension 4: District
     dist_allow = _effective_district_allowlist_for_rewrite(scope, viewer)
+    mentioned_dist = _extract_mentioned_values(parsed, _is_district_column)
+    _check_disallowed("district", mentioned_dist, dist_allow)
+
     if dist_allow is not None:
         c1 = _rewrite_conditions(parsed, dist_allow, _is_district_column)
         c2 = _inject_conditions(parsed, dist_allow, _is_district_column, "area_name", tables_metadata)
@@ -481,25 +523,34 @@ def rewrite_sql_with_scope(
             changed = True
             details.append(f"限定区域：{'、'.join(dist_allow) if dist_allow else '无'}")
 
-    should_block = bool(disallowed_provinces)
-    block_reason = f"查询包含未授权省份：{'、'.join(disallowed_provinces)}。" if should_block else None
+    # Global Blocking Logic
+    blocking_parts = []
+    if all_disallowed["province"]:
+        blocking_parts.append(f"未授权省份：{'、'.join(all_disallowed['province'])}")
+    if all_disallowed["employee"]:
+        blocking_parts.append(f"未授权员工：{'、'.join(all_disallowed['employee'])}")
+    if all_disallowed["region"]:
+        blocking_parts.append(f"未授权大区：{'、'.join(all_disallowed['region'])}")
+    if all_disallowed["district"]:
+        blocking_parts.append(f"未授权区域：{'、'.join(all_disallowed['district'])}")
+
+    should_block = len(blocking_parts) > 0
+    block_reason = f"查询包含未授权的信息。{'; '.join(blocking_parts)}。请调整查询范围后再试。" if should_block else None
 
     note = None
     if changed:
         detail_msg = f"本次查询已自动根据您的权限限定了范围（{'; '.join(details)}）。"
-        if disallowed_provinces:
-            detail_msg += f" 以下未授权省份已从条件中移除：{'、'.join(disallowed_provinces)}。"
+        # Optional: mention what was removed if we didn't block (but now we mostly block)
         note = _join_scope_rewrite_lines(_scope_access_hint(viewer), detail_msg)
 
     # We consider it comprehensive if we successfully parsed and applied all applicable constraints
-    # This allows the query executor to skip the outer result-set wrapper which breaks aggregations
     is_comprehensive = True 
 
     return ScopeRewriteResult(
         sql=parsed.sql(dialect=dialect),
         scope_applied=changed,
         rewrite_note=note,
-        mentioned_disallowed_provinces=disallowed_provinces,
+        mentioned_disallowed_provinces=all_disallowed["province"],
         should_block=should_block,
         block_reason=block_reason,
         is_comprehensive=is_comprehensive,
