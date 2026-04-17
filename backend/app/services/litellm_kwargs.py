@@ -69,22 +69,22 @@ def _normalize_model_for_cfg(cfg: LiteLLMConfigParams) -> str:
     Normalize model string with provider hints from config context.
 
     - Keep existing provider/model unchanged.
-    - Keep existing DashScope bare-id normalization behavior.
-    - Auto-prefix bare Ollama-style ids (e.g. gemma4:latest) to ollama/<id>
-      when api_base points to Ollama or model looks like an Ollama tag.
+    - Check for Ollama indicators (':' tag or Ollama-like api_base) BEFORE DashScope shorthand.
+    - Auto-prefix bare Ollama-style ids (e.g. gemma4:latest) to ollama/<id>.
     """
-    normalized = normalize_litellm_model(cfg.model)
-    if not normalized or "/" in normalized:
-        return normalized
-
     raw = (cfg.model or "").strip()
+    if not raw or "/" in raw:
+        return raw
+
     api_base = (cfg.extra_params or {}).get("api_base") or cfg.api_base
     if (
         ":" in raw  # common Ollama tag form, e.g. llama3.2:latest
         or _looks_like_ollama_api_base(str(api_base) if api_base is not None else None)
     ):
-        return f"ollama/{normalized}"
-    return normalized
+        return f"ollama/{raw}"
+
+    # If no Ollama indicators, fall back to general LiteLLM normalization (DashScope shorthand etc).
+    return normalize_litellm_model(cfg.model)
 
 
 def normalize_litellm_model(model: str) -> str:

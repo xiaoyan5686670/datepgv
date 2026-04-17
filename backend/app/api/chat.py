@@ -581,10 +581,6 @@ async def chat_stream(
                     "selected_skill_ids": [s.id for s in selected_skills if s.id is not None],
                     "scope_applied": False,
                     "scope_blocked": True,
-                    "scope_block_reason": precheck_block_message,
-                    "scope_disallowed_provinces": precheck_disallowed_provinces,
-                    "scope_disallowed_employees": precheck_disallowed_employees,
-                    "sql_generated": False,
                     "sql_executed": False,
                     "execution_error_category": (
                         "scope_blocked_province"
@@ -597,6 +593,25 @@ async def chat_stream(
 
         t_stream = time.perf_counter()
         first_token_ms: float | None = None
+        stream_error_occurred = False
+
+        # --- Initialize state for saving/yielding 'done' ---
+        answer = ""
+        executed = False
+        exec_error: str | None = None
+        result_preview: dict | None = None
+        scope_applied = False
+        scope_rewrite_note: str | None = None
+        clean_sql: str | None = None
+        effective_sql: str | None = ""
+        selected_skill_names = [s.name for s in selected_skills]
+        selected_skill_ids = [s.id for s in selected_skills if s.id is not None]
+        scope_blocked = False
+        scope_block_reason: str | None = None
+        blocked_disallowed_provinces: list[str] = []
+        scope_is_comprehensive = False
+        t_exec_block = 0.0 # Will be updated if reached
+
         try:
             async for token in llm.stream(messages, db):
                 if first_token_ms is None:
@@ -605,6 +620,7 @@ async def chat_stream(
                 chunk = {"type": "token", "text": token}
                 yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode()
         except Exception as e:
+            stream_error_occurred = True
             if timing:
                 logger.info(
                     "chat_stream_timing rid=%s session_id=%s stream_failed_after_ms=%.1f error=%s",
@@ -613,82 +629,92 @@ async def chat_stream(
                     (time.perf_counter() - t_stream) * 1000,
                     e,
                 )
-            answer, _ = format_execution_error(e, _user_is_admin(current_user))
+            answer, exec_error = format_execution_error(e, _user_is_admin(current_user))
             err = {"type": "error", "message": answer}
             yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n".encode()
-            return
 
         stream_total_ms = (time.perf_counter() - t_stream) * 1000
 
-        clean_sql = process_llm_output(full_response, request.sql_type)
+        if not stream_error_occurred:
+            clean_sql = process_llm_output(full_response, request.sql_type)
+            effective_sql = clean_sql if clean_sql else ""
 
-        answer = ""
-        executed = False
-        exec_error: str | None = None
-        result_preview: dict | None = None
-        scope_applied = False
-        scope_rewrite_note: str | None = None
-        effective_sql = clean_sql if clean_sql else ""
-        selected_skill_names = [s.name for s in selected_skills]
-        selected_skill_ids = [s.id for s in selected_skills if s.id is not None]
-        scope_blocked = False
-        scope_block_reason: str | None = None
-        blocked_disallowed_provinces: list[str] = []
-        scope_is_comprehensive = False
-
-        t_exec_block = time.perf_counter()
-        
-        if clean_sql is None:
-            # Not a SQL query, it's just an informational answer
-            answer = full_response.strip()
-        elif not request.execute:
-            answer = "已按设置跳过数据库执行，仅生成 SQL。"
-        elif request.sql_type not in ("postgresql", "mysql"):
-            answer = (
-                f"当前为 {request.sql_type.upper()} 方言模式，系统未连接业务库执行查询，"
-                "请在目标环境中自行运行下方 SQL。"
-            )
-        elif request.sql_type == "postgresql" and not await resolve_execute_url(
-            db, "postgresql", request.execute_connection_id
-        ):
-            exec_error = (
-                "指定的 PostgreSQL 执行连接无效或未配置：请在「设置 → 数据连接」选择或配置，"
-                "或设置 DATABASE_URL / ANALYTICS_POSTGRES_URL。"
-                if request.execute_connection_id is not None
-                else (
-                    "未配置可用的 PostgreSQL 执行连接：请在「设置 → 数据连接」填写，"
+            t_exec_block_start = time.perf_counter()
+            if clean_sql is None:
+                # Not a SQL query, it's just an informational answer
+                answer = full_response.strip()
+            elif not request.execute:
+                answer = "已按设置跳过数据库执行，仅生成 SQL。"
+            elif request.sql_type not in ("postgresql", "mysql"):
+                answer = (
+                    f"当前为 {request.sql_type.upper()} 方言模式，系统未连接业务库执行查询，"
+                    "请在目标环境中自行运行下方 SQL。"
+                )
+            elif request.sql_type == "postgresql" and not await resolve_execute_url(
+                db, "postgresql", request.execute_connection_id
+            ):
+                exec_error = (
+                    "指定的 PostgreSQL 执行连接无效或未配置：请在「设置 → 数据连接」选择或配置，"
                     "或设置 DATABASE_URL / ANALYTICS_POSTGRES_URL。"
-                )
-            )
-            answer = exec_error
-        elif request.sql_type == "mysql" and not await resolve_execute_url(
-            db, "mysql", request.execute_connection_id
-        ):
-            exec_error = (
-                "指定的 MySQL 执行连接无效或未配置：请在「设置 → 数据连接」选择或配置，"
-                "或设置 ANALYTICS_MYSQL_URL。"
-                if request.execute_connection_id is not None
-                else (
-                    "未配置 MySQL 执行连接：请在「设置 → 数据连接」填写，或设置 ANALYTICS_MYSQL_URL。"
-                )
-            )
-            answer = exec_error
-        else:
-            try:
-                viewer_ctx = build_viewer_sql_context(current_user)
-                for repair_round in range(_SQL_COLUMN_REPAIR_MAX_ROUNDS):
-                    unknown_tables = find_unknown_tables(
-                        clean_sql, tables, request.sql_type
+                    if request.execute_connection_id is not None
+                    else (
+                        "未配置可用的 PostgreSQL 执行连接：请在「设置 → 数据连接」填写，"
+                        "或设置 DATABASE_URL / ANALYTICS_POSTGRES_URL。"
                     )
-                    if unknown_tables:
-                        logger.info(
-                            "chat_sql_table_repair round=%s unknown=%s",
-                            repair_round + 1,
-                            unknown_tables,
+                )
+                answer = exec_error
+            elif request.sql_type == "mysql" and not await resolve_execute_url(
+                db, "mysql", request.execute_connection_id
+            ):
+                exec_error = (
+                    "指定的 MySQL 执行连接无效或未配置：请在「设置 → 数据连接」选择或配置，"
+                    "或设置 ANALYTICS_MYSQL_URL。"
+                    if request.execute_connection_id is not None
+                    else (
+                        "未配置 MySQL 执行连接：请在「设置 → 数据连接」填写，或设置 ANALYTICS_MYSQL_URL。"
+                    )
+                )
+                answer = exec_error
+            else:
+                try:
+                    viewer_ctx = build_viewer_sql_context(current_user)
+                    for repair_round in range(_SQL_COLUMN_REPAIR_MAX_ROUNDS):
+                        unknown_tables = find_unknown_tables(
+                            clean_sql, tables, request.sql_type
                         )
-                        fixed_raw = await repair_sql_unknown_tables(
+                        if unknown_tables:
+                            logger.info(
+                                "chat_sql_table_repair round=%s unknown=%s",
+                                repair_round + 1,
+                                unknown_tables,
+                            )
+                            fixed_raw = await repair_sql_unknown_tables(
+                                clean_sql,
+                                unknown_tables,
+                                tables,
+                                join_paths,
+                                request.sql_type,
+                                llm,
+                                db,
+                                viewer_context=viewer_ctx,
+                            )
+                            new_sql = process_llm_output(fixed_raw, request.sql_type)
+                            if new_sql:
+                                clean_sql = new_sql
+                            continue
+                        unknown = find_unknown_columns(
+                            clean_sql, tables, request.sql_type
+                        )
+                        if not unknown:
+                            break
+                        logger.info(
+                            "chat_sql_column_repair round=%s unknown=%s",
+                            repair_round + 1,
+                            unknown,
+                        )
+                        fixed_raw = await repair_sql_unknown_columns(
                             clean_sql,
-                            unknown_tables,
+                            unknown,
                             tables,
                             join_paths,
                             request.sql_type,
@@ -699,200 +725,181 @@ async def chat_stream(
                         new_sql = process_llm_output(fixed_raw, request.sql_type)
                         if new_sql:
                             clean_sql = new_sql
-                        continue
-                    unknown = find_unknown_columns(
+                    still_tables = find_unknown_tables(
                         clean_sql, tables, request.sql_type
                     )
-                    if not unknown:
-                        break
-                    logger.info(
-                        "chat_sql_column_repair round=%s unknown=%s",
-                        repair_round + 1,
-                        unknown,
-                    )
-                    fixed_raw = await repair_sql_unknown_columns(
-                        clean_sql,
-                        unknown,
-                        tables,
-                        join_paths,
-                        request.sql_type,
-                        llm,
-                        db,
-                        viewer_context=viewer_ctx,
-                    )
-                    new_sql = process_llm_output(fixed_raw, request.sql_type)
-                    if new_sql:
-                        clean_sql = new_sql
-                still_tables = find_unknown_tables(
-                    clean_sql, tables, request.sql_type
-                )
-                if still_tables:
-                    logger.warning(
-                        "chat_sql_table_repair still unknown after %s rounds: %s; executing anyway",
-                        _SQL_COLUMN_REPAIR_MAX_ROUNDS,
-                        still_tables,
-                    )
-                still = find_unknown_columns(clean_sql, tables, request.sql_type)
-                if still:
-                    logger.warning(
-                        "chat_sql_column_repair still unknown after %s rounds: %s; executing anyway",
-                        _SQL_COLUMN_REPAIR_MAX_ROUNDS,
-                        still,
-                    )
-                if settings.SCOPE_REWRITE_ENABLED:
-                    rewrite = rewrite_sql_with_scope(
-                        clean_sql, request.sql_type, scope, current_user, tables
-                    )
-                    effective_sql = rewrite.sql
-                    scope_applied = rewrite.scope_applied
-                    scope_rewrite_note = rewrite.rewrite_note
-                    scope_blocked = rewrite.should_block
-                    scope_block_reason = rewrite.block_reason
-                    blocked_disallowed_provinces = rewrite.mentioned_disallowed_provinces
-                    scope_is_comprehensive = rewrite.is_comprehensive
-                    logger.info(
-                        "DEBUG_EXECUTION: scope_rewrite context user=%s scope_source=%s comprehensive=%s applied=%s sql_pasted=%s",
-                        current_user.username,
-                        scope.source,
-                        scope_is_comprehensive,
-                        scope_applied,
-                        effective_sql[:200]
-                    )
-                    if scope_applied:
+                    if still_tables:
+                        logger.warning(
+                            "chat_sql_table_repair still unknown after %s rounds: %s; executing anyway",
+                            _SQL_COLUMN_REPAIR_MAX_ROUNDS,
+                            still_tables,
+                        )
+                    still = find_unknown_columns(clean_sql, tables, request.sql_type)
+                    if still:
+                        logger.warning(
+                            "chat_sql_column_repair still unknown after %s rounds: %s; executing anyway",
+                            _SQL_COLUMN_REPAIR_MAX_ROUNDS,
+                            still,
+                        )
+                    if settings.SCOPE_REWRITE_ENABLED:
+                        rewrite = rewrite_sql_with_scope(
+                            clean_sql, request.sql_type, scope, current_user, tables
+                        )
+                        effective_sql = rewrite.sql
+                        scope_applied = rewrite.scope_applied
+                        scope_rewrite_note = rewrite.rewrite_note
+                        scope_blocked = rewrite.should_block
+                        scope_block_reason = rewrite.block_reason
+                        blocked_disallowed_provinces = rewrite.mentioned_disallowed_provinces
+                        scope_is_comprehensive = rewrite.is_comprehensive
                         logger.info(
-                            "scope_rewrite_applied user_id=%s source=%s policy_ids=%s note=%s original_sql=%s effective_sql=%s",
-                            current_user.id,
+                            "DEBUG_EXECUTION: scope_rewrite context user=%s scope_source=%s comprehensive=%s applied=%s sql_pasted=%s",
+                            current_user.username,
                             scope.source,
-                            scope.policy_ids,
-                            scope_rewrite_note,
-                            clean_sql,
-                            effective_sql,
+                            scope_is_comprehensive,
+                            scope_applied,
+                            effective_sql[:200]
                         )
-                    if scope_blocked:
-                        answer = _build_scope_block_message(
-                            scope.province_values, blocked_disallowed_provinces
-                        )
-                        exec_error = scope_block_reason or answer
-                        logger.info(
-                            "scope_rewrite_blocked user_id=%s source=%s policy_ids=%s disallowed=%s",
-                            current_user.id,
-                            scope.source,
-                            scope.policy_ids,
-                            blocked_disallowed_provinces,
-                        )
-                else:
-                    effective_sql = clean_sql
-                if not scope_blocked:
-                    try:
-                        qres = await run_analytics_query(
-                            request.sql_type,
-                            effective_sql,
-                            db,
-                            scope=scope,
-                            connection_id=request.execute_connection_id,
-                            skip_wrapper=scope_is_comprehensive,
-                        )
-                    except (QueryExecutorError, Exception) as first_err:
-                        # Auto-retry for Doris/StarRocks type-mismatch errors:
-                        # e.g. "sum requires a numeric parameter: sum(ifnull(col, '0'))"
-                        err_str = str(first_err).lower()
-                        is_type_err = (
-                            "requires a numeric parameter" in err_str
-                            or "requires a decimal parameter" in err_str
-                            or ("errcode" in err_str and "type" in err_str and "mismatch" in err_str)
-                        )
-                        if is_type_err:
-                            fixed_sql = fix_ifnull_string_numerics(effective_sql)
-                            if fixed_sql != effective_sql:
-                                logger.info(
-                                    "doris_type_error_autofix: retrying after ifnull string→numeric fix"
-                                )
-                                effective_sql = fixed_sql
-                                qres = await run_analytics_query(
-                                    request.sql_type,
-                                    effective_sql,
-                                    db,
-                                    scope=scope,
-                                    connection_id=request.execute_connection_id,
-                                    skip_wrapper=scope_is_comprehensive,
-                                )
+                        if scope_applied:
+                            logger.info(
+                                "scope_rewrite_applied user_id=%s source=%s policy_ids=%s note=%s original_sql=%s effective_sql=%s",
+                                current_user.id,
+                                scope.source,
+                                scope.policy_ids,
+                                scope_rewrite_note,
+                                clean_sql,
+                                effective_sql,
+                            )
+                        if scope_blocked:
+                            answer = _build_scope_block_message(
+                                scope.province_values, blocked_disallowed_provinces
+                            )
+                            exec_error = scope_block_reason or answer
+                            logger.info(
+                                "scope_rewrite_blocked user_id=%s source=%s policy_ids=%s disallowed=%s",
+                                current_user.id,
+                                scope.source,
+                                scope.policy_ids,
+                                blocked_disallowed_provinces,
+                            )
+                    else:
+                        effective_sql = clean_sql
+                    if not scope_blocked:
+                        try:
+                            qres = await run_analytics_query(
+                                request.sql_type,
+                                effective_sql,
+                                db,
+                                scope=scope,
+                                connection_id=request.execute_connection_id,
+                                skip_wrapper=scope_is_comprehensive,
+                            )
+                        except (QueryExecutorError, Exception) as first_err:
+                            # Auto-retry for Doris/StarRocks type-mismatch errors:
+                            # e.g. "sum requires a numeric parameter: sum(ifnull(col, '0'))"
+                            err_str = str(first_err).lower()
+                            is_type_err = (
+                                "requires a numeric parameter" in err_str
+                                or "requires a decimal parameter" in err_str
+                                or ("errcode" in err_str and "type" in err_str and "mismatch" in err_str)
+                            )
+                            if is_type_err:
+                                fixed_sql = fix_ifnull_string_numerics(effective_sql)
+                                if fixed_sql != effective_sql:
+                                    logger.info(
+                                        "doris_type_error_autofix: retrying after ifnull string→numeric fix"
+                                    )
+                                    effective_sql = fixed_sql
+                                    qres = await run_analytics_query(
+                                        request.sql_type,
+                                        effective_sql,
+                                        db,
+                                        scope=scope,
+                                        connection_id=request.execute_connection_id,
+                                        skip_wrapper=scope_is_comprehensive,
+                                    )
+                                else:
+                                    raise
                             else:
                                 raise
-                        else:
-                            raise
-                    logger.info(
-                        "DEBUG_EXECUTION: query_result user=%s raw_rows=%s columns=%s exec_sql=%s",
-                        current_user.username,
-                        len(qres.rows),
-                        qres.columns,
-                        effective_sql[:300]
-                    )
-                    if not scope.unrestricted and not scope_is_comprehensive:
-                        scoped_rows = filter_rows_by_scope(qres.rows, scope)
                         logger.info(
-                            "DEBUG_EXECUTION: scope_filter_applied user=%s before=%s after=%s",
+                            "DEBUG_EXECUTION: query_result user=%s raw_rows=%s columns=%s exec_sql=%s",
                             current_user.username,
                             len(qres.rows),
-                            len(scoped_rows)
+                            qres.columns,
+                            effective_sql[:300]
                         )
-                        qres = QueryResult(
-                            columns=qres.columns,
-                            rows=scoped_rows,
-                            truncated=qres.truncated,
-                        )
-                    else:
-                        if scope_is_comprehensive:
+                        if not scope.unrestricted and not scope_is_comprehensive:
+                            scoped_rows = filter_rows_by_scope(qres.rows, scope)
                             logger.info(
-                                "DEBUG_EXECUTION: skipping_post_filter user=%s reason=comprehensive",
-                                current_user.username
+                                "DEBUG_EXECUTION: scope_filter_applied user=%s before=%s after=%s",
+                                current_user.username,
+                                len(qres.rows),
+                                len(scoped_rows)
                             )
-                    executed = True
-                    result_preview = {
-                        "columns": qres.columns,
-                        "rows": qres.rows,
-                        "truncated": qres.truncated,
-                    }
-                    try:
-                        answer = await _summarize_query_result(
-                            llm, db, request.query, qres
-                        )
-                    except Exception as sum_err:
-                        logger.exception("Summarizing query result failed: %s", sum_err)
-                        answer, _ = format_execution_error(sum_err, _user_is_admin(current_user))
-                        if _user_is_admin(current_user):
-                            answer = f"查询已成功执行，但在生成自然语言总结时出现错误。原始信息：{sum_err}"
+                            qres = QueryResult(
+                                columns=qres.columns,
+                                rows=scoped_rows,
+                                truncated=qres.truncated,
+                            )
                         else:
-                            answer = "查询已成功执行，但在生成总结时遇到一点小问题。您可以先查看下方的数据报表。"
-            except QueryExecutorError as e:
-                logger.warning("Query execution failed (QueryExecutorError): %s", e)
-                answer, exec_error = format_execution_error(e, _user_is_admin(current_user))
-            except Exception as e:
-                logger.exception("Query execution failed (Unexpected Exception): %s", e)
-                answer, exec_error = format_execution_error(e, _user_is_admin(current_user))
+                            if scope_is_comprehensive:
+                                logger.info(
+                                    "DEBUG_EXECUTION: skipping_post_filter user=%s reason=comprehensive",
+                                    current_user.username
+                                )
+                        executed = True
+                        result_preview = {
+                            "columns": qres.columns,
+                            "rows": qres.rows,
+                            "truncated": qres.truncated,
+                        }
+                        try:
+                            answer = await _summarize_query_result(
+                                llm, db, request.query, qres
+                            )
+                        except Exception as sum_err:
+                            logger.exception("Summarizing query result failed: %s", sum_err)
+                            answer, _ = format_execution_error(sum_err, _user_is_admin(current_user))
+                            if _user_is_admin(current_user):
+                                answer = f"查询已成功执行，但在生成自然语言总结时出现错误。原始信息：{sum_err}"
+                            else:
+                                answer = "查询已成功执行，但在生成总结时遇到一点小问题。您可以先查看下方的数据报表。"
+                except QueryExecutorError as e:
+                    logger.warning("Query execution failed (QueryExecutorError): %s", e)
+                    answer, exec_error = format_execution_error(e, _user_is_admin(current_user))
+                except Exception as e:
+                    logger.exception("Query execution failed (Unexpected Exception): %s", e)
+                    answer, exec_error = format_execution_error(e, _user_is_admin(current_user))
 
-        if scope_rewrite_note:
-            answer = (answer + "\n\n" + scope_rewrite_note).strip()
+                if scope_rewrite_note:
+                    answer = (answer + "\n\n" + scope_rewrite_note).strip()
 
-        exec_block_ms = (time.perf_counter() - t_exec_block) * 1000
+                t_exec_block = (time.perf_counter() - t_exec_block_start) * 1000
 
-        done = {
-            "type": "done",
-            # 与 run_analytics_query 一致：展示实际执行的 SQL（含列修复与省份范围改写）
-            "sql": effective_sql,
-            "effective_sql": effective_sql,
-            "answer": answer,
-            "executed": executed,
-            "exec_error": exec_error,
-            "result_preview": result_preview,
-            "scope_applied": scope_applied,
-            "scope_rewrite_note": scope_rewrite_note,
-            "scope_blocked": scope_blocked,
-            "scope_block_reason": scope_block_reason,
-            "scope_disallowed_provinces": blocked_disallowed_provinces,
-            "selected_skill_names": selected_skill_names,
-            "selected_skill_ids": selected_skill_ids,
-        }
-        yield f"data: {json.dumps(done, ensure_ascii=False, default=str)}\n\n".encode()
+        exec_block_ms = t_exec_block
+
+        # Only yield 'done' if we didn't already yield an 'error' event during streaming.
+        # If stream_error_occurred is True, the client already received an 'error' event.
+        if not stream_error_occurred:
+            done = {
+                "type": "done",
+                # 与 run_analytics_query 一致：展示实际执行的 SQL（含列修复与省份范围改写）
+                "sql": effective_sql,
+                "effective_sql": effective_sql,
+                "answer": answer,
+                "executed": executed,
+                "exec_error": exec_error,
+                "result_preview": result_preview,
+                "scope_applied": scope_applied,
+                "scope_rewrite_note": scope_rewrite_note,
+                "scope_blocked": scope_blocked,
+                "scope_block_reason": scope_block_reason,
+                "scope_disallowed_provinces": blocked_disallowed_provinces,
+                "selected_skill_names": selected_skill_names,
+                "selected_skill_ids": selected_skill_ids,
+            }
+            yield f"data: {json.dumps(done, ensure_ascii=False, default=str)}\n\n".encode()
 
         t_save = time.perf_counter()
         assistant_elapsed_ms = int((t_save - t_stream_start) * 1000)
