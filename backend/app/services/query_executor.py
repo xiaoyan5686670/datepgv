@@ -100,24 +100,45 @@ def _strip_trailing_semicolon(sql: str) -> str:
 def assert_single_read_statement(sql: str) -> str:
     """
     Basic safety: one statement, intended read-only (SELECT / WITH).
+    Ignore semicolons found inside comments or string literals.
     """
-    s = _strip_trailing_semicolon(sql)
+    s = sql.strip()
     if not s:
         raise QueryExecutorError("SQL 为空，无法执行")
-    core = s
-    if ";" in core:
-        raise QueryExecutorError("不允许一次执行多条 SQL")
+
+    # 1. Remove standard comments to avoid false-positive semicolons
+    # Remove block comments /* ... */
+    no_comments = re.sub(r"/\*.*?\*/", "", s, flags=re.DOTALL)
+    # Remove line comments -- ...
+    lines = []
+    for line in no_comments.splitlines():
+        idx = line.find("--")
+        if idx != -1:
+            lines.append(line[:idx])
+        else:
+            lines.append(line)
+    core = "\n".join(lines).strip()
+
+    # 2. Remove string literals '...' and "..." (simplified)
+    # This prevents SELECT ';' from being blocked.
+    core = re.sub(r"'(?:''|[^'])*'", "''", core)
+    core = re.sub(r'"(?:""|[^"])*"', '""', core)
+
+    # 3. Check for multiple statements
+    # We allow exactly one trailing semicolon after stripping
+    core_stripped = core.rstrip().rstrip(";")
+    if ";" in core_stripped:
+        raise QueryExecutorError("不允许一次执行多条 SQL (检测到分隔符「;」)")
+
+    # 4. Check for forbidden keywords
     if _FORBIDDEN.search(core):
         raise QueryExecutorError("仅允许只读查询（SELECT / WITH 等）")
-    probe = core.lstrip()
-    while probe.startswith("--"):
-        next_nl = probe.find("\n")
-        if next_nl == -1:
-            probe = ""
-            break
-        probe = probe[next_nl + 1 :].lstrip()
-    if not probe:
+
+    # 5. Final check for valid content
+    if not core_stripped.strip():
         raise QueryExecutorError("SQL 无有效语句")
+
+    return s
     upper = probe.upper()
     if upper.startswith("SELECT") or upper.startswith("WITH") or upper.startswith("("):
         return s

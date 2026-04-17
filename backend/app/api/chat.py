@@ -517,26 +517,16 @@ async def chat_stream(
 
     pre_stream_ms = (time.perf_counter() - t0) * 1000
     referenced = [qualified_table_label(t) for t in tables]
-    if timing:
-        logger.info(
-            "chat_stream_timing rid=%s session_id=%s pre_stream_ms=%.1f "
-            "ensure_ms=%.1f retrieve_ms=%.1f history_ms=%.1f prompt_ms=%.1f",
-            timing_rid,
-            session_id,
-            pre_stream_ms,
-            ensure_ms,
-            retrieve_ms,
-            history_ms,
-            prompt_ms,
-        )
+    t = time.perf_counter()
+    model_name = await llm.model_name(db)
+    model_name_ms = (time.perf_counter() - t) * 1000
+
+    pre_stream_ms = (time.perf_counter() - t0) * 1000
 
     async def event_generator() -> AsyncGenerator[bytes, None]:
         t_stream_start = time.perf_counter()
         full_response = ""
 
-        t_meta = time.perf_counter()
-        model_name = await llm.model_name(db)
-        model_name_ms = (time.perf_counter() - t_meta) * 1000
         meta = {
             "type": "meta",
             "session_id": session_id,
@@ -934,10 +924,12 @@ async def chat_stream(
 
         if timing:
             logger.info(
-                "chat_stream_timing rid=%s session_id=%s model_name_ms=%.1f "
-                "first_sql_token_ms=%s stream_total_ms=%.1f exec_and_summarize_ms=%.1f save_ms=%.1f",
+                "chat_stream_timing rid=%s session_id=%s pre_stream_ms=%.1f "
+                "model_name_ms=%.1f first_sql_token_ms=%s stream_total_ms=%.1f "
+                "exec_and_summarize_ms=%.1f save_ms=%.1f",
                 timing_rid,
                 session_id,
+                pre_stream_ms,
                 model_name_ms,
                 f"{first_token_ms:.1f}" if first_token_ms is not None else "n/a",
                 stream_total_ms,

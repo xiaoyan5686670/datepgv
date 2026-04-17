@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut } from "lucide-react";
+import { LogOut, MapPin, Shield } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
 const LEVEL_LABEL: Record<string, string> = {
@@ -29,12 +29,30 @@ function trimOrDash(value: string | null | undefined): string {
   return t || "—";
 }
 
-/** 大区，省，职位（纯文案，不含市/区县） */
-function buildOrgMetaLine(user: {
-  org_region?: string | null;
-  province?: string | null;
-}, roleLabel: string): string {
-  return `${trimOrDash(user.org_region)}，${trimOrDash(user.province)}，${roleLabel}`;
+/** 格式化显示组织与职级 */
+function OrgBadges({ user, label, avatarClass }: { 
+  user: { org_region?: string | null; province?: string | null };
+  label: string;
+  avatarClass: string;
+}) {
+  const region = user.org_region?.trim();
+  const province = user.province?.trim();
+  const location = [region, province].filter(Boolean).join(" · ");
+
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-1.5 mt-0.5">
+      {location && (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-muted/60 text-[10px] font-medium text-muted-foreground border border-border/40">
+          <MapPin size={10} className="text-muted-foreground/70" />
+          {location}
+        </span>
+      )}
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-bold shadow-sm ${avatarClass.replace(/bg-\w+-100|dark:bg-\w+-900\/40|w-9|h-9|rounded-full|flex|items-center|justify-center|font-bold|text-sm|select-none|shrink-0|border-2/g, '').trim()}`}>
+        <Shield size={10} className="opacity-70" />
+        {label}
+      </span>
+    </div>
+  );
 }
 
 export function UserChip() {
@@ -46,41 +64,35 @@ export function UserChip() {
   const avatar = AVATAR_CLASS[level] ?? AVATAR_CLASS.staff;
 
   const displayName = user.full_name?.trim() || user.username;
-  const avatarChar = displayName[0] ?? "U";
-  const metaLine = buildOrgMetaLine(user, label);
-  const chipTitle = `${displayName} · ${metaLine}`;
+  const avatarChar = displayName[0]?.toUpperCase() ?? "U";
 
   return (
-    <div className="flex items-center gap-2 sm:gap-2.5" title={chipTitle}>
-      <div className="flex flex-col items-end gap-0.5 sm:gap-1 min-w-0 max-w-[calc(100vw-11rem)] sm:max-w-[min(240px,32vw)]">
+    <div className="flex items-center gap-3">
+      <div className="flex flex-col items-end min-w-0">
         <span
-          className="text-xs sm:text-sm font-semibold text-app-text leading-tight truncate max-w-full text-right"
+          className="text-sm font-bold text-foreground leading-tight truncate max-w-[150px]"
           title={displayName}
         >
           {displayName}
         </span>
-        <span
-          className="inline-block max-w-full min-w-0 rounded-full border border-app-border bg-app-surface/90 px-2.5 py-1 sm:px-3 sm:py-1 text-[10px] sm:text-xs text-app-text-secondary leading-snug text-right tracking-wide whitespace-nowrap truncate shadow-sm"
-          title={metaLine}
-        >
-          {metaLine}
-        </span>
+        <OrgBadges user={user} label={label} avatarClass={avatar} />
       </div>
 
       <div
-        className={`w-9 h-9 rounded-full border-2 flex items-center justify-center font-bold text-sm select-none shrink-0 ${avatar}`}
-        title={chipTitle}
+        className={`w-9 h-9 rounded-xl border-2 flex items-center justify-center font-bold text-sm select-none shrink-0 shadow-sm transition-transform hover:scale-105 ${avatar}`}
       >
         {avatarChar}
       </div>
 
+      <div className="h-8 w-px bg-border mx-1 hidden sm:block" />
+
       <button
         onClick={() => logout()}
-        className="p-2 rounded-lg border border-app-border bg-app-surface/80 hover:bg-red-500/10 text-app-muted hover:text-red-600 dark:hover:text-red-400 transition-colors"
+        className="p-2 rounded-xl border border-border bg-background hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-all group"
         aria-label="退出登录"
         title="退出登录"
       >
-        <LogOut size={14} />
+        <LogOut size={15} className="group-hover:translate-x-0.5 transition-transform" />
       </button>
     </div>
   );

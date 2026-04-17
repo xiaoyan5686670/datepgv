@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import Link from "next/link";
 import { ChatBox } from "@/components/ChatBox";
+import { DatabaseSwitcher } from "@/components/DatabaseSwitcher";
 import { ModelSwitcher } from "@/components/ModelSwitcher";
 import { AppTopNav } from "@/components/navigation/AppTopNav";
 import { useAuth } from "@/contexts/AuthContext";
@@ -132,51 +133,14 @@ function HomePageInner() {
             </div>
             {isAdmin ? (
               <div className="hidden lg:flex items-center gap-2">
-                <div className="flex items-center bg-muted/50 border rounded-full p-1 max-w-full overflow-x-auto">
-                  <button
-                    onClick={() => setSqlType("hive")}
-                    className={cn(
-                      "px-3 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
-                      sqlType === "hive" ? "bg-amber-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    Hive
-                  </button>
-                  <button
-                    onClick={() => setSqlType("postgresql")}
-                    className={cn(
-                      "px-3 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
-                      sqlType === "postgresql" ? "bg-blue-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    PostgreSQL
-                  </button>
-                  <button
-                    onClick={() => setSqlType("mysql")}
-                    className={cn(
-                      "px-3 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
-                      sqlType === "mysql" ? "bg-orange-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    MySQL
-                  </button>
-                  <button
-                    onClick={() => setSqlType("oracle")}
-                    className={cn(
-                      "px-3 py-1 rounded-full text-[11px] font-semibold transition-all whitespace-nowrap",
-                      sqlType === "oracle" ? "bg-emerald-500 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    Oracle
-                  </button>
-                </div>
+                <DatabaseSwitcher value={sqlType} onChange={setSqlType} />
                 <Link
                   href="/admin?section=audit"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-[11px] font-bold text-muted-foreground hover:text-foreground hover:bg-accent transition-all shadow-sm"
                   title="查看命中技能与阻断原因"
                 >
                   <ClipboardList size={13} />
-                  SQL 审计
+                  审计
                 </Link>
               </div>
             ) : null}

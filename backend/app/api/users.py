@@ -67,6 +67,15 @@ def _role_name_for_employee_level(employee_level: str) -> str:
     return "user"
 
 
+async def _sync_roles_from_level(db: AsyncSession, user: User, employee_level: str) -> None:
+    """Sync user's role relationship based on their employee level."""
+    role_name = _role_name_for_employee_level(employee_level)
+    result = await db.execute(select(Role).where(Role.name == role_name))
+    role = result.scalar_one_or_none()
+    if role:
+        user.roles = [role]
+
+
 def _list_users_scope_clause(viewer: User, org: OrgData) -> Any | None:
     """非 admin 时追加的 WHERE；None 表示不限制（仅 admin）。"""
     el = (viewer.employee_level or "staff").strip()
@@ -447,14 +456,6 @@ async def sync_users_from_org_csv(
             existing.org_region = row.get("org_region")
             existing.employee_level = row["employee_level"]
             existing.is_active = row["is_active"]
-            rn = _role_name_for_employee_level(row["employee_level"])
-            if rn == "province_manager" and role_pm:
-                existing.roles = [role_pm]
-            elif role_user:
-                existing.roles = [role_user]
-            updated += 1
-            continue
-
         user = User(
             username=username,
             password_hash=hashed_default,
@@ -465,11 +466,7 @@ async def sync_users_from_org_csv(
             district=row["district"],
             full_name=row["full_name"],
         )
-        rn = _role_name_for_employee_level(row["employee_level"])
-        if rn == "province_manager" and role_pm:
-            user.roles.append(role_pm)
-        elif role_user:
-            user.roles.append(role_user)
+        await _sync_roles_from_level(db, user, row["employee_level"])
         db.add(user)
         created += 1
 
@@ -543,18 +540,7 @@ async def create_user(
         full_name=payload.full_name,
     )
 
-    # Add default role if not admin
-    if payload.employee_level == "admin":
-        role_result = await db.execute(select(Role).where(Role.name == "admin"))
-        role = role_result.scalar_one_or_none()
-        if role:
-            user.roles.append(role)
-    else:
-        role_name = _role_name_for_employee_level(payload.employee_level)
-        role_result = await db.execute(select(Role).where(Role.name == role_name))
-        role = role_result.scalar_one_or_none()
-        if role:
-            user.roles.append(role)
+    await _sync_roles_from_level(db, user, payload.employee_level)
 
     db.add(user)
     if payload.data_scope:
@@ -637,6 +623,10 @@ async def update_user(
         if value is not None:
             setattr(user, field, value)
 
+    # Sync roles if employee_level was updated
+    if payload.employee_level is not None:
+        await _sync_roles_from_level(db, user, payload.employee_level)
+
     if payload.data_scope is not None:
         await _sync_user_data_scope(
             db, user.username, payload.data_scope, current_user.username
@@ -703,6 +693,7 @@ async def import_users(
                     existing.full_name = row.full_name
                     if hashed_pw:
                         existing.password_hash = hashed_pw
+                    await _sync_roles_from_level(db, existing, row.employee_level)
                     updated += 1
                 else:
                     skipped += 1
@@ -718,6 +709,7 @@ async def import_users(
                     district=row.district,
                     full_name=row.full_name,
                 )
+                await _sync_roles_from_level(db, user, row.employee_level)
                 db.add(user)
                 created += 1
 

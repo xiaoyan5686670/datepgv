@@ -66,9 +66,9 @@ export function ModelSwitcher() {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all border",
+          "flex items-center gap-2 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all border shadow-sm",
           "bg-background hover:bg-accent text-muted-foreground hover:text-foreground",
-          open && "ring-1 ring-primary/20 border-primary/30"
+          open && "ring-2 ring-primary/20 border-primary/40"
         )}
       >
         <Cpu size={13} className="text-primary shrink-0" />

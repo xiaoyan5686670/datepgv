@@ -61,9 +61,10 @@ export function AppTopNav({ activeKey, title, subtitle, breadcrumbs, rightAction
             ) : null}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {rightActions}
-            <ThemeToggle className="p-2 rounded-lg border bg-background hover:bg-accent text-muted-foreground hover:text-foreground transition-all" />
+            <div className="h-6 w-px bg-border/60 mx-1 hidden sm:block" />
+            <ThemeToggle className="p-2 rounded-xl border bg-background hover:bg-accent text-muted-foreground hover:text-foreground transition-all shadow-sm" />
             <UserChip />
           </div>
         </div>

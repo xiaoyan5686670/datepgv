@@ -81,7 +81,7 @@ def _normalize_model_for_cfg(cfg: LiteLLMConfigParams) -> str:
         ":" in raw  # common Ollama tag form, e.g. llama3.2:latest
         or _looks_like_ollama_api_base(str(api_base) if api_base is not None else None)
     ):
-        return f"ollama/{raw}"
+        return f"ollama_chat/{raw}"
 
     # If no Ollama indicators, fall back to general LiteLLM normalization (DashScope shorthand etc).
     return normalize_litellm_model(cfg.model)
@@ -99,6 +99,15 @@ def normalize_litellm_model(model: str) -> str:
     if m.startswith("qwen") or m.startswith("qwq") or m.startswith("text-embedding"):
         return f"dashscope/{raw}"
     return raw
+
+
+def is_any_ollama(cfg: LiteLLMConfigParams) -> bool:
+    """True if model is prefixed OR looks like Ollama (tag/port)."""
+    raw = (cfg.model or "").strip()
+    if is_ollama_family(raw):
+        return True
+    api_base = (cfg.extra_params or {}).get("api_base") or cfg.api_base
+    return ":" in raw or _looks_like_ollama_api_base(str(api_base) if api_base is not None else None)
 
 
 def is_dashscope_family(model: str) -> bool:
@@ -203,7 +212,7 @@ def resolve_api_base(cfg: LiteLLMConfigParams) -> str | None:
     base = extra.get("api_base") or cfg.api_base
     if isinstance(base, str) and base.strip():
         return base.strip().rstrip("/")
-    if is_ollama_family(cfg.model):
+    if is_any_ollama(cfg):
         env_or_default = (settings.OLLAMA_API_BASE or DEFAULT_OLLAMA_BASE).strip().rstrip("/")
         return env_or_default
     if is_dashscope_family(cfg.model):
