@@ -375,9 +375,19 @@ function QueryTable({ items }: { items: QueryAuditItem[] }) {
             </div>
           ) : null}
           <p className="text-sm text-app-text whitespace-pre-wrap break-words">{r.user_query}</p>
-          <pre className="text-[11px] bg-app-bg border border-app-border rounded p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-40">
-            {r.generated_sql}
-          </pre>
+          {r.generated_sql ? (
+            <pre className="text-[11px] bg-app-bg border border-app-border rounded p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-40">
+              {r.generated_sql}
+            </pre>
+          ) : null}
+          {r.exec_error ? (
+            <div className="space-y-1">
+              <div className="text-[10px] text-red-500 font-medium">错误日志 / Error Log:</div>
+              <pre className="text-[10px] bg-red-500/5 text-red-500 border border-red-500/20 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-60 leading-relaxed font-mono">
+                {r.exec_error}
+              </pre>
+            </div>
+          ) : null}
         </div>
       ))}
     </div>

@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import time
+import traceback
 import uuid
 from typing import AsyncGenerator
 
@@ -466,62 +467,83 @@ async def chat_stream(
     llm = get_llm_service()
 
     t = time.perf_counter()
-    tables, join_paths = await rag.retrieve(request.query, request.sql_type, request.top_k)
-    retrieve_ms = (time.perf_counter() - t) * 1000
-    if not tables:
-        raise HTTPException(
-            status_code=400,
-            detail=f"未找到与 {request.sql_type.upper()} 相关的表结构。请先在「元数据管理」中导入该类型的表。",
+    try:
+        tables, join_paths = await rag.retrieve(request.query, request.sql_type, request.top_k)
+        retrieve_ms = (time.perf_counter() - t) * 1000
+        if not tables:
+            raise HTTPException(
+                status_code=400,
+                detail=f"未找到与 {request.sql_type.upper()} 相关的表结构。请先在「元数据管理」中导入该类型的表。",
+            )
+
+        t = time.perf_counter()
+        history = await _load_history(session_id, db)
+        history_ms = (time.perf_counter() - t) * 1000
+        scope = await resolve_user_scope(current_user, db)
+        precheck_disallowed_provinces, precheck_disallowed_employees = _user_scope_precheck(
+            request.query, scope, current_user
+        )
+        precheck_block_message: str | None = None
+        if precheck_disallowed_provinces:
+            precheck_block_message = _build_scope_block_message(
+                scope.province_values, precheck_disallowed_provinces
+            )
+        elif precheck_disallowed_employees:
+            precheck_block_message = _build_employee_scope_block_message(
+                precheck_disallowed_employees
+            )
+        personalized_waiting_tips = _build_personalized_waiting_tips(
+            request.query, scope, history
         )
 
-    t = time.perf_counter()
-    history = await _load_history(session_id, db)
-    history_ms = (time.perf_counter() - t) * 1000
-    scope = await resolve_user_scope(current_user, db)
-    precheck_disallowed_provinces, precheck_disallowed_employees = _user_scope_precheck(
-        request.query, scope, current_user
-    )
-    precheck_block_message: str | None = None
-    if precheck_disallowed_provinces:
-        precheck_block_message = _build_scope_block_message(
-            scope.province_values, precheck_disallowed_provinces
+        t = time.perf_counter()
+        available_skills = list(await list_enabled_sql_skills(db))
+        selected_skills = choose_sql_skills(
+            request.query,
+            request.sql_type,
+            tables,
+            available_skills,
         )
-    elif precheck_disallowed_employees:
-        precheck_block_message = _build_employee_scope_block_message(
-            precheck_disallowed_employees
+        messages = rag.build_prompt(
+            request.query,
+            tables,
+            request.sql_type,
+            join_paths,
+            current_user=current_user,
+            selected_skills=selected_skills,
+            available_skills=available_skills,
         )
-    personalized_waiting_tips = _build_personalized_waiting_tips(
-        request.query, scope, history
-    )
+        if history:
+            messages = [messages[0]] + history + [messages[1]]
+        prompt_ms = (time.perf_counter() - t) * 1000
 
-    t = time.perf_counter()
-    available_skills = list(await list_enabled_sql_skills(db))
-    selected_skills = choose_sql_skills(
-        request.query,
-        request.sql_type,
-        tables,
-        available_skills,
-    )
-    messages = rag.build_prompt(
-        request.query,
-        tables,
-        request.sql_type,
-        join_paths,
-        current_user=current_user,
-        selected_skills=selected_skills,
-        available_skills=available_skills,
-    )
-    if history:
-        messages = [messages[0]] + history + [messages[1]]
-    prompt_ms = (time.perf_counter() - t) * 1000
+        pre_stream_ms = (time.perf_counter() - t0) * 1000
+        referenced = [qualified_table_label(t) for t in tables]
+        t = time.perf_counter()
+        model_name = await llm.model_name(db)
+        model_name_ms = (time.perf_counter() - t) * 1000
 
-    pre_stream_ms = (time.perf_counter() - t0) * 1000
-    referenced = [qualified_table_label(t) for t in tables]
-    t = time.perf_counter()
-    model_name = await llm.model_name(db)
-    model_name_ms = (time.perf_counter() - t) * 1000
+        pre_stream_ms = (time.perf_counter() - t0) * 1000
 
-    pre_stream_ms = (time.perf_counter() - t0) * 1000
+    except Exception as e:
+        # 记录前期失败（如召回 0 张表），确保审计可见
+        err_msg, _ = format_execution_error(e, _user_is_admin(current_user))
+        full_trace = traceback.format_exc()
+        await _save_messages(
+            session_id,
+            request.query,
+            err_msg,
+            request.sql_type,
+            db,
+            generated_sql=None,
+            executed=False,
+            exec_error=full_trace,
+            assistant_elapsed_ms=int((time.perf_counter() - t0) * 1000),
+            decision_trace={"error_phase": "pre_stream", "exception": str(e)},
+        )
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(status_code=500, detail=err_msg) from e
 
     async def event_generator() -> AsyncGenerator[bytes, None]:
         t_stream_start = time.perf_counter()
@@ -604,8 +626,7 @@ async def chat_stream(
 
         try:
             async for token in llm.stream(messages, db):
-                if first_token_ms is None:
-                    first_token_ms = (time.perf_counter() - t_stream) * 1000
+                first_token_ms = (time.perf_counter() - t_stream) * 1000
                 full_response += token
                 chunk = {"type": "token", "text": token}
                 yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode()
@@ -619,7 +640,8 @@ async def chat_stream(
                     (time.perf_counter() - t_stream) * 1000,
                     e,
                 )
-            answer, exec_error = format_execution_error(e, _user_is_admin(current_user))
+            answer, _ = format_execution_error(e, _user_is_admin(current_user))
+            exec_error = traceback.format_exc()
             err = {"type": "error", "message": answer}
             yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n".encode()
 
@@ -857,10 +879,12 @@ async def chat_stream(
                                 answer = "查询已成功执行，但在生成总结时遇到一点小问题。您可以先查看下方的数据报表。"
                 except QueryExecutorError as e:
                     logger.warning("Query execution failed (QueryExecutorError): %s", e)
-                    answer, exec_error = format_execution_error(e, _user_is_admin(current_user))
+                    answer, _ = format_execution_error(e, _user_is_admin(current_user))
+                    exec_error = str(e) # Friendly but technical
                 except Exception as e:
                     logger.exception("Query execution failed (Unexpected Exception): %s", e)
-                    answer, exec_error = format_execution_error(e, _user_is_admin(current_user))
+                    answer, _ = format_execution_error(e, _user_is_admin(current_user))
+                    exec_error = traceback.format_exc()
 
                 if scope_rewrite_note:
                     answer = (answer + "\n\n" + scope_rewrite_note).strip()

@@ -305,13 +305,14 @@ export interface QueryAuditItem {
   user_message_at: string;
   assistant_message_at: string;
   user_query: string;
-  generated_sql: string;
+  generated_sql?: string | null;
   sql_type: SqlType | null;
   executed: boolean | null;
   elapsed_ms: number | null;
   selected_skill_names?: string[];
   scope_block_reason?: string | null;
   execution_error_category?: string | null;
+  exec_error?: string | null;
 }
 
 export interface QueryAuditListResponse {

@@ -121,6 +121,45 @@ def fix_ifnull_string_numerics(sql: str) -> str:
     return sql
 
 
+# --------------------------------------------------------------------------- #
+# Reserved Word Heuristics                                                    #
+# --------------------------------------------------------------------------- #
+# Local LLMs sometimes output reserved words like 'ALL' without quotes
+# even when they are intended as column names or aliases.
+
+_UNQUOTED_ALL = re.compile(
+    r"(?i)(?<=[,\s])(all)(?=[,\s])",
+)
+
+
+def fix_reserved_words_heuristic(sql: str, sql_type: str) -> str:
+    """Wrap 'ALL' in quotes if it appears as a naked identifier.
+    Very limited heuristic to avoid breaking valid 'SELECT ALL' syntax.
+    """
+    if not sql:
+        return sql
+    
+    # We only touch it if it's NOT followed by '*' (SELECT ALL *)
+    # and NOT part of 'UNION ALL'
+    def _repl(m):
+        word = m.group(1)
+        start = m.start()
+        # Check context
+        before = sql[max(0, start-10):start].upper()
+        after = sql[m.end():m.end()+10].upper()
+        
+        if "UNION" in before:
+            return word # UNION ALL is fine
+        if "SELECT" in before and "*" in after:
+            return word # SELECT ALL * is fine
+        
+        # Otherwise, if it looks like a column in a list, wrap it
+        quote = "`" if sql_type == "mysql" else '"'
+        return f"{quote}{word}{quote}"
+
+    return _UNQUOTED_ALL.sub(_repl, sql)
+
+
 def process_llm_output(raw: str, sql_type: str) -> str | None:
     """Full pipeline: extract SQL from LLM output and return clean SQL. Returns None if it is plain text."""
     sql = extract_sql(raw)
@@ -129,5 +168,6 @@ def process_llm_output(raw: str, sql_type: str) -> str | None:
     sql = normalize_sql_fullwidth_punctuation(sql)
     sql = fix_ifnull_string_numerics(sql)
     dialect = DIALECT_MAP.get(sql_type, "ansi")
+    sql = fix_reserved_words_heuristic(sql, sql_type)
     sql = format_sql(sql, dialect)
     return sql

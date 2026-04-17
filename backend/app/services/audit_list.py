@@ -21,6 +21,7 @@ WITH ordered AS (
     m.generated_sql,
     m.sql_type,
     m.executed,
+    m.exec_error,
     m.elapsed_ms,
     {decision_trace_expr},
     m.created_at AS assistant_at,
@@ -118,7 +119,6 @@ async def list_query_audits(
     )
     where_parts = [
         "o.role = 'assistant'",
-        "o.generated_sql IS NOT NULL",
         "o.prev_role = 'user'",
     ]
     binds: dict[str, Any] = {}
@@ -168,6 +168,7 @@ SELECT
   o.generated_sql,
   o.sql_type,
   o.executed,
+  o.exec_error,
   o.elapsed_ms,
   o.decision_trace
 FROM ordered o

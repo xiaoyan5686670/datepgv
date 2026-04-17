@@ -178,13 +178,14 @@ class QueryAuditItem(BaseModel):
     user_message_at: datetime
     assistant_message_at: datetime
     user_query: str
-    generated_sql: str
+    generated_sql: str | None = None
     sql_type: str | None = None
     executed: bool | None = None
     elapsed_ms: int | None = None
     selected_skill_names: list[str] = Field(default_factory=list)
     scope_block_reason: str | None = None
     execution_error_category: str | None = None
+    exec_error: str | None = None
 
 
 class QueryAuditListResponse(BaseModel):
