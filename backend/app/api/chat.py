@@ -163,11 +163,8 @@ def _user_scope_precheck(
         allowed_employees.add((current_user.username or "").strip())
         allowed_employees.add((current_user.full_name or "").strip())
         
-        known_names = sorted(
-            [name for name in org.by_name_codes.keys() if len(str(name).strip()) >= 2],
-            key=len,
-            reverse=True,
-        )
+        # 直接用 OrgData 中预排序的名单，无需每次重新 sorted()
+        known_names = org.known_names_sorted or []
         mentions: set[str] = set()
         for name in known_names:
             if name in query_text:

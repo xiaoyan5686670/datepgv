@@ -102,6 +102,10 @@ class OrgData:
     nodes: dict[str, dict[str, Any]]
     by_name_codes: dict[str, set[str]]
     by_role_names: dict[str, set[str]]
+    # 预排序：按长度降序，过滤掉过短名字（>=2字符）。
+    # 避免每次请求时在 _user_scope_precheck 中重复 O(N log N) 排序，
+    # 消除并发时的事件循环 CPU 阻塞。
+    known_names_sorted: list[str] = None  # type: ignore[assignment]
 
 
 def _norm(value: Any) -> str:
@@ -212,12 +216,18 @@ def _build_org() -> OrgData:
         if daquzong and not shengzong and manager and manager != daquzong:
             add_edge(daquzong, manager, "daquzong_to_manager")
 
+    known_names_sorted = sorted(
+        [n for n in by_name_codes.keys() if len(str(n).strip()) >= 2],
+        key=len,
+        reverse=True,
+    )
     return OrgData(
         rows=rows,
         edges=edges,
         nodes=nodes,
         by_name_codes=by_name_codes,
         by_role_names=by_role_names,
+        known_names_sorted=known_names_sorted,
     )
 
 

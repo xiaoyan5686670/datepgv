@@ -219,9 +219,15 @@ def _trim_tables_to_schema_budget(
 
 
 class RAGEngine:
+    # NetworkX 图结构缓存有效期（秒）。table_metadata_edges 基本不会频繁变更，
+    # 60s 缓存可显著减少并发请求时的 DB 查询和图重建开销。
+    _GRAPH_CACHE_TTL: float = 60.0
+
     def __init__(self, db: AsyncSession, embedding_service: EmbeddingService) -> None:
         self.db = db
         self.embedding_service = embedding_service
+        # 按 sql_type 缓存 (nx.Graph, timestamp) 元组
+        self._graph_cache: dict[str, tuple[nx.Graph, float]] = {}
 
     async def retrieve(
         self,
@@ -276,7 +282,20 @@ class RAGEngine:
         return out, join_paths
 
     async def _build_nx_graph(self, sql_type: RetrieveSQLType) -> nx.Graph:
-        """Load edges from database and build a NetworkX in-memory graph."""
+        """Load edges from database and build a NetworkX in-memory graph.
+
+        结果在实例生命周期内按 sql_type 缓存 _GRAPH_CACHE_TTL 秒，
+        避免每次 /chat/stream 请求都全量 SELECT table_metadata_edges 并重建图。
+        """
+        import time as _time
+
+        now = _time.monotonic()
+        cached = self._graph_cache.get(sql_type)
+        if cached is not None:
+            graph_obj, ts = cached
+            if now - ts < self._GRAPH_CACHE_TTL:
+                return graph_obj
+
         G = nx.Graph()
         stmt = select(TableMetadataEdge)
         result = await self.db.execute(stmt)
@@ -292,6 +311,7 @@ class RAGEngine:
                 endpoint_from=e.from_metadata_id,
                 endpoint_to=e.to_metadata_id,
             )
+        self._graph_cache[sql_type] = (G, now)
         return G
 
     def _format_join_paths(

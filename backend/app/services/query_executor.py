@@ -297,21 +297,41 @@ async def _probe_postgresql_columns(conn: asyncpg.Connection, sql: str) -> list[
         ) from e
 
 
+# ── asyncpg 进程级连接池 ──────────────────────────────────────────────────────
+# 每次 asyncpg.connect() 都需要经历 TCP 握手 + PostgreSQL 认证（2-4 RTT）。
+# 3 个用户并发时同时发起 3 条冷连接，是最直接的并发卡顿根因。
+# 使用进程级连接池避免重复握手，复用空闲连接。
+_pg_pools: dict[str, asyncpg.Pool] = {}
+
+
+async def _get_pg_pool(dsn: str) -> asyncpg.Pool:
+    """获取（或惰性创建）指定 DSN 的 asyncpg 连接池。"""
+    dsn = _normalize_postgres_dsn(dsn)
+    if dsn not in _pg_pools:
+        timeout = float(settings.ANALYTICS_QUERY_TIMEOUT_SEC)
+        _pg_pools[dsn] = await asyncpg.create_pool(
+            dsn,
+            min_size=2,
+            max_size=10,
+            command_timeout=timeout,
+        )
+    return _pg_pools[dsn]
+
+
 async def _run_postgresql(
     dsn: str,
     sql: str,
     scope: ResolvedScope | None = None,
     skip_wrapper: bool = False,
 ) -> QueryResult:
-    dsn = _normalize_postgres_dsn(dsn)
+    pool = await _get_pg_pool(dsn)
     timeout = float(settings.ANALYTICS_QUERY_TIMEOUT_SEC)
     max_rows = settings.ANALYTICS_MAX_ROWS
-    conn = await asyncpg.connect(dsn, command_timeout=timeout)
-    try:
+    async with pool.acquire() as conn:
         async with conn.transaction(readonly=True):
             ms = max(1000, int(timeout * 1000))
             await conn.execute(f"SET LOCAL statement_timeout = {ms}")
-            
+
             if not skip_wrapper and scope and not scope.unrestricted:
                 probe_columns = await _probe_postgresql_columns(conn, sql)
                 exec_sql = _build_scoped_wrapped_sql(
@@ -331,12 +351,10 @@ async def _run_postgresql(
             if not rows_out:
                 logger.info("DEBUG_EXECUTION: postgres_result_empty user_query=%s", exec_sql[:200])
                 return QueryResult(columns=[], rows=[], truncated=False)
-            
+
             logger.info("DEBUG_EXECUTION: postgres_result_success count=%s", len(rows_out))
             columns = list(rows_out[0].keys())
             return QueryResult(columns=columns, rows=rows_out, truncated=truncated)
-    finally:
-        await conn.close()
 
 
 def mysql_err_code_from_exception(e: BaseException) -> int | None:
