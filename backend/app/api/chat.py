@@ -32,10 +32,10 @@ from app.services.query_executor import QueryExecutorError, QueryResult, run_ana
 from app.services.org_hierarchy import filter_rows_by_scope, load_org_data, org_identity_names
 from app.services.rag import RAGEngine, qualified_table_label
 from app.services.sql_generator import process_llm_output, fix_ifnull_string_numerics
-from app.services.sql_column_repair import repair_sql_unknown_columns, repair_sql_unknown_tables
+from app.services.sql_column_repair import repair_sql_unknown_columns, repair_sql_unknown_tables, repair_sql_missing_joins
 from app.services.sql_skill_service import choose_sql_skills, list_enabled_sql_skills
 from app.services.viewer_sql_context import build_viewer_sql_context
-from app.services.sql_metadata_guard import find_unknown_columns, find_unknown_tables
+from app.services.sql_metadata_guard import find_unknown_columns, find_unknown_tables, find_misplaced_columns, fuzzy_repair_sql_columns
 from app.services.scope_policy_service import resolve_user_scope
 from app.services.sql_scope_guard import rewrite_sql_with_scope
 from app.services.error_formatter import format_execution_error
@@ -714,6 +714,29 @@ async def chat_stream(
                             if new_sql:
                                 clean_sql = new_sql
                             continue
+                        misplaced = find_misplaced_columns(
+                            clean_sql, tables, request.sql_type
+                        )
+                        if misplaced:
+                            logger.info(
+                                "chat_sql_missing_join_repair round=%s misplaced=%s",
+                                repair_round + 1,
+                                [(c, s) for c, s in misplaced],
+                            )
+                            fixed_raw = await repair_sql_missing_joins(
+                                clean_sql,
+                                misplaced,
+                                tables,
+                                join_paths,
+                                request.sql_type,
+                                llm,
+                                db,
+                                viewer_context=viewer_ctx,
+                            )
+                            new_sql = process_llm_output(fixed_raw, request.sql_type)
+                            if new_sql:
+                                clean_sql = new_sql
+                            continue
                         unknown = find_unknown_columns(
                             clean_sql, tables, request.sql_type
                         )
@@ -746,13 +769,35 @@ async def chat_stream(
                             _SQL_COLUMN_REPAIR_MAX_ROUNDS,
                             still_tables,
                         )
+                    still_misplaced = find_misplaced_columns(
+                        clean_sql, tables, request.sql_type
+                    )
+                    if still_misplaced:
+                        logger.warning(
+                            "chat_sql_missing_join_repair still misplaced after %s rounds: %s; executing anyway",
+                            _SQL_COLUMN_REPAIR_MAX_ROUNDS,
+                            [(c, s) for c, s in still_misplaced],
+                        )
                     still = find_unknown_columns(clean_sql, tables, request.sql_type)
                     if still:
                         logger.warning(
-                            "chat_sql_column_repair still unknown after %s rounds: %s; executing anyway",
+                            "chat_sql_column_repair still unknown after %s rounds: %s; trying fuzzy repair",
                             _SQL_COLUMN_REPAIR_MAX_ROUNDS,
                             still,
                         )
+                        fuzzy_sql, fuzzy_map = fuzzy_repair_sql_columns(
+                            clean_sql, tables, request.sql_type
+                        )
+                        if fuzzy_map:
+                            logger.info(
+                                "chat_sql_column_fuzzy_repair applied: %s",
+                                fuzzy_map,
+                            )
+                            clean_sql = fuzzy_sql
+                        else:
+                            logger.warning(
+                                "chat_sql_column_fuzzy_repair found no matches; executing with unknown columns"
+                            )
                     if settings.SCOPE_REWRITE_ENABLED:
                         rewrite = rewrite_sql_with_scope(
                             clean_sql, request.sql_type, scope, current_user, tables

@@ -126,6 +126,29 @@ def qualified_table_label(row: TableMetadata) -> str:
     return ".".join(p for p in parts if p and str(p).strip()) or row.table_name
 
 
+def _join_hints_by_table(join_paths: list[str]) -> dict[str, list[str]]:
+    """Parse formatted join-path strings and return {table_name_lower: [path_line, ...]}."""
+    import re
+
+    hints: dict[str, list[str]] = {}
+    # Match the two table operands before and after the JOIN keyword
+    pattern = re.compile(
+        r"^([\w.\-]+)\s+JOIN\s+([\w.\-]+)\s+ON\s+",
+        re.IGNORECASE,
+    )
+    for line in join_paths:
+        m = pattern.match(line.strip())
+        if not m:
+            continue
+        for raw_name in (m.group(1), m.group(2)):
+            # Use the terminal segment (table name) as the key
+            key = raw_name.strip().lower().split(".")[-1]
+            hints.setdefault(key, [])
+            if line not in hints[key]:
+                hints[key].append(line)
+    return hints
+
+
 def _format_table_schema(row: TableMetadata) -> str:
     """Convert a TableMetadata row to a human-readable schema block."""
     full_name = qualified_table_label(row)
@@ -141,6 +164,10 @@ def _format_table_schema(row: TableMetadata) -> str:
             partition = " [分区键]" if c.get("is_partition_key") else ""
             comment = f"  -- {c['comment']}" if c.get("comment") else ""
             lines.append(f"  {c['name']}  {c['type']}{nullable}{partition}{comment}")
+        # Compact column-name index: helps weaker models avoid hallucinating field names
+        col_names = [str(c["name"]) for c in cols if c.get("name")]
+        if col_names:
+            lines.append(f"⚠️ 仅允许使用以下列名（逐字照抄，不得改写）: {', '.join(col_names)}")
 
     if row.sample_data:
         sample_str = json.dumps(row.sample_data[:3], ensure_ascii=False)
@@ -406,7 +433,17 @@ class RAGEngine:
         else:
             rules = ORACLE_RULES
 
-        schemas = "\n\n".join(_format_table_schema(t) for t in tables)
+        join_hint_map = _join_hints_by_table(join_paths or [])
+
+        def _schema_with_join_hint(t: TableMetadata) -> str:
+            base = _format_table_schema(t)
+            hints = join_hint_map.get((t.table_name or "").strip().lower(), [])
+            if hints:
+                hint_lines = "\n".join(f"  {h}" for h in hints)
+                base += f"\n关联路径（引用本表列时必须包含此 JOIN）:\n{hint_lines}"
+            return base
+
+        schemas = "\n\n".join(_schema_with_join_hint(t) for t in tables)
         skill_descriptions = "\n".join(list_skill_descriptions(available_skills or []))
         loaded_skills = render_loaded_skills(selected_skills or [])
         loaded_skills_block = (
@@ -438,7 +475,7 @@ class RAGEngine:
 - 如果用户的请求是查询具体数据，请仅返回 SQL 代码块（```sql ... ```），并且不要附加任何额外解释。
 - 生成的 SQL 代码块中【禁止】包含分号 `;`（尤其是在 SQL 末尾或注释中）；不要写多条语句。
 - 避免在 SQL 中编写冗长的注释（尤其是在每行末尾），以免干扰解析。
-- SQL 中的「表名」与「列名」必须严格依据下方「可用的表结构」；严禁臆造、严禁拼音内联、严禁翻译字段名。
+- SQL 中的「表名」与「列名」必须严格依据下方「可用的表结构」；严禁臆造、严禁拼音内联、严禁翻译字段名。每个字段名必须与「⚠️ 仅允许使用以下列名」行中列出的名称逐字一致（区分大小写），绝不允许自行构造未列出的列名。
 - 如果请求的指标或维度在「可用的表结构」中不存在，请直接在 SQL 注释中说明并尝试寻找最接近的替代字段，切勿自行发明字段名。
 - 若字段名是 SQL 保留字（如 ALL, SELECT, DESC, FROM, CASE 等），在 SQL 中引用该字段时【必须】使用对应方言的引用符号（如 MySQL 的反引号 `）包裹。
 - 若「已知表之间的关联路径参考」给出了 JOIN ON 条件，应优先采用这些 ON 条件连接表。

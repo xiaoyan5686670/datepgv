@@ -397,14 +397,10 @@ def _inject_conditions(
                             resolved_col_name = f"{alias}.{resolved_col_name}"
                         break
             
-            # Fallback to default ONLY if it's considered safe (previously it defaulted to 'province' etc.)
-            # However, to avoid hallucination entirely, we only inject if we resolved a column or
-            # if we have no metadata (legacy mode). 
-            # Given the bug report, we MUST avoid臆造 (hallucination).
-            final_col_name = resolved_col_name
-            if not final_col_name and not tables_metadata:
-                # If no metadata, fallback to hardcoded default (at risk of hallucination)
-                final_col_name = default_col_name
+            # Security-first: always fall back to the default column name if metadata lookup
+            # fails. A SQL column-not-found error is a safer outcome than silently running
+            # an unscoped query against all employees.
+            final_col_name = resolved_col_name or default_col_name
             
             if final_col_name:
                 # Inject new constraint
@@ -478,7 +474,7 @@ def rewrite_sql_with_scope(
     prov_allow = _effective_province_allowlist_for_rewrite(scope, viewer)
     mentioned_prov = _extract_mentioned_values(parsed, _is_province_column, canonical_fn=canonical_province_name, is_lit_fn=is_known_province_literal)
     _check_disallowed("province", mentioned_prov, prov_allow)
-    
+    prov_applied = True  # True when dimension is not restricted or restriction was injected
     if prov_allow is not None:
         prov_literals = sorted(province_alias_literals_for_canonicals(set(prov_allow)))
         c1 = _rewrite_conditions(parsed, prov_literals, _is_province_column, is_known_province_literal, canonical_province_name)
@@ -486,42 +482,46 @@ def rewrite_sql_with_scope(
         if c1 or c2:
             changed = True
             details.append(f"限定省份：{'、'.join(prov_allow) if prov_allow else '无'}")
+        prov_applied = bool(c1 or c2)
 
     # Dimension 2: Employee
     emp_allow = _effective_employee_allowlist_for_rewrite(scope, viewer)
     mentioned_emp = _extract_mentioned_values(parsed, _is_employee_column)
     _check_disallowed("employee", mentioned_emp, emp_allow)
-
+    emp_applied = True
     if emp_allow is not None:
         c1 = _rewrite_conditions(parsed, emp_allow, _is_employee_column)
         c2 = _inject_conditions(parsed, emp_allow, _is_employee_column, "sales_name", tables_metadata)
         if c1 or c2:
             changed = True
             details.append(f"限定员工：{'、'.join(emp_allow) if emp_allow else '无'}")
+        emp_applied = bool(c1 or c2)
 
     # Dimension 3: Region
     reg_allow = _effective_region_allowlist_for_rewrite(scope, viewer)
     mentioned_reg = _extract_mentioned_values(parsed, _is_region_column)
     _check_disallowed("region", mentioned_reg, reg_allow)
-
+    reg_applied = True
     if reg_allow is not None:
         c1 = _rewrite_conditions(parsed, reg_allow, _is_region_column)
         c2 = _inject_conditions(parsed, reg_allow, _is_region_column, "region", tables_metadata)
         if c1 or c2:
             changed = True
             details.append(f"限定大区：{'、'.join(reg_allow) if reg_allow else '无'}")
+        reg_applied = bool(c1 or c2)
 
     # Dimension 4: District
     dist_allow = _effective_district_allowlist_for_rewrite(scope, viewer)
     mentioned_dist = _extract_mentioned_values(parsed, _is_district_column)
     _check_disallowed("district", mentioned_dist, dist_allow)
-
+    dist_applied = True
     if dist_allow is not None:
         c1 = _rewrite_conditions(parsed, dist_allow, _is_district_column)
         c2 = _inject_conditions(parsed, dist_allow, _is_district_column, "area_name", tables_metadata)
         if c1 or c2:
             changed = True
             details.append(f"限定区域：{'、'.join(dist_allow) if dist_allow else '无'}")
+        dist_applied = bool(c1 or c2)
 
     # Global Blocking Logic
     blocking_parts = []
@@ -540,11 +540,24 @@ def rewrite_sql_with_scope(
     note = None
     if changed:
         detail_msg = f"本次查询已自动根据您的权限限定了范围（{'; '.join(details)}）。"
-        # Optional: mention what was removed if we didn't block (but now we mostly block)
         note = _join_scope_rewrite_lines(_scope_access_hint(viewer), detail_msg)
 
-    # We consider it comprehensive if we successfully parsed and applied all applicable constraints
-    is_comprehensive = True 
+    # Province restriction from scope.province_values was explicitly set by policy (e.g. area
+    # managers). For staff users, _apply_staff_peer_isolated_scope clears province_values and
+    # _effective_province_allowlist_for_rewrite adds a fallback from the user's profile — this is
+    # a secondary defence, not the primary security gate. If that fallback injection failed (e.g.
+    # the SQL already contains a province subquery the rewriter cannot touch), we must NOT let it
+    # degrade comprehensiveness: the employee dimension is the real security gate for staff.
+    prov_security_required = bool(scope.province_values)
+    reg_security_required = bool(scope.region_values)
+    dist_security_required = bool(scope.district_values)
+
+    is_comprehensive = (
+        (not prov_security_required or prov_applied)
+        and emp_applied
+        and (not reg_security_required or reg_applied)
+        and (not dist_security_required or dist_applied)
+    )
 
     return ScopeRewriteResult(
         sql=parsed.sql(dialect=dialect),
