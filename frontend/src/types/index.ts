@@ -36,6 +36,7 @@ export interface AuthUser {
   employee_level: string;
   district?: string | null;
   full_name?: string | null;
+  avatar_data?: string | null;
 }
 
 /** 用户管理 */

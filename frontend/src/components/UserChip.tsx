@@ -1,7 +1,9 @@
 "use client";
 
 import { LogOut, MapPin, Shield } from "lucide-react";
+import { useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { uploadAvatar } from "@/lib/api";
 
 const LEVEL_LABEL: Record<string, string> = {
   admin:              "管理员",
@@ -56,7 +58,10 @@ function OrgBadges({ user, label, avatarClass }: {
 }
 
 export function UserChip() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   if (!user) return null;
 
   const level = user.employee_level ?? "staff";
@@ -65,6 +70,21 @@ export function UserChip() {
 
   const displayName = user.full_name?.trim() || user.username;
   const avatarChar = displayName[0]?.toUpperCase() ?? "U";
+
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      await uploadAvatar(file);
+      await refreshUser();
+    } catch {
+      // silent — could add toast here
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
 
   return (
     <div className="flex items-center gap-3">
@@ -78,11 +98,29 @@ export function UserChip() {
         <OrgBadges user={user} label={label} avatarClass={avatar} />
       </div>
 
-      <div
-        className={`w-9 h-9 rounded-xl border-2 flex items-center justify-center font-bold text-sm select-none shrink-0 shadow-sm transition-transform hover:scale-105 ${avatar}`}
+      <button
+        type="button"
+        title="点击更换头像"
+        disabled={uploading}
+        onClick={() => fileInputRef.current?.click()}
+        className={`relative w-9 h-9 rounded-xl border-2 flex items-center justify-center font-bold text-sm select-none shrink-0 shadow-sm transition-all hover:scale-105 hover:brightness-90 overflow-hidden ${user.avatar_data ? "border-border bg-white p-0" : avatar}`}
       >
-        {avatarChar}
-      </div>
+        {uploading ? (
+          <span className="text-[10px]">…</span>
+        ) : user.avatar_data ? (
+          <img src={user.avatar_data} alt="avatar" className="w-full h-full object-cover" />
+        ) : (
+          avatarChar
+        )}
+      </button>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        className="hidden"
+        onChange={handleFileChange}
+      />
 
       <div className="h-8 w-px bg-border mx-1 hidden sm:block" />
 

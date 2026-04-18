@@ -69,6 +69,7 @@ class User(Base):
         String(100), nullable=True, comment="区县市（普通员工仅查看自己所在区县）"
     )
     full_name: Mapped[str | None] = mapped_column(String(100), nullable=True, comment="姓名")
+    avatar_data: Mapped[str | None] = mapped_column(Text, nullable=True, comment="用户头像 Base64 Data URL")
     # Admin-only override for hierarchical RAG (rag_chunks): {"unrestricted": true} or {"prefixes": [["大区","省"], ...]}
     rag_permission_override: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

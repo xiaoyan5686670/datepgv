@@ -543,6 +543,7 @@ class UserMeResponse(BaseModel):
     employee_level: str = "staff"
     district: str | None = None
     full_name: str | None = None
+    avatar_data: str | None = None
 
 
 # ── User Management ───────────────────────────────────────────────────────────

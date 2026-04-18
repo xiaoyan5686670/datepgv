@@ -117,6 +117,7 @@ async def run_migrations() -> None:
         await _ensure_sql_skills_table(conn)
         await _seed_sql_skills(conn)
         await _ensure_chat_messages_decision_trace(conn)
+        await _ensure_users_avatar_data(conn)
 
 
 async def _fix_user_id_column_type(conn) -> None:  # type: ignore[type-arg]
@@ -688,3 +689,19 @@ async def _ensure_chat_messages_decision_trace(conn) -> None:  # type: ignore[ty
         )
     )
     logger.info("DB migration: added chat_messages.decision_trace.")
+
+
+async def _ensure_users_avatar_data(conn) -> None:  # type: ignore[type-arg]
+    col = await conn.execute(
+        text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = 'public' AND table_name = 'users' "
+            "AND column_name = 'avatar_data'"
+        )
+    )
+    if col.scalar() is not None:
+        return
+    await conn.execute(
+        text("ALTER TABLE users ADD COLUMN avatar_data TEXT NULL")
+    )
+    logger.info("DB migration: added users.avatar_data.")

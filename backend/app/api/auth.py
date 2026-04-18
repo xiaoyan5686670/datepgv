@@ -64,6 +64,7 @@ async def read_me(
         employee_level=current.employee_level,
         district=current.district,
         full_name=current.full_name,
+        avatar_data=getattr(current, "avatar_data", None),
     )
 
 

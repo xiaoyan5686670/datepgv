@@ -176,6 +176,20 @@ export async function fetchCurrentUser(): Promise<AuthUser> {
   return res.json() as Promise<AuthUser>;
 }
 
+export async function uploadAvatar(file: File): Promise<string> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await apiFetch(`${apiV1Prefix()}/users/me/avatar`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "头像上传失败"));
+  }
+  const data = await res.json() as { avatar_data: string };
+  return data.avatar_data;
+}
+
 export async function fetchTableEdges(): Promise<TableMetadataEdge[]> {
   const res = await apiFetch(`${apiV1Prefix()}/metadata/edges`);
   if (!res.ok) {

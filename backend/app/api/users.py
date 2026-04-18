@@ -8,6 +8,7 @@ derived from 业务经理通讯录.csv (大区总/省总/区域总列 + 职务 z
 """
 from __future__ import annotations
 
+import base64
 import csv
 import io
 from typing import Annotated, Any
@@ -510,6 +511,39 @@ async def list_users(
     # Bulk fetch scope for performance? For now, we'll just return empty or fetch
     # (In a real high-traffic app, we'd join or pre-fetch them)
     return [_user_to_response(u) for u in users]
+
+
+@router.post("/me/avatar")
+async def upload_my_avatar(
+    file: Annotated[UploadFile, File(description="头像图片（jpg/png/webp，≤2MB）")],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
+) -> dict[str, str]:
+    """上传并保存当前用户的头像（存为 Base64 Data URL，无需额外依赖）。"""
+    _ALLOWED_CONTENT_TYPES = {
+        "image/jpeg": "image/jpeg",
+        "image/jpg": "image/jpeg",
+        "image/png": "image/png",
+        "image/webp": "image/webp",
+        "image/gif": "image/gif",
+    }
+    _MAX_SIZE = 2 * 1024 * 1024  # 2 MB
+
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    mime = _ALLOWED_CONTENT_TYPES.get(content_type)
+    if not mime:
+        raise HTTPException(status_code=400, detail="只支持 jpg / png / webp / gif 格式")
+
+    raw = await file.read()
+    if len(raw) > _MAX_SIZE:
+        raise HTTPException(status_code=400, detail="图片不能超过 2MB")
+
+    data_url = f"data:{mime};base64," + base64.b64encode(raw).decode()
+
+    current_user.avatar_data = data_url
+    await db.commit()
+
+    return {"avatar_data": data_url}
 
 
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
