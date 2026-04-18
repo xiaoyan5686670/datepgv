@@ -38,7 +38,7 @@ def test_routing():
     print(f"Config: model='qwen3.5:9b', api_base=None")
     print(f"Result Model: {kwargs1['model']}")
     print(f"Result API Base: {kwargs1.get('api_base')}")
-    assert kwargs1["model"] == "ollama/qwen3.5:9b"
+    assert kwargs1["model"] == "ollama_chat/qwen3.5:9b"
     assert kwargs1["api_base"] == mock_settings.OLLAMA_API_BASE
     print("✓ Case 1 passed")
 
@@ -48,7 +48,7 @@ def test_routing():
     print(f"Config: model='qwen-turbo', api_base='http://10.200.2.125:11434'")
     print(f"Result Model: {kwargs2['model']}")
     print(f"Result API Base: {kwargs2.get('api_base')}")
-    assert kwargs2["model"] == "ollama/qwen-turbo"
+    assert kwargs2["model"] == "ollama_chat/qwen-turbo"
     assert kwargs2["api_base"] == "http://10.200.2.125:11434"
     print("✓ Case 2 passed")
 

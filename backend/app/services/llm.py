@@ -68,12 +68,13 @@ class LLMService:
     ) -> str:
         """Non-streaming completion – returns the full response text."""
         cfg = await _get_active_config(db)
+        kw = build_completion_kwargs(cfg)
         temp = temperature if temperature is not None else (cfg.extra_params or {}).get("temperature", 0.1)
         response = await async_retry_litellm(
             lambda: litellm.acompletion(
                 messages=messages,
                 temperature=temp,
-                **build_completion_kwargs(cfg),
+                **kw,
             ),
             operation="llm.acompletion",
         )
@@ -87,6 +88,7 @@ class LLMService:
     ) -> AsyncGenerator[str, None]:
         """Streaming completion – yields text chunks as they arrive."""
         cfg = await _get_active_config(db)
+        kw = build_completion_kwargs(cfg)
         temp = temperature if temperature is not None else (cfg.extra_params or {}).get("temperature", 0.1)
         stream_attempts = 0
         max_stream_attempts = 2
@@ -98,7 +100,7 @@ class LLMService:
                     messages=messages,
                     temperature=temp,
                     stream=True,
-                    **build_completion_kwargs(cfg),
+                    **kw,
                 ),
                 operation="llm.acompletion_stream",
             )
