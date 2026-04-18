@@ -351,7 +351,7 @@ const MessageList = memo(function MessageList({
           <div className={cn(
             "flex items-center justify-center flex-shrink-0 mt-1 shadow-sm border overflow-hidden",
             msg.role === "user"
-              ? `w-9 h-9 rounded-xl border-primary/20 ${userAvatarData ? "bg-white p-0" : "bg-primary text-primary-foreground"}`
+              ? `w-12 h-12 rounded-2xl border-primary/20 ${userAvatarData ? "bg-white p-0" : "bg-primary text-primary-foreground"}`
               : "w-12 h-12 rounded-2xl bg-white border-border p-1"
           )}>
             {msg.role === "user" ? (
