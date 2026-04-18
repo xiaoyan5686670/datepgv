@@ -263,11 +263,9 @@ const MessageList = memo(function MessageList({
           </div>
           <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">
-              你好，我是 DATEPGV
+              你好，我是 小宇
             </h2>
             <p className="text-muted-foreground text-base leading-relaxed">
-              我可以帮你将自然语言转化为精准的 SQL 语句。
-              <br />
               {isAdmin 
                 ? "在 PostgreSQL / MySQL 模式下，我还可以执行查询并为你总结数据洞察。"
                 : "你可以直接向我提问业务数据，我会快速为你计算并生成图表分析。"}
@@ -349,10 +347,10 @@ const MessageList = memo(function MessageList({
           style={{ animationDelay: `${idx * 50}ms` }}
         >
           <div className={cn(
-            "w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-1 shadow-sm border overflow-hidden",
+            "flex items-center justify-center flex-shrink-0 mt-1 shadow-sm border overflow-hidden",
             msg.role === "user"
-              ? "bg-primary text-primary-foreground border-primary/20"
-              : "bg-white border-border p-0.5"
+              ? "w-9 h-9 rounded-xl bg-primary text-primary-foreground border-primary/20"
+              : "w-12 h-12 rounded-2xl bg-white border-border p-1"
           )}>
             {msg.role === "user" ? (
               <span className="text-xs font-bold">U</span>

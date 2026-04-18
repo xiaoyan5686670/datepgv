@@ -116,8 +116,8 @@ function HomePageInner() {
     <div className="flex flex-col h-screen bg-app-bg">
       <AppTopNav
         activeKey="home"
-        title="DATEPGV"
-        subtitle="NL-to-SQL System"
+        title="小宇助手"
+        subtitle=""
         rightActions={
           <div className="flex items-center gap-2">
             <button
