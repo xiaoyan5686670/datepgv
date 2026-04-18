@@ -1,6 +1,6 @@
 "use client";
 
-import { Database, Loader2, Send, Sparkles, Square, Trash2 } from "lucide-react";
+import { Loader2, Send, Sparkles, Square, Trash2 } from "lucide-react";
 import {
   memo,
   useCallback,
@@ -258,8 +258,8 @@ const MessageList = memo(function MessageList({
     <>
       {messages.length === 0 && !loadingHistory && (
         <div className="flex flex-col items-center justify-center h-full gap-8 text-center max-w-2xl mx-auto px-2">
-          <div className="w-20 h-20 rounded-3xl bg-gradient-to-br from-primary/15 to-primary/5 flex items-center justify-center shadow-inner border border-primary/20 animate-in zoom-in duration-500">
-            <Database size={40} className="text-primary" />
+          <div className="w-20 h-20 rounded-3xl bg-white flex items-center justify-center shadow-inner border border-primary/20 animate-in zoom-in duration-500 overflow-hidden p-1">
+            <img src="/sunnyou-logo.png" alt="Sunnyou" className="w-full h-full object-contain" />
           </div>
           <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">
@@ -349,15 +349,15 @@ const MessageList = memo(function MessageList({
           style={{ animationDelay: `${idx * 50}ms` }}
         >
           <div className={cn(
-            "w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-1 shadow-sm border",
+            "w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-1 shadow-sm border overflow-hidden",
             msg.role === "user"
               ? "bg-primary text-primary-foreground border-primary/20"
-              : "bg-background text-primary border-border"
+              : "bg-white border-border p-0.5"
           )}>
             {msg.role === "user" ? (
               <span className="text-xs font-bold">U</span>
             ) : (
-              <Database size={16} />
+              <img src="/sunnyou-logo.png" alt="AI" className="w-full h-full object-contain" />
             )}
           </div>
 
