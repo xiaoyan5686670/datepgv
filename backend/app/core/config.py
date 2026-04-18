@@ -78,6 +78,8 @@ class Settings(BaseSettings):
     APP_TITLE: str = "NL-to-SQL RAG System"
     APP_VERSION: str = "0.1.0"
     DEBUG: bool = False
+    # Root log level. Set WARNING in production to reduce noise; DEBUG for local dev.
+    LOG_LEVEL: str = "INFO"
     # Log INFO lines with per-stage ms for POST /chat/stream (RAG, LLM stream, execute, summarize).
     CHAT_STREAM_TIMING_LOG: bool = False
     # If analytics SELECT exceeds this many ms, log WARNING with SQL preview and EXPLAIN hint.
