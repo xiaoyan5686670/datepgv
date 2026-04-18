@@ -224,16 +224,21 @@ function HomePageInner() {
               aria-label="关闭历史会话面板"
             />
             <aside className="relative z-10 w-[86vw] max-w-xs h-full flex flex-col border-r bg-background">
-              <div className="flex items-center justify-between p-4 border-b">
-                <div className="text-sm font-semibold">历史会话</div>
-                <button
-                  type="button"
-                  onClick={() => setMobileSidebarOpen(false)}
-                  className="p-2 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-                  aria-label="关闭"
-                >
-                  <X size={16} />
-                </button>
+              <div className="border-b">
+                <div className="flex items-center justify-between px-4 py-3">
+                  <div className="text-sm font-semibold">历史会话</div>
+                  <button
+                    type="button"
+                    onClick={() => setMobileSidebarOpen(false)}
+                    className="p-2 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label="关闭"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+                <div className="px-4 pb-3">
+                  <ModelSwitcher />
+                </div>
               </div>
               <div className="p-4">
                 <button
