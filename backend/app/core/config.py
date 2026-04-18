@@ -80,6 +80,12 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     # Root log level. Set WARNING in production to reduce noise; DEBUG for local dev.
     LOG_LEVEL: str = "INFO"
+    # Path to rotating log file. Set to empty string "" to disable file logging.
+    LOG_FILE: str = "logs/app.log"
+    # Max size per log file in bytes before rotation (default 10 MB).
+    LOG_FILE_MAX_BYTES: int = 10 * 1024 * 1024
+    # Number of rotated backup files to keep.
+    LOG_FILE_BACKUP_COUNT: int = 7
     # Log INFO lines with per-stage ms for POST /chat/stream (RAG, LLM stream, execute, summarize).
     CHAT_STREAM_TIMING_LOG: bool = False
     # If analytics SELECT exceeds this many ms, log WARNING with SQL preview and EXPLAIN hint.

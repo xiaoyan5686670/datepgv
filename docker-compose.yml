@@ -21,6 +21,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./backend:/app
+      - ./logs/backend:/app/logs
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   # Dockerfile.dev 跑 next dev；勿再挂载匿名卷 /app/.next，否则会盖住构建产物导致 /_next/static 404。
