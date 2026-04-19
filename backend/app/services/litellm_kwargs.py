@@ -68,57 +68,6 @@ def is_ollama_thinking_model(model: str) -> bool:
     return any(p in bare for p in OLLAMA_THINKING_PATTERNS)
 
 
-# ── LiteLLM patch: teach ollama_chat to pass think=false at the request top-level ─────────────
-#
-# Ollama exposes a top-level "think" field in /api/chat that suppresses the
-# reasoning phase for thinking models (Qwen3, QwQ, …).  LiteLLM 1.75.9's
-# OllamaChatConfig does not know about this field, so passing think=False
-# to litellm.acompletion would be silently dropped by drop_params=True.
-#
-# The three-method patch below:
-#   1. declares "think" as a supported param so it is not dropped,
-#   2. forwards it through map_openai_params into optional_params,
-#   3. pops it from optional_params (so it doesn't end up inside "options")
-#      and places it at the top level of the /api/chat request body.
-#
-# The patch is applied once at module import time and is harmless for models
-# that do not send think=False (the field is simply absent from the payload).
-
-try:
-    from litellm.llms.ollama.chat.transformation import OllamaChatConfig as _OllamaChatConfig
-
-    _orig_get_supported = _OllamaChatConfig.get_supported_openai_params
-    _orig_map_params = _OllamaChatConfig.map_openai_params
-    _orig_transform_request = _OllamaChatConfig.transform_request
-
-    def _patched_get_supported(self, model: str) -> list:
-        params = list(_orig_get_supported(self, model))
-        if "think" not in params:
-            params.append("think")
-        return params
-
-    def _patched_map_params(
-        self, non_default_params: dict, optional_params: dict, model: str, drop_params: bool
-    ) -> dict:
-        result = _orig_map_params(self, non_default_params, optional_params, model, drop_params)
-        if "think" in non_default_params:
-            result["think"] = non_default_params["think"]
-        return result
-
-    def _patched_transform_request(self, model, messages, optional_params, litellm_params, headers):
-        think = optional_params.pop("think", None)
-        data = _orig_transform_request(self, model, messages, optional_params, litellm_params, headers)
-        if think is not None:
-            data["think"] = think
-        return data
-
-    _OllamaChatConfig.get_supported_openai_params = _patched_get_supported  # type: ignore[method-assign]
-    _OllamaChatConfig.map_openai_params = _patched_map_params  # type: ignore[method-assign]
-    _OllamaChatConfig.transform_request = _patched_transform_request  # type: ignore[method-assign]
-except Exception:
-    pass  # if LiteLLM internals change, degrade gracefully rather than crashing
-
-
 def _looks_like_ollama_api_base(api_base: str | None) -> bool:
     """
     Heuristic for user-entered Ollama endpoint, e.g. http://127.0.0.1:11434.

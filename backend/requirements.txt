@@ -17,10 +17,11 @@ bcrypt==4.2.1
 
 # LLM — DashScope/通义需 litellm>=1.75（1.57 无 dashscope provider，会报 LLM Provider NOT provided）
 # 见 https://docs.litellm.ai/docs/providers/dashscope
-litellm==1.75.9
+# 1.83.9+ 原生支持 Ollama think 参数（无需 monkey-patch）
+litellm==1.83.9
 
-# Transitive peer of litellm 1.75+ (litellm requires openai>=1.99.5); not imported directly by app code
-openai>=1.99.5,<2
+# Transitive peer pinned to match litellm 1.83.9 exact requirements
+openai==2.24.0
 
 # SQL parsing & validation
 sqlfluff==3.3.1
@@ -30,8 +31,8 @@ sqlparse==0.5.3
 openpyxl==3.1.5
 pandas==2.2.3
 
-# HTTP client (litellm 1.75+ allows httpx>=0.23)
-httpx>=0.23.0,<0.29.0
+# HTTP client — litellm 1.83.9 pins httpx==0.28.1
+httpx==0.28.1
 
 # DDL parsing
 sqlglot==26.0.0
