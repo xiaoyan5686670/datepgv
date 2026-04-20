@@ -22,6 +22,7 @@ from app.services.sql_skill_service import (
     list_skill_descriptions,
     render_loaded_skills,
 )
+from app.services.sql_generator import SQL_OUTPUT_MODE_JSON
 from app.services.viewer_sql_context import build_viewer_sql_context
 
 SQLType = Literal["hive", "postgresql", "oracle", "mysql"]
@@ -442,6 +443,7 @@ class RAGEngine:
         current_user: User | None = None,
         selected_skills: list[SQLSkill] | None = None,
         available_skills: list[SQLSkill] | None = None,
+        sql_output_mode: str | None = None,
     ) -> list[dict[str, str]]:
         """Construct the messages list for the LLM."""
         if sql_type == "hive":
@@ -481,6 +483,34 @@ class RAGEngine:
                 f"{build_viewer_sql_context(current_user)}\n"
             )
 
+        use_json = (sql_output_mode or "").lower().strip() == SQL_OUTPUT_MODE_JSON
+
+        shared_sql_rules = """- 生成的 SQL 中【禁止】包含分号 `;`（尤其是在 SQL 末尾或注释中）；不要写多条语句。
+- 避免在 SQL 中编写冗长的注释（尤其是在每行末尾），以免干扰解析。
+- SQL 中的「表名」与「列名」必须严格依据下方「可用的表结构」；严禁臆造、严禁拼音内联、严禁翻译字段名。每个字段名必须与「⚠️ 仅允许使用以下列名」行中列出的名称逐字一致（区分大小写），绝不允许自行构造未列出的列名。
+- 如果请求的指标或维度在「可用的表结构」中不存在，请直接在 SQL 注释中说明并尝试寻找最接近的替代字段，切勿自行发明字段名。
+- 若字段名是 SQL 保留字（如 ALL, SELECT, DESC, FROM, CASE 等），在 SQL 中引用该字段时【必须】使用对应方言的引用符号（如 MySQL 的反引号 `）包裹。
+- 若「已知表之间的关联路径参考」给出了 JOIN ON 条件，应优先采用这些 ON 条件连接表。
+- 对于地区（省份、城市）、名称、部门等维度过滤：
+  - 省份维度【禁止】使用 LIKE 模糊匹配与 LIKE 关联（例如 `PROV_NAME LIKE '%广西%'` 或 `A.PROV_NAME LIKE CONCAT('%', B.shengfen, '%')`）。
+  - 省份必须使用等值方式（`=` / `IN`）并优先采用规范值（如“广西壮族自治区”）或已知同义值集合（如“广西壮族自治区”与“广西”）。
+  - 仅非省份文本字段可按需使用 LIKE（如人员备注、自由文本）。"""
+
+        if use_json:
+            strict_block = f"""严格要求（仅输出 JSON）：
+- 只输出【一个】合法 JSON 对象，键名必须使用英文双引号；不要输出任何 JSON 之外的说明文字。
+- 需要执行数据查询时：`{{"kind":"sql","sql":"单条 {sql_type.upper()} 语句"}}`，sql 字符串内关键字与表名/别名之间必须有空格（例如 `SELECT t1.col` 不得写成 `SELECTt1.col`）。
+- 仅需自然语言回答时（解释表、打招呼、无查询）：`{{"kind":"text","text":"中文回答"}}`。
+- JSON 中的 sql 字段：对双引号、反斜杠等按 JSON 规范转义；仍须单条语句、无分号。
+{shared_sql_rules}"""
+        else:
+            strict_block = f"""严格要求：
+- 如果用户的请求是查询具体数据，请仅返回 SQL 代码块（```sql ... ```），并且不要附加任何额外解释。
+{shared_sql_rules}
+- 如果用户的请求是宽泛的问答（例如“我可以查哪些数据”、“解释一下表的意思”）、打招呼，或者仅仅询问表结构，请直接用易于阅读的「自然语言」回答，并在回答中综合参考下方的「可用的表结构」。此种情况【不要】生成任何 SQL 语句。
+- 【特别强调】严禁输出任何 Markdown 代码块之外的解释文字，除非是在进行「非 SQL 生成」的问答。如果是生成 SQL，仅输出一个代码块即可。
+若无需生成SQL，请直接输出中文文本即可。"""
+
         system_prompt = f"""你是一个专业的数据仓库工程师，不仅可以回答用户关于数据库有哪些表、数据结构的问题，也能根据需求生成 {sql_type.upper()} SQL 查询。
 
 {rules}
@@ -491,21 +521,7 @@ class RAGEngine:
 请优先遵守已加载技能中的规则；若未加载任何技能，则仅按通用规则与表结构生成。
 {loaded_skills_block}
 
-严格要求：
-- 如果用户的请求是查询具体数据，请仅返回 SQL 代码块（```sql ... ```），并且不要附加任何额外解释。
-- 生成的 SQL 代码块中【禁止】包含分号 `;`（尤其是在 SQL 末尾或注释中）；不要写多条语句。
-- 避免在 SQL 中编写冗长的注释（尤其是在每行末尾），以免干扰解析。
-- SQL 中的「表名」与「列名」必须严格依据下方「可用的表结构」；严禁臆造、严禁拼音内联、严禁翻译字段名。每个字段名必须与「⚠️ 仅允许使用以下列名」行中列出的名称逐字一致（区分大小写），绝不允许自行构造未列出的列名。
-- 如果请求的指标或维度在「可用的表结构」中不存在，请直接在 SQL 注释中说明并尝试寻找最接近的替代字段，切勿自行发明字段名。
-- 若字段名是 SQL 保留字（如 ALL, SELECT, DESC, FROM, CASE 等），在 SQL 中引用该字段时【必须】使用对应方言的引用符号（如 MySQL 的反引号 `）包裹。
-- 若「已知表之间的关联路径参考」给出了 JOIN ON 条件，应优先采用这些 ON 条件连接表。
-- 对于地区（省份、城市）、名称、部门等维度过滤：
-  - 省份维度【禁止】使用 LIKE 模糊匹配与 LIKE 关联（例如 `PROV_NAME LIKE '%广西%'` 或 `A.PROV_NAME LIKE CONCAT('%', B.shengfen, '%')`）。
-  - 省份必须使用等值方式（`=` / `IN`）并优先采用规范值（如“广西壮族自治区”）或已知同义值集合（如“广西壮族自治区”与“广西”）。
-  - 仅非省份文本字段可按需使用 LIKE（如人员备注、自由文本）。
-- 如果用户的请求是宽泛的问答（例如“我可以查哪些数据”、“解释一下表的意思”）、打招呼，或者仅仅询问表结构，请直接用易于阅读的「自然语言」回答，并在回答中综合参考下方的「可用的表结构」。此种情况【不要】生成任何 SQL 语句。
-- 【特别强调】严禁输出任何 Markdown 代码块之外的解释文字，除非是在进行「非 SQL 生成」的问答。如果是生成 SQL，仅输出一个代码块即可。
-若无需生成SQL，请直接输出中文文本即可。"""
+{strict_block}"""
 
         user_prompt = f"""【参考信息：可用的表结构】
 {schemas}{path_str}{viewer_block}---

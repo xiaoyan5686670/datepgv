@@ -10,7 +10,7 @@ import re
 import time
 import traceback
 import uuid
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response, StreamingResponse
@@ -24,14 +24,18 @@ from app.models.chat import ChatMessage, ChatSession
 from app.models.llm_config import LLMConfig
 from app.models.schemas import ChatRequest, ChatSessionSummary
 from app.services.embedding import get_embedding_service
-from app.services.llm import LLMService, get_llm_service
+from app.services.llm import LLMService, get_active_llm_extra_params, get_llm_service
 from app.services.analytics_db_connection_service import resolve_execute_url
 from app.core.config import settings
 from app.models.user import User
 from app.services.query_executor import QueryExecutorError, QueryResult, run_analytics_query
 from app.services.org_hierarchy import filter_rows_by_scope, load_org_data, org_identity_names
 from app.services.rag import RAGEngine, qualified_table_label
-from app.services.sql_generator import process_llm_output, fix_ifnull_string_numerics
+from app.services.sql_generator import (
+    SQL_OUTPUT_MODE_KEY,
+    fix_ifnull_string_numerics,
+    process_llm_output,
+)
 from app.services.sql_column_repair import repair_sql_unknown_columns, repair_sql_unknown_tables, repair_sql_missing_joins
 from app.services.sql_skill_service import choose_sql_skills, list_enabled_sql_skills
 from app.services.viewer_sql_context import build_viewer_sql_context
@@ -463,6 +467,9 @@ async def chat_stream(
     rag = RAGEngine(db, emb_svc)
     llm = get_llm_service()
 
+    # Default so nested event_generator never sees UnboundLocalError if refactored
+    llm_extra_params: dict[str, Any] = {}
+
     t = time.perf_counter()
     try:
         tables, join_paths = await rag.retrieve(request.query, request.sql_type, request.top_k)
@@ -501,6 +508,7 @@ async def chat_stream(
             tables,
             available_skills,
         )
+        llm_extra_params = await get_active_llm_extra_params(db)
         messages = rag.build_prompt(
             request.query,
             tables,
@@ -509,6 +517,7 @@ async def chat_stream(
             current_user=current_user,
             selected_skills=selected_skills,
             available_skills=available_skills,
+            sql_output_mode=str(llm_extra_params.get(SQL_OUTPUT_MODE_KEY, "markdown")),
         )
         if history:
             messages = [messages[0]] + history + [messages[1]]
@@ -645,13 +654,19 @@ async def chat_stream(
         stream_total_ms = (time.perf_counter() - t_stream) * 1000
 
         if not stream_error_occurred:
-            clean_sql = process_llm_output(full_response, request.sql_type)
+            clean_sql, nl_from_json = process_llm_output(
+                full_response, request.sql_type, llm_extra_params
+            )
             effective_sql = clean_sql if clean_sql else ""
 
             t_exec_block_start = time.perf_counter()
             if clean_sql is None:
-                # Not a SQL query, it's just an informational answer
-                answer = full_response.strip()
+                # Not a SQL query — plain text, or JSON mode kind=text
+                answer = (
+                    nl_from_json
+                    if nl_from_json is not None
+                    else full_response.strip()
+                )
             elif not request.execute:
                 answer = "已按设置跳过数据库执行，仅生成 SQL。"
             elif request.sql_type not in ("postgresql", "mysql"):
@@ -707,7 +722,9 @@ async def chat_stream(
                                 db,
                                 viewer_context=viewer_ctx,
                             )
-                            new_sql = process_llm_output(fixed_raw, request.sql_type)
+                            new_sql, _ = process_llm_output(
+                                fixed_raw, request.sql_type, llm_extra_params
+                            )
                             if new_sql:
                                 clean_sql = new_sql
                             continue
@@ -730,7 +747,9 @@ async def chat_stream(
                                 db,
                                 viewer_context=viewer_ctx,
                             )
-                            new_sql = process_llm_output(fixed_raw, request.sql_type)
+                            new_sql, _ = process_llm_output(
+                                fixed_raw, request.sql_type, llm_extra_params
+                            )
                             if new_sql:
                                 clean_sql = new_sql
                             continue
@@ -754,7 +773,9 @@ async def chat_stream(
                             db,
                             viewer_context=viewer_ctx,
                         )
-                        new_sql = process_llm_output(fixed_raw, request.sql_type)
+                        new_sql, _ = process_llm_output(
+                            fixed_raw, request.sql_type, llm_extra_params
+                        )
                         if new_sql:
                             clean_sql = new_sql
                     still_tables = find_unknown_tables(

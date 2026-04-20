@@ -5,7 +5,7 @@ and delegates to LiteLLM. No provider-specific logic lives here.
 from __future__ import annotations
 
 import time
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 import litellm
 from fastapi import HTTPException
@@ -57,6 +57,12 @@ async def _get_active_config(db: AsyncSession) -> LLMConfigRuntime:
     _cached_config = snap
     _cache_ts = now
     return snap
+
+
+async def get_active_llm_extra_params(db: AsyncSession) -> dict[str, Any]:
+    """extra_params from the active LLM row (e.g. sql_output_mode)."""
+    snap = await _get_active_config(db)
+    return dict(snap.extra_params or {})
 
 
 class LLMService:
