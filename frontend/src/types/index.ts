@@ -232,6 +232,7 @@ export interface ChatMessage {
   scope_disallowed_provinces?: string[];
   effective_sql?: string;
   isError?: boolean;
+  llm_model?: string;
 }
 
 export interface ChatSession {

@@ -484,6 +484,7 @@ export async function fetchChatHistory(
       truncated?: boolean;
     } | null;
     elapsed_ms?: number | null;
+    llm_model?: string | null;
     created_at: string;
   }[]
 > {

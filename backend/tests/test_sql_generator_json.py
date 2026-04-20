@@ -117,3 +117,29 @@ def test_process_llm_output_preserves_per_segment_backticks_mysql() -> None:
     sql, _ = process_llm_output(raw, "mysql", None)
     assert sql is not None
     assert "`DWD`.`DWD_SLS_PAYMENT_ACK_STAFF`" in sql
+
+
+def test_process_llm_output_naked_alias_glued_to_from() -> None:
+    """Alias without backticks glued to FROM (Gemma)."""
+    raw = r"""```sql
+SELECT SUM(x) AS avg_sales_per_personFROM `DWD`.`DWD_SLS_PAYMENT_ACK_STAFF` WHERE 1=1
+```"""
+    sql, nl = process_llm_output(raw, "mysql", None)
+    assert nl is None
+    assert sql is not None
+    assert "avg_sales_per_person FROM" in sql.replace("\n", " ")
+
+
+def test_process_llm_output_weak_model_glue_interval_from_where_group() -> None:
+    """Ollama Gemma-style glued tokens + CJK period instead of closing backtick."""
+    raw = r"""```sql
+SELECT `BIG_REGION_NAME`,SUM(CAST(IFNULL(`CLAIMED_AMOUNT`,0) AS DECIMAL(20,2))) / COUNT(DISTINCT `MGR_CODE`) AS `avg_sales_per_person`FROM `DWD`.`DWD_SLS_PAYMENT_ACK_STAFF`WHERE DATE(`PAYMENT_DATE`) = DATE_SUB(CURDATE(), INTERVAL1 DAY)GROUP BY `BIG_REGION_NAME。
+```"""
+    sql, nl = process_llm_output(raw, "mysql", None)
+    assert nl is None
+    assert sql is not None
+    assert "INTERVAL 1 DAY" in sql
+    assert "`avg_sales_per_person` FROM" in sql.replace("\n", " ")
+    assert "`DWD_SLS_PAYMENT_ACK_STAFF` WHERE" in sql.replace("\n", " ")
+    assert ") GROUP BY" in sql.replace("\n", " ")
+    assert sql.rstrip().endswith("`BIG_REGION_NAME`")

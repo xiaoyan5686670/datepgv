@@ -1022,6 +1022,7 @@ async def chat_stream(
                     if scope_blocked
                     else ("query_error" if exec_error else None)
                 ),
+                "llm_model": model_name,
             },
         )
         save_ms = (time.perf_counter() - t_save) * 1000
@@ -1076,6 +1077,7 @@ async def get_history(
             "exec_error": m.exec_error,
             "result_preview": m.result_preview,
             "elapsed_ms": m.elapsed_ms,
+            "llm_model": m.decision_trace.get("llm_model") if m.decision_trace else None,
             "created_at": m.created_at.isoformat(),
         }
         for m in msgs

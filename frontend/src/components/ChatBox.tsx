@@ -370,8 +370,15 @@ const MessageList = memo(function MessageList({
             )}
           >
             {msg.role === "user" ? (
-              <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-none px-5 py-3 text-sm shadow-sm leading-relaxed">
-                {msg.content}
+              <div className="flex flex-col items-end gap-1.5 w-full">
+                <div className="bg-primary text-primary-foreground rounded-2xl rounded-tr-none px-5 py-3 text-sm shadow-sm leading-relaxed whitespace-pre-wrap">
+                  {msg.content}
+                </div>
+                {msg.created_at && (
+                  <span className="text-[10px] text-muted-foreground/60 px-1 font-medium select-none">
+                    {new Date(msg.created_at).toLocaleString([], { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\//g, '-')}
+                  </span>
+                )}
               </div>
             ) : (
               <div className="w-full space-y-4">
@@ -470,9 +477,18 @@ const MessageList = memo(function MessageList({
                     </button>
                   </div>
                 ) : null}
-                {msg.role === "assistant" && msg.elapsed_ms && !msg.isError && !msg.exec_error ? (
-                  <div className="text-[11px] text-muted-foreground/80 px-1">
-                    本轮耗时: {formatDuration(msg.elapsed_ms)}
+                {msg.role === "assistant" && !msg.isError && msg.created_at ? (
+                  <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground/70 px-1 mt-2 mb-1 select-none">
+                    <span>{new Date(msg.created_at).toLocaleString([], { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/\//g, '-')}</span>
+                    {msg.llm_model && (
+                      <span className="flex items-center gap-1 font-medium bg-muted/40 px-1.5 py-0.5 rounded-md border border-border/40">
+                        <Sparkles size={11} className="text-primary/70" />
+                        {msg.llm_model}
+                      </span>
+                    )}
+                    {msg.elapsed_ms ? (
+                      <span>耗时: {formatDuration(msg.elapsed_ms)}</span>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -697,6 +713,8 @@ export function ChatBox({
               sql_type: (h.sql_type as SqlType) ?? sqlType,
               referenced_tables: [],
               isStreaming: false,
+              elapsed_ms: h.elapsed_ms ?? undefined,
+              llm_model: h.llm_model ?? undefined,
               executed: h.executed ?? undefined,
               exec_error: h.exec_error ?? undefined,
               result_preview: h.result_preview ?? undefined,
@@ -711,6 +729,8 @@ export function ChatBox({
             sql_type: (h.sql_type as SqlType) ?? sqlType,
             referenced_tables: [],
             isStreaming: false,
+            elapsed_ms: h.elapsed_ms ?? undefined,
+            llm_model: h.llm_model ?? undefined,
             executed: h.executed ?? undefined,
             exec_error: h.exec_error ?? undefined,
             result_preview: h.result_preview ?? undefined,
@@ -912,6 +932,7 @@ export function ChatBox({
                         ...m,
                         referenced_tables: meta.referenced_tables,
                         sql_type: meta.sql_type,
+                        llm_model: meta.model,
                       }
                     : m
                 )

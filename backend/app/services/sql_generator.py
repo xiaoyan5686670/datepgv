@@ -134,6 +134,173 @@ def fix_keyword_missing_space_after(sql: str) -> str:
     return sql
 
 
+# Weak models (e.g. Ollama Gemma) sometimes use an ideographic/fullwidth period
+# instead of a closing backtick, leaving an unterminated identifier (Doris 1105).
+_BACKTICK_CLOSED_WITH_CJK_PERIOD = re.compile(r"`([^`\n]+)[。\uFF0E]")
+
+
+def fix_backtick_closed_with_cjk_period(sql: str) -> str:
+    """Rewrite `` `IDENT。`` → `` `IDENT` `` ( mistaken closing quote )."""
+    if not sql:
+        return sql
+    prev = sql
+    sql = _BACKTICK_CLOSED_WITH_CJK_PERIOD.sub(r"`\1`", sql)
+    if sql != prev:
+        logger.info("fix_backtick_closed_with_cjk_period: closed backtick identifier")
+    return sql
+
+
+# INTERVAL1 DAY / INTERVAL1DAY — keyword must be separate from the numeric literal.
+_INTERVAL_UNIT_GLUE = re.compile(
+    r"(?i)\bINTERVAL(\d+)(DAY|MONTH|YEAR|WEEK|HOUR|MINUTE|SECOND|MICROSECOND)\b"
+)
+_INTERVAL_NUM_GLUE = re.compile(r"(?i)\bINTERVAL(\d+)(?=\s|$|,|\))")
+
+
+def fix_interval_glued_to_number(sql: str) -> str:
+    """Insert spaces in ``INTERVAL1 DAY`` / ``INTERVAL1DAY`` for MySQL-family parsers."""
+    if not sql:
+        return sql
+    prev = sql
+    sql = _INTERVAL_UNIT_GLUE.sub(lambda m: f"INTERVAL {m.group(1)} {m.group(2).upper()}", sql)
+    sql = _INTERVAL_NUM_GLUE.sub(r"INTERVAL \1", sql)
+    if sql != prev:
+        logger.info("fix_interval_glued_to_number: spaced INTERVAL literal")
+    return sql
+
+
+# )GROUP BY / )ORDER BY — missing space after closing paren before clause keywords.
+_PAREN_BEFORE_SQL_KW = re.compile(
+    r"\)\s*("
+    r"GROUP|ORDER|HAVING|LIMIT|UNION|INTERSECT|EXCEPT|WHERE|FROM|JOIN|"
+    r"LEFT|RIGHT|INNER|CROSS|SELECT|VALUES"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def fix_paren_before_sql_keyword(sql: str) -> str:
+    r"""Normalize ``)GROUP`` → ``) GROUP`` (and similar)."""
+    if not sql:
+        return sql
+    prev = sql
+    sql = _PAREN_BEFORE_SQL_KW.sub(r") \1", sql)
+    if sql != prev:
+        logger.info("fix_paren_before_sql_keyword: inserted space after ')' before keyword")
+    return sql
+
+
+# `alias`FROM / `tbl`WHERE — closing backtick glued to next keyword.
+_BACKTICK_BEFORE_SQL_KW = re.compile(
+    r"`([^`\n]+)`\s*("
+    r"FROM|WHERE|GROUP|ORDER|HAVING|LIMIT|JOIN|LEFT|RIGHT|INNER|CROSS|"
+    r"FULL|OUTER|UNION|ON|AS"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def fix_backtick_before_sql_keyword(sql: str) -> str:
+    r"""Normalize ``\`col\`FROM`` → ``\`col\` FROM``."""
+    if not sql:
+        return sql
+    prev = sql
+    sql = _BACKTICK_BEFORE_SQL_KW.sub(r"`\1` \2", sql)
+    if sql != prev:
+        logger.info("fix_backtick_before_sql_keyword: inserted space after closing backtick")
+    return sql
+
+
+# avg_sales_per_personFROM — weak models omit backticks around aliases; still glue the next keyword.
+# Do not use (?i) with ON/AS: case-insensitive ON matches the suffix of identifiers like ...person.
+_NAKED_ID_BEFORE_SQL_KW = re.compile(
+    r"(?i)\b([A-Za-z_][A-Za-z0-9_]*)"
+    r"(FROM|WHERE|GROUP|ORDER|HAVING|LIMIT|JOIN|LEFT|RIGHT|INNER|CROSS|FULL|OUTER|UNION)\b"
+)
+
+# Do not split when the "identifier" is a keyword / interval unit (e.g. INTERVAL 1 DAY + mistaken glue).
+_SKIP_NAKED_IDENT_BEFORE_KW = frozenset(
+    {
+        "DAY",
+        "MONTH",
+        "YEAR",
+        "WEEK",
+        "HOUR",
+        "MINUTE",
+        "SECOND",
+        "MICROSECOND",
+        "NULL",
+        "TRUE",
+        "FALSE",
+        "COUNT",
+        "SUM",
+        "AVG",
+        "MIN",
+        "MAX",
+        "CAST",
+        "COALESCE",
+        "IFNULL",
+        "AND",
+        "OR",
+        "NOT",
+        "CASE",
+        "WHEN",
+        "THEN",
+        "ELSE",
+        "END",
+        "SELECT",
+        "DISTINCT",
+        "FROM",
+        "WHERE",
+        "GROUP",
+        "ORDER",
+        "HAVING",
+        "LIMIT",
+        "OFFSET",
+        "UNION",
+        "ALL",
+        "INTERVAL",
+        "EXISTS",
+        "ASC",
+        "DESC",
+        "IS",
+        "IN",
+        "BY",
+        "LIKE",
+        "RLIKE",
+        "REGEXP",
+        "BETWEEN",
+        "WITH",
+        "RECURSIVE",
+        "DATE",
+        "TIME",
+        "TIMESTAMP",
+        "NOW",
+        "CURDATE",
+        "CURRENT_DATE",
+        "CURRENT_TIME",
+    }
+)
+
+
+def fix_naked_identifier_before_sql_keyword(sql: str) -> str:
+    r"""Insert space between a bare identifier and a glued clause keyword (``aliasFROM`` → ``alias FROM``)."""
+    if not sql:
+        return sql
+    prev = sql
+
+    def repl(m: re.Match[str]) -> str:
+        ident, kw = m.group(1), m.group(2)
+        if ident.upper() in _SKIP_NAKED_IDENT_BEFORE_KW:
+            return m.group(0)
+        return f"{ident} {kw}"
+
+    sql = _NAKED_ID_BEFORE_SQL_KW.sub(repl, sql)
+    if sql != prev:
+        logger.info("fix_naked_identifier_before_sql_keyword: spaced bare identifier before keyword")
+    return sql
+
+
 def validate_sql(sql: str, dialect: str = "ansi") -> list[str]:
     """
     Run sqlfluff lint on the SQL. Returns a list of violation messages.
@@ -291,8 +458,13 @@ def fix_reserved_words_heuristic(sql: str, sql_type: str) -> str:
 def _finalize_extracted_sql(sql: str, sql_type: str) -> str:
     """Normalize and format extracted SQL (markdown or JSON sql field)."""
     sql = sql.strip()
+    sql = fix_backtick_closed_with_cjk_period(sql)
     sql = fix_keyword_missing_space_after(sql)
     sql = normalize_sql_fullwidth_punctuation(sql)
+    sql = fix_interval_glued_to_number(sql)
+    sql = fix_paren_before_sql_keyword(sql)
+    sql = fix_backtick_before_sql_keyword(sql)
+    sql = fix_naked_identifier_before_sql_keyword(sql)
     sql = fix_ifnull_string_numerics(sql)
     sql = fix_monolithic_backtick_qualified_identifiers(sql, sql_type)
     dialect = DIALECT_MAP.get(sql_type, "ansi")
