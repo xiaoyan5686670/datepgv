@@ -92,3 +92,28 @@ def test_process_llm_output_json_fallback_to_markdown() -> None:
 def test_fix_keyword_glue_select() -> None:
     fixed = fix_keyword_missing_space_after("SELECTt1.region FROM t1")
     assert "SELECT t1" in fixed or "SELECT t1.region" in fixed
+
+
+def test_process_llm_output_splits_monolithic_backtick_qualified_mysql() -> None:
+    raw = "```sql\nSELECT 1 FROM `DWD.DWD_SLS_PAYMENT_ACK_STAFF` AS t\n```"
+    sql, nl = process_llm_output(raw, "mysql", None)
+    assert nl is None
+    assert sql is not None
+    assert "`DWD`.`DWD_SLS_PAYMENT_ACK_STAFF`" in sql
+    assert "`DWD.DWD_SLS_PAYMENT_ACK_STAFF`" not in sql
+
+
+def test_process_llm_output_monolithic_backtick_json_mysql() -> None:
+    raw = '{"kind":"sql","sql":"SELECT 1 FROM `a.b.c`"}'
+    extra = {"sql_output_mode": SQL_OUTPUT_MODE_JSON}
+    sql, nl = process_llm_output(raw, "mysql", extra)
+    assert nl is None
+    assert sql is not None
+    assert "`a`.`b`.`c`" in sql
+
+
+def test_process_llm_output_preserves_per_segment_backticks_mysql() -> None:
+    raw = "```sql\nSELECT 1 FROM `DWD`.`DWD_SLS_PAYMENT_ACK_STAFF` t\n```"
+    sql, _ = process_llm_output(raw, "mysql", None)
+    assert sql is not None
+    assert "`DWD`.`DWD_SLS_PAYMENT_ACK_STAFF`" in sql

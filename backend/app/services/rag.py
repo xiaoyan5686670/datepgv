@@ -63,6 +63,7 @@ Oracle SQL 规范：
 
 MYSQL_RULES = """
 MySQL 5.x 规范：
+- 【重要】多段限定名（库/表，或 catalog.db.table）必须为每一段分别加反引号，例如 `DWD`.`DWD_SLS_PAYMENT_ACK_STAFF` 或 `a`.`b`.`c`。【禁止】写成 `DWD.DWD_SLS_PAYMENT_ACK_STAFF` 这种整段包在一对反引号里——会被解析为「单个含点号的标识符」，导致 Unknown table。
 - 【重要】标识符（表名、列名、别名）必要时、或可能与保留字（如 ALL, DESC, ORDER, GROUP, SELECT）冲突时，必须使用反引号 ` 包裹。
 - 日期/时间：DATE_FORMAT、STR_TO_DATE、YEAR/MONTH/DAY、CURDATE()
 - 分组与时间截断：DATE_FORMAT(dt, '%Y-%m') 等（避免依赖 MySQL 8 专属函数）
@@ -489,7 +490,7 @@ class RAGEngine:
 - 避免在 SQL 中编写冗长的注释（尤其是在每行末尾），以免干扰解析。
 - SQL 中的「表名」与「列名」必须严格依据下方「可用的表结构」；严禁臆造、严禁拼音内联、严禁翻译字段名。每个字段名必须与「⚠️ 仅允许使用以下列名」行中列出的名称逐字一致（区分大小写），绝不允许自行构造未列出的列名。
 - 如果请求的指标或维度在「可用的表结构」中不存在，请直接在 SQL 注释中说明并尝试寻找最接近的替代字段，切勿自行发明字段名。
-- 若字段名是 SQL 保留字（如 ALL, SELECT, DESC, FROM, CASE 等），在 SQL 中引用该字段时【必须】使用对应方言的引用符号（如 MySQL 的反引号 `）包裹。
+- 若字段名是 SQL 保留字（如 ALL, SELECT, DESC, FROM, CASE 等），在 SQL 中引用该字段时【必须】使用对应方言的引用符号（如 MySQL 的反引号 `）包裹。使用 MySQL 反引号时：限定表名必须 `库名`.`表名` 分段引用，禁止 `库名.表名` 整段引用。
 - 若「已知表之间的关联路径参考」给出了 JOIN ON 条件，应优先采用这些 ON 条件连接表。
 - 对于地区（省份、城市）、名称、部门等维度过滤：
   - 省份维度【禁止】使用 LIKE 模糊匹配与 LIKE 关联（例如 `PROV_NAME LIKE '%广西%'` 或 `A.PROV_NAME LIKE CONCAT('%', B.shengfen, '%')`）。

@@ -53,6 +53,19 @@ function isOllamaModelString(m: string): boolean {
   return s.startsWith("ollama/") || s.startsWith("ollama_chat/");
 }
 
+function weakModelTopKFromExtra(ep: Record<string, unknown> | undefined): number {
+  if (!ep) return 2;
+  const v = ep.weak_model_rag_top_k;
+  if (typeof v === "number" && Number.isFinite(v)) {
+    return Math.max(1, Math.min(20, Math.round(v)));
+  }
+  if (typeof v === "string") {
+    const n = parseInt(v, 10);
+    if (!Number.isNaN(n)) return Math.max(1, Math.min(20, n));
+  }
+  return 2;
+}
+
 interface LLMConfigModalProps {
   configType: "llm" | "embedding";
   existing?: LLMConfig;
@@ -85,12 +98,24 @@ export function LLMConfigModal({
   const [ollamaFetchError, setOllamaFetchError] = useState("");
   const showOllamaHelper = isOllamaModelString(model);
 
+  const existingExtra = existing?.extra_params as Record<string, unknown> | undefined;
+  const [weakModelRag, setWeakModelRag] = useState(existingExtra?.weak_model_rag === true);
+  const [weakModelRagTopK, setWeakModelRagTopK] = useState(() =>
+    weakModelTopKFromExtra(existingExtra)
+  );
+
   // When preset changes, autofill model string
   useEffect(() => {
     if (selectedPreset !== "__custom__") {
       setModel(selectedPreset);
     }
   }, [selectedPreset]);
+
+  useEffect(() => {
+    const ep = existing?.extra_params as Record<string, unknown> | undefined;
+    setWeakModelRag(ep?.weak_model_rag === true);
+    setWeakModelRagTopK(weakModelTopKFromExtra(ep));
+  }, [existing]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,6 +130,18 @@ export function LLMConfigModal({
       return;
     }
     setExtraParamsError("");
+
+    if (configType === "llm") {
+      if (weakModelRag) {
+        parsedExtra.weak_model_rag = true;
+        const k = parseInt(String(weakModelRagTopK), 10);
+        const cap = Number.isNaN(k) ? 2 : Math.max(1, Math.min(20, k));
+        parsedExtra.weak_model_rag_top_k = cap;
+      } else {
+        delete parsedExtra.weak_model_rag;
+        delete parsedExtra.weak_model_rag_top_k;
+      }
+    }
 
     setLoading(true);
     try {
@@ -304,6 +341,44 @@ export function LLMConfigModal({
               </div>
               {ollamaFetchError && (
                 <p className="text-red-400 font-mono break-all">{ollamaFetchError}</p>
+              )}
+            </div>
+          )}
+
+          {configType === "llm" && (
+            <div className="rounded-lg border border-app-border bg-app-input/30 px-3 py-3 space-y-3 text-xs">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={weakModelRag}
+                  onChange={(e) => setWeakModelRag(e.target.checked)}
+                  className="mt-0.5 rounded border-app-border"
+                />
+                <span>
+                  <span className="text-app-text font-medium">弱模型 RAG 模式</span>
+                  <span className="block text-app-muted mt-0.5">
+                    关闭图谱扩展并限制向量检索返回的表数量，减轻小模型多表 JOIN 压力。
+                  </span>
+                </span>
+              </label>
+              {weakModelRag && (
+                <div>
+                  <label className="block text-app-muted mb-1.5">
+                    最多检索表数（1–20，默认 2）
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={weakModelRagTopK}
+                    onChange={(e) => {
+                      const n = parseInt(e.target.value, 10);
+                      if (Number.isNaN(n)) return;
+                      setWeakModelRagTopK(Math.max(1, Math.min(20, n)));
+                    }}
+                    className="w-full max-w-[8rem] bg-app-input border border-app-border rounded-lg px-3 py-2 text-sm text-app-text outline-none focus:border-app-accent/50"
+                  />
+                </div>
               )}
             </div>
           )}

@@ -472,7 +472,25 @@ async def chat_stream(
 
     t = time.perf_counter()
     try:
-        tables, join_paths = await rag.retrieve(request.query, request.sql_type, request.top_k)
+        llm_extra_params = await get_active_llm_extra_params(db)
+        expand_graph: bool | None = None
+        effective_top_k = request.top_k
+        if llm_extra_params.get("weak_model_rag") is True:
+            expand_graph = False
+            cap_raw = llm_extra_params.get("weak_model_rag_top_k", 2)
+            try:
+                cap_n = int(cap_raw)
+            except (TypeError, ValueError):
+                cap_n = 2
+            cap_n = max(1, min(cap_n, 20))
+            effective_top_k = min(request.top_k, cap_n)
+
+        tables, join_paths = await rag.retrieve(
+            request.query,
+            request.sql_type,
+            effective_top_k,
+            expand_graph=expand_graph,
+        )
         retrieve_ms = (time.perf_counter() - t) * 1000
         if not tables:
             raise HTTPException(
@@ -508,7 +526,6 @@ async def chat_stream(
             tables,
             available_skills,
         )
-        llm_extra_params = await get_active_llm_extra_params(db)
         messages = rag.build_prompt(
             request.query,
             tables,

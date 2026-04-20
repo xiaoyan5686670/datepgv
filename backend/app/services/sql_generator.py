@@ -220,6 +220,35 @@ def fix_ifnull_string_numerics(sql: str) -> str:
     return sql
 
 
+# LLMs often wrap `db.table` or `db.schema.table` in a single backtick pair. MySQL /
+# Doris / StarRocks then treat that as one identifier (literal name with a dot),
+# causing Unknown table 'db.table'. Split into `db`.`table` / `db`.`schema`.`tbl`.
+_MONOLITHIC_BACKTICK_QUALIFIED = re.compile(
+    r"`([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)`"
+)
+
+
+def fix_monolithic_backtick_qualified_identifiers(sql: str, sql_type: str) -> str:
+    """Rewrite `` `a.b` `` → `` `a`.`b` `` (and 3+ segments) for MySQL-family dialects."""
+    if not sql or sql_type != "mysql":
+        return sql
+
+    def repl(m: re.Match[str]) -> str:
+        inner = m.group(1)
+        parts = inner.split(".")
+        if not parts or any(not p for p in parts):
+            return m.group(0)
+        return ".".join(f"`{p}`" for p in parts)
+
+    prev = sql
+    sql = _MONOLITHIC_BACKTICK_QUALIFIED.sub(repl, sql)
+    if sql != prev:
+        logger.info(
+            "fix_monolithic_backtick_qualified_identifiers: split qualified name in one backtick pair"
+        )
+    return sql
+
+
 # --------------------------------------------------------------------------- #
 # Reserved Word Heuristics                                                    #
 # --------------------------------------------------------------------------- #
@@ -265,6 +294,7 @@ def _finalize_extracted_sql(sql: str, sql_type: str) -> str:
     sql = fix_keyword_missing_space_after(sql)
     sql = normalize_sql_fullwidth_punctuation(sql)
     sql = fix_ifnull_string_numerics(sql)
+    sql = fix_monolithic_backtick_qualified_identifiers(sql, sql_type)
     dialect = DIALECT_MAP.get(sql_type, "ansi")
     sql = fix_reserved_words_heuristic(sql, sql_type)
     sql = format_sql(sql, dialect)
