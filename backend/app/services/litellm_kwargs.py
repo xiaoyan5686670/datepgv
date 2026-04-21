@@ -135,7 +135,7 @@ def is_dashscope_family(model: str) -> bool:
 def is_vertex_family(model: str) -> bool:
     """Best-effort detection for Vertex-backed Gemini routes in LiteLLM."""
     m = (model or "").strip().lower()
-    return m.startswith("vertex_ai/") or m.startswith("vertex/") or m.startswith("gemini/")
+    return m.startswith("vertex_ai/") or m.startswith("vertex/")
 
 
 def embedding_target_dimensions(cfg: LiteLLMConfigParams) -> int:
@@ -264,6 +264,33 @@ def build_completion_kwargs(cfg: LiteLLMConfigParams) -> dict:
             kw.setdefault("location", loc)
     if is_ollama_family(normalized_model):
         kw["drop_params"] = True
+        # Ollama-native options (num_ctx, num_predict, etc.) are dropped by LiteLLM's
+        # drop_params=True because LiteLLM doesn't recognise them as standard params.
+        # The only way to reach Ollama is via extra_body.options which is forwarded
+        # verbatim to the /api/chat endpoint.
+        _OLLAMA_NATIVE_OPTION_KEYS = (
+            "num_ctx",
+            "num_predict",
+            "num_keep",
+            "repeat_penalty",
+            "repeat_last_n",
+            "mirostat",
+            "mirostat_tau",
+            "mirostat_eta",
+            "tfs_z",
+            "seed",
+        )
+        ollama_options: dict = {}
+        for _ok in _OLLAMA_NATIVE_OPTION_KEYS:
+            _val = extra.get(_ok)
+            if _val is not None:
+                try:
+                    # num_ctx / num_predict must be int; others are float/int
+                    ollama_options[_ok] = int(_val) if _ok in ("num_ctx", "num_predict", "num_keep", "repeat_last_n", "mirostat", "seed") else float(_val)
+                except (TypeError, ValueError):
+                    pass
+        if ollama_options:
+            kw["extra_body"] = {"options": ollama_options}
     if is_ollama_thinking_model(normalized_model):
         kw["think"] = False
     return kw

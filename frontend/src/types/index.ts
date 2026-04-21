@@ -233,6 +233,8 @@ export interface ChatMessage {
   effective_sql?: string;
   isError?: boolean;
   llm_model?: string;
+  token_count?: number;
+  tps?: number;
 }
 
 export interface ChatSession {
@@ -454,6 +456,8 @@ export interface DoneEvent {
   scope_blocked?: boolean;
   scope_block_reason?: string | null;
   scope_disallowed_provinces?: string[];
+  token_count?: number;
+  tps?: number;
 }
 
 export interface ErrorEvent {

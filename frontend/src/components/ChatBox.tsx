@@ -489,6 +489,14 @@ const MessageList = memo(function MessageList({
                     {msg.elapsed_ms ? (
                       <span>耗时: {formatDuration(msg.elapsed_ms)}</span>
                     ) : null}
+                    {msg.token_count && (
+                      <span>Token: {msg.token_count}</span>
+                    )}
+                    {msg.tps && msg.tps > 0 && (
+                      <span className="font-medium text-primary/80 bg-primary/5 px-1.5 py-0.5 rounded border border-primary/10">
+                        {msg.tps.toFixed(1)} tokens/s
+                      </span>
+                    )}
                   </div>
                 ) : null}
               </div>
@@ -715,6 +723,8 @@ export function ChatBox({
               isStreaming: false,
               elapsed_ms: h.elapsed_ms ?? undefined,
               llm_model: h.llm_model ?? undefined,
+              token_count: h.token_count ?? undefined,
+              tps: h.tps ?? undefined,
               executed: h.executed ?? undefined,
               exec_error: h.exec_error ?? undefined,
               result_preview: h.result_preview ?? undefined,
@@ -731,6 +741,8 @@ export function ChatBox({
             isStreaming: false,
             elapsed_ms: h.elapsed_ms ?? undefined,
             llm_model: h.llm_model ?? undefined,
+            token_count: h.token_count ?? undefined,
+            tps: h.tps ?? undefined,
             executed: h.executed ?? undefined,
             exec_error: h.exec_error ?? undefined,
             result_preview: h.result_preview ?? undefined,
@@ -996,13 +1008,14 @@ export function ChatBox({
                     executed: doneEvt.executed,
                     exec_error: doneEvt.exec_error ?? undefined,
                     result_preview: doneEvt.result_preview ?? undefined,
-                    scope_applied: doneEvt.scope_applied ?? undefined,
                     scope_rewrite_note: doneEvt.scope_rewrite_note ?? undefined,
                     scope_blocked: doneEvt.scope_blocked ?? undefined,
                     scope_block_reason: doneEvt.scope_block_reason ?? undefined,
                     scope_disallowed_provinces:
                       doneEvt.scope_disallowed_provinces ?? undefined,
                     effective_sql: doneEvt.effective_sql ?? undefined,
+                    token_count: doneEvt.token_count ?? undefined,
+                    tps: doneEvt.tps ?? undefined,
                   };
                 })
               );

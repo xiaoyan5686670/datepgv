@@ -11,6 +11,7 @@ import time
 import traceback
 import uuid
 from typing import Any, AsyncGenerator
+import litellm
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response, StreamingResponse
@@ -492,6 +493,7 @@ async def chat_stream(
             expand_graph=expand_graph,
         )
         retrieve_ms = (time.perf_counter() - t) * 1000
+        logger.info("PERF chat_stream phase=rag_retrieve ms=%.0f", retrieve_ms)
         if not tables:
             raise HTTPException(
                 status_code=400,
@@ -501,6 +503,7 @@ async def chat_stream(
         t = time.perf_counter()
         history = await _load_history(session_id, db)
         history_ms = (time.perf_counter() - t) * 1000
+        logger.info("PERF chat_stream phase=load_history ms=%.0f", history_ms)
         scope = await resolve_user_scope(current_user, db)
         precheck_disallowed_provinces, precheck_disallowed_employees = _user_scope_precheck(
             request.query, scope, current_user
@@ -547,6 +550,14 @@ async def chat_stream(
         model_name_ms = (time.perf_counter() - t) * 1000
 
         pre_stream_ms = (time.perf_counter() - t0) * 1000
+        # Log prompt size to diagnose TTFT bottleneck
+        _prompt_chars = sum(len(m.get("content", "")) for m in messages)
+        _prompt_breakdown = [(m.get("role", "?"), len(m.get("content", ""))) for m in messages]
+        logger.info(
+            "PERF chat_stream phase=prompt_size total_chars=%d num_messages=%d breakdown=%s",
+            _prompt_chars, len(messages), _prompt_breakdown
+        )
+        logger.info("PERF chat_stream phase=pre_stream_total ms=%.0f (before LLM starts)", pre_stream_ms)
 
     except Exception as e:
         # 记录前期失败（如召回 0 张表），确保审计可见
@@ -571,6 +582,8 @@ async def chat_stream(
     async def event_generator() -> AsyncGenerator[bytes, None]:
         t_stream_start = time.perf_counter()
         full_response = ""
+        token_count = 0
+        tps = 0.0
 
         meta = {
             "type": "meta",
@@ -649,7 +662,9 @@ async def chat_stream(
 
         try:
             async for token in llm.stream(messages, db):
-                first_token_ms = (time.perf_counter() - t_stream) * 1000
+                if first_token_ms is None:  # 只记录第一个 token 的到达时间
+                    first_token_ms = (time.perf_counter() - t_stream) * 1000
+                    logger.info("PERF chat_stream phase=llm_first_token ms=%.0f (TTFT from LLM call)", first_token_ms)
                 full_response += token
                 chunk = {"type": "token", "text": token}
                 yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode()
@@ -947,9 +962,11 @@ async def chat_stream(
                             "truncated": qres.truncated,
                         }
                         try:
+                            t_summary = time.perf_counter()
                             answer = await _summarize_query_result(
                                 llm, db, request.query, qres
                             )
+                            logger.info("PERF chat_stream phase=summarize_result ms=%.0f rows=%d", (time.perf_counter() - t_summary) * 1000, len(qres.rows))
                         except Exception as sum_err:
                             logger.exception("Summarizing query result failed: %s", sum_err)
                             answer, _ = format_execution_error(sum_err, _user_is_admin(current_user))
@@ -976,6 +993,22 @@ async def chat_stream(
         # Only yield 'done' if we didn't already yield an 'error' event during streaming.
         # If stream_error_occurred is True, the client already received an 'error' event.
         if not stream_error_occurred:
+            # Calculate token count and TPS
+            try:
+                # model_name might be like "dashscope/qwen-turbo" or "ollama/llama3"
+                token_count = litellm.token_counter(model=model_name, text=full_response)
+            except Exception:
+                # Fallback to rough estimation or character count if tokenizer fails
+                token_count = len(full_response)
+
+            # TPS = tokens / 纯生成时间（去掉 TTFT，即首字到最后一字的时间）
+            # 用总时间（含 TTFT）算出的 TPS 会因 Prefill 阶段严重偏低，无法反映显卡真实速度
+            generation_ms = stream_total_ms - (first_token_ms or 0)
+            if generation_ms > 100:  # 至少 100ms 的生成时间才计算，避免除以极小值
+                tps = token_count / (generation_ms / 1000)
+            elif stream_total_ms > 0:
+                tps = token_count / (stream_total_ms / 1000)
+
             done = {
                 "type": "done",
                 # 与 run_analytics_query 一致：展示实际执行的 SQL（含列修复与省份范围改写）
@@ -992,6 +1025,8 @@ async def chat_stream(
                 "scope_disallowed_provinces": blocked_disallowed_provinces,
                 "selected_skill_names": selected_skill_names,
                 "selected_skill_ids": selected_skill_ids,
+                "token_count": token_count,
+                "tps": tps,
             }
             yield f"data: {json.dumps(done, ensure_ascii=False, default=str)}\n\n".encode()
 
@@ -1023,6 +1058,8 @@ async def chat_stream(
                     else ("query_error" if exec_error else None)
                 ),
                 "llm_model": model_name,
+                "token_count": token_count,
+                "tps": tps,
             },
         )
         save_ms = (time.perf_counter() - t_save) * 1000
@@ -1078,6 +1115,8 @@ async def get_history(
             "result_preview": m.result_preview,
             "elapsed_ms": m.elapsed_ms,
             "llm_model": m.decision_trace.get("llm_model") if m.decision_trace else None,
+            "token_count": m.decision_trace.get("token_count") if m.decision_trace else None,
+            "tps": m.decision_trace.get("tps") if m.decision_trace else None,
             "created_at": m.created_at.isoformat(),
         }
         for m in msgs
