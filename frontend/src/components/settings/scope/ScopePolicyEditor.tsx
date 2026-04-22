@@ -10,28 +10,46 @@ import { cn } from "@/lib/utils";
 import type { DataScopeTabState } from "@/hooks/useDataScopeTab";
 import type { DataScopePolicy } from "@/types";
 
-export function ScopePolicyEditor({ tab }: { tab: DataScopeTabState }) {
+type EditorVariant = "card" | "modal";
+
+export function ScopePolicyEditor({
+  tab,
+  variant = "card",
+}: {
+  tab: DataScopeTabState;
+  variant?: EditorVariant;
+}) {
   const { editingPolicyId, scopeForm, setScopeForm, scopeSaving, savePolicy, closeEditor } =
     tab;
+  const title = editingPolicyId ? "编辑数据范围策略" : "新增数据范围策略";
   return (
-    <div className="relative overflow-hidden bg-app-surface border border-app-border rounded-2xl p-5 shadow-md space-y-5">
-      <div className="flex items-center justify-between gap-2 text-sm font-semibold text-app-text border-b border-app-border pb-3">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-500">
+    <div
+      className={cn(
+        "relative space-y-5",
+        variant === "modal"
+          ? "p-5 pb-6"
+          : "overflow-hidden rounded-2xl border border-app-border bg-app-surface p-5 shadow-md"
+      )}
+    >
+      <div className="sticky top-0 z-[1] -mx-5 -mt-5 mb-0 flex items-center justify-between gap-2 border-b border-app-border bg-app-surface px-5 py-3 text-sm font-semibold text-app-text">
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="shrink-0 rounded-lg bg-emerald-500/10 p-1.5 text-emerald-500">
             <Shield size={16} />
           </div>
-          {editingPolicyId ? "编辑数据范围策略" : "新增数据范围策略"}
+          <span id="scope-policy-editor-title" className="truncate">
+            {title}
+          </span>
         </div>
         <button
           type="button"
-          className="p-1 rounded-md text-app-subtle hover:bg-app-input hover:text-app-text transition-colors"
+          className="shrink-0 rounded-md p-1 text-app-subtle transition-colors hover:bg-app-input hover:text-app-text"
           onClick={closeEditor}
         >
           <XCircle size={18} />
         </button>
       </div>
 
-      <section className="space-y-3">
+      <section className="space-y-3 pt-1">
         <h4 className="text-xs font-semibold text-app-text">1. 谁适用这条策略</h4>
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1.5">

@@ -9,18 +9,10 @@ import {
   deleteScopePolicy,
   fetchProvinceAliases,
   fetchScopePolicies,
-  fetchUsers,
-  lookupAdminUserForRag,
-  previewScopeForUser,
   updateProvinceAlias,
   updateScopePolicy,
 } from "@/lib/api";
-import type {
-  DataScopePolicy,
-  DataScopePreview,
-  ProvinceAlias,
-  User,
-} from "@/types";
+import type { DataScopePolicy, ProvinceAlias } from "@/types";
 
 export type ScopeFormState = {
   subject_type: DataScopePolicy["subject_type"];
@@ -70,18 +62,7 @@ export function useDataScopeTab(options: UseDataScopeTabOptions = {}) {
     "all" | "enabled" | "disabled"
   >("all");
   const [selectedPolicyIds, setSelectedPolicyIds] = useState<number[]>([]);
-  const [scopePreviewLoading, setScopePreviewLoading] = useState(false);
-  const [scopePreview, setScopePreview] = useState<DataScopePreview | null>(null);
-  const [scopePreviewErr, setScopePreviewErr] = useState<string | null>(null);
-  const [scopeForm, setScopeForm] = useState<ScopeFormState>(defaultScopeForm);
-
-  const [ragUsers, setRagUsers] = useState<User[]>([]);
-  const [ragUserId, setRagUserId] = useState("");
-  const [ragUserFilter, setRagUserFilter] = useState("");
-  const [ragLookupUsername, setRagLookupUsername] = useState("");
-  const [ragLookupFullName, setRagLookupFullName] = useState("");
-  const [ragResolvedDisplay, setRagResolvedDisplay] = useState<string | null>(null);
-  const [ragLookupLoading, setRagLookupLoading] = useState(false);
+  const [scopeForm, setScopeForm] = useState<ScopeFormState>(defaultScopeForm());
 
   const [provinceAliases, setProvinceAliases] = useState<ProvinceAlias[]>([]);
   const [provinceAliasLoading, setProvinceAliasLoading] = useState(false);
@@ -118,34 +99,9 @@ export function useDataScopeTab(options: UseDataScopeTabOptions = {}) {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const list = await fetchUsers(undefined, undefined, 0, 200);
-        if (!cancelled) setRagUsers(list);
-      } catch {
-        if (!cancelled) setRagUsers([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
     void loadScopePolicies();
     void loadProvinceAliases();
   }, [loadScopePolicies, loadProvinceAliases, refreshTick]);
-
-  const ragUsersFiltered = useMemo(() => {
-    const q = ragUserFilter.trim().toLowerCase();
-    if (!q) return ragUsers;
-    return ragUsers.filter((u) => {
-      const un = (u.username || "").toLowerCase();
-      const fn = (u.full_name || "").toLowerCase();
-      return un.includes(q) || fn.includes(q);
-    });
-  }, [ragUsers, ragUserFilter]);
 
   const filteredSortedScopePolicies = useMemo(() => {
     const q = scopeQuery.trim().toLowerCase();
@@ -209,51 +165,6 @@ export function useDataScopeTab(options: UseDataScopeTabOptions = {}) {
     setEditingPolicyId(null);
     setScopeForm(defaultScopeForm());
   }, []);
-
-  const handleLookupUserByName = async () => {
-    setScopePreviewErr(null);
-    const u = ragLookupUsername.trim();
-    const f = ragLookupFullName.trim();
-    if (!u && !f) {
-      setScopePreviewErr("请至少填写工号（username）或姓名（full_name）之一");
-      return;
-    }
-    setRagLookupLoading(true);
-    try {
-      const hit = await lookupAdminUserForRag({
-        username: u || undefined,
-        full_name: f || undefined,
-      });
-      setRagUserId(String(hit.id));
-      setRagResolvedDisplay(
-        `${hit.username}${hit.full_name ? ` · ${hit.full_name}` : ""}`
-      );
-      setRagLookupUsername(hit.username);
-      setRagLookupFullName(hit.full_name ?? "");
-    } catch (e) {
-      setScopePreviewErr(e instanceof Error ? e.message : "查找失败");
-    } finally {
-      setRagLookupLoading(false);
-    }
-  };
-
-  const runScopePreview = async () => {
-    setScopePreviewErr(null);
-    const id = Number(ragUserId);
-    if (!Number.isFinite(id) || id < 1) {
-      setScopePreviewErr("请从列表选择用户，或先用工号/姓名查找");
-      return;
-    }
-    setScopePreviewLoading(true);
-    try {
-      setScopePreview(await previewScopeForUser(id));
-    } catch (err) {
-      setScopePreview(null);
-      setScopePreviewErr(err instanceof Error ? err.message : "预览失败");
-    } finally {
-      setScopePreviewLoading(false);
-    }
-  };
 
   const resetProvinceAliasEditor = useCallback(() => {
     setEditingProvinceAliasId(null);
@@ -388,10 +299,6 @@ export function useDataScopeTab(options: UseDataScopeTabOptions = {}) {
     toggleSelectFiltered,
     applyBulkEnabled,
     loadScopePolicies,
-    scopePreviewLoading,
-    scopePreview,
-    scopePreviewErr,
-    setScopePreviewErr,
     scopeForm,
     setScopeForm,
     openNewPolicy,
@@ -399,21 +306,6 @@ export function useDataScopeTab(options: UseDataScopeTabOptions = {}) {
     savePolicy,
     deletePolicy,
     closeEditor,
-    runScopePreview,
-    ragUsers,
-    ragUserId,
-    setRagUserId,
-    ragUserFilter,
-    setRagUserFilter,
-    ragUsersFiltered,
-    ragLookupUsername,
-    setRagLookupUsername,
-    ragLookupFullName,
-    setRagLookupFullName,
-    ragResolvedDisplay,
-    setRagResolvedDisplay,
-    ragLookupLoading,
-    handleLookupUserByName,
     provinceAliases,
     provinceAliasLoading,
     provinceAliasSaving,

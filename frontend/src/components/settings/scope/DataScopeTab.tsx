@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 import { useDataScopeTab } from "@/hooks/useDataScopeTab";
 import { ProvinceAliasSection } from "@/components/settings/scope/ProvinceAliasSection";
 import { ScopePolicyEditor } from "@/components/settings/scope/ScopePolicyEditor";
 import { ScopePolicyList } from "@/components/settings/scope/ScopePolicyList";
-import { ScopePreviewPanel } from "@/components/settings/scope/ScopePreviewPanel";
 
 type Props = {
   refreshTick?: number;
@@ -13,6 +13,26 @@ type Props = {
 
 export function DataScopeTab({ refreshTick = 0 }: Props) {
   const tab = useDataScopeTab({ refreshTick });
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+
+  useEffect(() => {
+    if (!tab.showScopeEditor) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [tab.showScopeEditor]);
+
+  useEffect(() => {
+    if (!tab.showScopeEditor) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") tabRef.current.closeEditor();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tab.showScopeEditor]);
 
   return (
     <>
@@ -43,11 +63,32 @@ export function DataScopeTab({ refreshTick = 0 }: Props) {
       <div className="grid gap-5 lg:grid-cols-[1fr_360px] mb-8">
         <ScopePolicyList tab={tab} />
         <div className="space-y-5 lg:sticky lg:top-6 self-start max-h-[calc(100vh-2rem)] mb-safe overflow-y-auto pr-1">
-          <ScopePreviewPanel tab={tab} />
           <ProvinceAliasSection tab={tab} />
-          {tab.showScopeEditor && <ScopePolicyEditor tab={tab} />}
         </div>
       </div>
+
+      {tab.showScopeEditor ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="presentation"
+        >
+          <button
+            type="button"
+            aria-label="关闭编辑"
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={tab.closeEditor}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="scope-policy-editor-title"
+            className="relative z-10 w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl border border-app-border bg-app-surface shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ScopePolicyEditor tab={tab} variant="modal" />
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }
