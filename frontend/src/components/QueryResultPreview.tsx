@@ -32,7 +32,7 @@ export const QueryResultPreview = memo(function QueryResultPreview({
           <AlertCircle size={14} className="text-amber-600 dark:text-amber-400" />
         </div>
         <div className="space-y-1">
-          <p className="font-bold uppercase tracking-tight text-[10px] text-amber-600 dark:text-amber-400">Notice</p>
+          <p className="font-bold tracking-tight text-[10px] text-amber-600 dark:text-amber-400">提示</p>
           <p className="leading-relaxed opacity-90">
             当前为 <span className="font-bold">{sqlType.toUpperCase()}</span> 模式：服务端暂不支持自动执行，请手动运行生成的 SQL。
           </p>
@@ -48,7 +48,7 @@ export const QueryResultPreview = memo(function QueryResultPreview({
           <AlertCircle size={14} />
         </div>
         <div className="min-w-0 flex-1 space-y-2">
-          <p className="font-bold uppercase tracking-tight text-[10px]">Execution Failed</p>
+          <p className="font-bold tracking-tight text-[10px]">执行失败</p>
           <div className="bg-destructive/10 rounded-lg p-3 border border-destructive/10">
             <pre className="whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed opacity-90">
               {execError}
@@ -78,15 +78,15 @@ export const QueryResultPreview = memo(function QueryResultPreview({
             <div className="w-5 h-5 rounded-full bg-green-500/10 flex items-center justify-center">
               <CheckCircle2 size={12} className="text-green-600 dark:text-green-400" />
             </div>
-            <span className="text-xs font-bold uppercase tracking-tight text-muted-foreground">Query Result</span>
+            <span className="text-xs font-bold tracking-tight text-muted-foreground">查询结果</span>
             <span className="text-[10px] font-medium text-muted-foreground/60 ml-2">
-              {rows.length} {truncated ? "of many " : ""}rows returned
+              {rows.length} 行{truncated ? "（仅展示部分）" : ""}
             </span>
           </div>
           {truncated && (
-            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 text-[10px] font-bold text-amber-600 dark:text-amber-400 tracking-wide">
               <Info size={10} />
-              Truncated
+              已截断
             </div>
           )}
         </div>
@@ -94,7 +94,7 @@ export const QueryResultPreview = memo(function QueryResultPreview({
         {rows.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-10 text-muted-foreground gap-2">
             <Table2 size={24} className="opacity-20" />
-            <p className="text-xs font-medium italic">Empty result set</p>
+            <p className="text-xs font-medium italic">无数据</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -104,7 +104,7 @@ export const QueryResultPreview = memo(function QueryResultPreview({
                   {columns.map((c) => (
                     <th
                       key={c}
-                      className="px-4 py-2.5 text-[10px] font-bold text-muted-foreground uppercase tracking-wider border-b whitespace-nowrap"
+                      className="px-4 py-2.5 text-[10px] font-bold text-muted-foreground tracking-wide border-b whitespace-nowrap"
                     >
                       {c}
                     </th>
