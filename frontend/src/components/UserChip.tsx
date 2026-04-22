@@ -1,6 +1,7 @@
 "use client";
 
 import { LogOut, MapPin, Shield } from "lucide-react";
+import Image from "next/image";
 import { useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { uploadAvatar } from "@/lib/api";
@@ -25,11 +26,6 @@ const AVATAR_CLASS: Record<string, string> = {
   area_manager:       "bg-teal-100    dark:bg-teal-900/40    text-teal-700   dark:text-teal-300   border-teal-200   dark:border-teal-700/50",
   staff:              "bg-gray-100    dark:bg-gray-800       text-gray-600   dark:text-gray-300   border-gray-200   dark:border-gray-600/50",
 };
-
-function trimOrDash(value: string | null | undefined): string {
-  const t = typeof value === "string" ? value.trim() : "";
-  return t || "—";
-}
 
 /** 格式化显示组织与职级 */
 function OrgBadges({ user, label, avatarClass }: { 
@@ -108,7 +104,14 @@ export function UserChip() {
         {uploading ? (
           <span className="text-[10px]">…</span>
         ) : user.avatar_data ? (
-          <img src={user.avatar_data} alt="avatar" className="w-full h-full object-cover" />
+          <Image
+            src={user.avatar_data}
+            alt="avatar"
+            width={36}
+            height={36}
+            unoptimized
+            className="w-full h-full object-cover"
+          />
         ) : (
           avatarChar
         )}

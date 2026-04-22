@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2, Send, Sparkles, Square, Trash2 } from "lucide-react";
+import Image from "next/image";
 import {
   memo,
   useCallback,
@@ -72,7 +73,6 @@ const WELCOME_GROUP_STORAGE_KEY = "datepgv_welcome_group";
 
 function pickWelcomeGroupIndex(userId: number | undefined): number {
   const n = DEFAULT_WELCOME_GROUPS.length;
-  if (n === 0) return 0;
   if (userId != null && Number.isFinite(userId)) {
     let h = 0;
     for (const ch of String(Math.trunc(userId))) {
@@ -261,7 +261,13 @@ const MessageList = memo(function MessageList({
       {messages.length === 0 && !loadingHistory && (
         <div className="flex flex-col items-center justify-center h-full gap-8 text-center max-w-2xl mx-auto px-2">
           <div className="w-20 h-20 rounded-3xl bg-white flex items-center justify-center shadow-inner border border-primary/20 animate-in zoom-in duration-500 overflow-hidden p-1">
-            <img src="/sunnyou-logo.png" alt="Sunnyou" className="w-full h-full object-contain" />
+            <Image
+              src="/sunnyou-logo.png"
+              alt="Sunnyou"
+              width={72}
+              height={72}
+              className="w-full h-full object-contain"
+            />
           </div>
           <div className="space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text">
@@ -356,10 +362,25 @@ const MessageList = memo(function MessageList({
           )}>
             {msg.role === "user" ? (
               userAvatarData
-                ? <img src={userAvatarData} alt="avatar" className="w-full h-full object-cover" />
+                ? (
+                    <Image
+                      src={userAvatarData}
+                      alt="avatar"
+                      width={48}
+                      height={48}
+                      unoptimized
+                      className="w-full h-full object-cover"
+                    />
+                  )
                 : <span className="text-xs font-bold">U</span>
             ) : (
-              <img src="/sunnyou-logo.png" alt="AI" className="w-full h-full object-contain" />
+              <Image
+                src="/sunnyou-logo.png"
+                alt="AI"
+                width={48}
+                height={48}
+                className="w-full h-full object-contain"
+              />
             )}
           </div>
 
@@ -1117,7 +1138,7 @@ export function ChatBox({
 
   const handleRetryLast = useCallback((assistantMsgId: string) => {
     if (inFlightRef.current) return;
-    let retryQuery: string | null = null;
+    let retryQuery = "";
     flushSync(() => {
       setMessages((prev) => {
         const idx = prev.findIndex((m) => m.id === assistantMsgId);
@@ -1138,7 +1159,7 @@ export function ChatBox({
         return prev;
       });
     });
-    if (retryQuery != null && retryQuery.trim() !== "") {
+    if (retryQuery.trim() !== "") {
       sendRef.current(retryQuery);
     }
   }, []);

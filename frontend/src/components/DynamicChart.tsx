@@ -15,7 +15,7 @@ export interface ChartConfig {
 interface DynamicChartProps {
   config: ChartConfig;
   columns?: string[];
-  rows?: any[][];
+  rows?: Array<Record<string, unknown>>;
 }
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
@@ -40,14 +40,10 @@ export function DynamicChart({ config, columns, rows }: DynamicChartProps) {
     // rows is already an array of objects { col1: val1, col2: val2 }
     return rows;
   }, [columns, rows]);
-
-  if (!data || data.length === 0) {
-    return null;
-  }
   const { chart_type, x_axis_col, y_axis_col, y_axis_cols, title } = config;
 
   const yColsFromConfig = useMemo(() => {
-    let rawCols: any[] = [];
+    let rawCols: unknown[] = [];
     if (y_axis_cols && Array.isArray(y_axis_cols) && y_axis_cols.length > 0) {
       rawCols = y_axis_cols;
     } else if (y_axis_col) {
@@ -55,10 +51,12 @@ export function DynamicChart({ config, columns, rows }: DynamicChartProps) {
     }
     
     // Ensure all dataKeys are strings and unique
-    return Array.from(new Set(rawCols.map(c => {
+    return Array.from(new Set(rawCols.map((c) => {
       if (typeof c === 'string') return c;
       if (typeof c === 'object' && c !== null) {
-        return c.col_name || c.alias || c.name || JSON.stringify(c);
+        const obj = c as Record<string, unknown>;
+        const candidate = obj.col_name ?? obj.alias ?? obj.name;
+        return typeof candidate === "string" ? candidate : JSON.stringify(c);
       }
       return String(c);
     })));
@@ -85,7 +83,7 @@ export function DynamicChart({ config, columns, rows }: DynamicChartProps) {
 
     if (groupCol) {
       const yValCol = yColsFromConfig[0];
-      const map = new Map<any, any>();
+      const map = new Map<string, Record<string, unknown>>();
       const valueKeys = new Set<string>();
       
       rows.forEach(row => {
@@ -101,22 +99,24 @@ export function DynamicChart({ config, columns, rows }: DynamicChartProps) {
         const pivotKey = String(groupVal || 'Unknown');
         valueKeys.add(pivotKey);
         
-        if (!map.has(xVal)) {
-          map.set(xVal, { [x_axis_col]: xVal });
+        const xKey = String(xVal);
+        if (!map.has(xKey)) {
+          map.set(xKey, { [x_axis_col]: xVal });
         }
-        const obj = map.get(xVal);
-        obj[pivotKey] = yVal; // assigning pivot
+        const obj = map.get(xKey);
+        if (obj) obj[pivotKey] = yVal; // assigning pivot
       });
       
       processedRows = Array.from(map.values());
       computedYCols = Array.from(valueKeys);
     } else {
       // Ensure numerical parsing if passing directly
-      processedRows = rows.map(r => {
+      processedRows = rows.map((r) => {
         const copy = { ...r };
-        computedYCols.forEach(yc => {
-          if (typeof copy[yc] === 'string' && !isNaN(Number(copy[yc]))) {
-            copy[yc] = Number(copy[yc]);
+        computedYCols.forEach((yc) => {
+          const value = copy[yc];
+          if (typeof value === 'string' && !isNaN(Number(value))) {
+            copy[yc] = Number(value);
           }
         });
         return copy;
@@ -124,8 +124,8 @@ export function DynamicChart({ config, columns, rows }: DynamicChartProps) {
     }
 
     // Fill missing values with 0 to prevent line breaks in the chart
-    processedRows.forEach(row => {
-      computedYCols.forEach(yc => {
+    processedRows.forEach((row) => {
+      computedYCols.forEach((yc) => {
         if (row[yc] === undefined || row[yc] === null) {
           row[yc] = 0;
         }
@@ -136,7 +136,7 @@ export function DynamicChart({ config, columns, rows }: DynamicChartProps) {
   }, [rows, columns, x_axis_col, yColsFromConfig]);
 
   // Protect against misspelled keys making everything fail silently
-  if (!chart_type || !x_axis_col || finalYCols.length === 0) {
+  if (!data || data.length === 0 || !chart_type || !x_axis_col || finalYCols.length === 0) {
     return null;
   }
 
@@ -160,9 +160,9 @@ export function DynamicChart({ config, columns, rows }: DynamicChartProps) {
                 cy="50%"
                 outerRadius={100}
                 fill="#3b82f6"
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                label={({ name, percent }) => `${String(name)} ${(((percent ?? 0) as number) * 100).toFixed(0)}%`}
               >
-                {displayData.map((entry: any, index: number) => (
+                {displayData.map((_, index: number) => (
                   <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
@@ -183,7 +183,7 @@ export function DynamicChart({ config, columns, rows }: DynamicChartProps) {
                 axisLine={false}
               />
               <Tooltip 
-                formatter={(val: any) => formatNumber(val)}
+                formatter={(val: string | number) => formatNumber(val)}
                 labelStyle={{ color: 'var(--foreground)' }}
                 contentStyle={{ borderRadius: '12px', border: '1px solid var(--border)', backgroundColor: 'var(--background)' }}
                 cursor={{ fill: 'currentColor', opacity: 0.05 }}
@@ -209,7 +209,7 @@ export function DynamicChart({ config, columns, rows }: DynamicChartProps) {
                 axisLine={false}
               />
               <Tooltip 
-                formatter={(val: any) => formatNumber(val)}
+                formatter={(val: string | number) => formatNumber(val)}
                 labelStyle={{ color: 'var(--foreground)' }}
                 contentStyle={{ borderRadius: '12px', border: '1px solid var(--border)', backgroundColor: 'var(--background)' }}
               />

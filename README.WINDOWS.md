@@ -162,4 +162,41 @@ docker compose up -d
 - **端口占用**: 若改了 FastAPI 端口，请同步修改 `frontend/next.config.js` 中的代理地址或设置环境变量 `BACKEND_URL`。
 - **虚拟环境激活失败**: 检查是否使用了 PowerShell（可能需要执行策略设置 `Set-ExecutionPolicy RemoteSigned`），或改用 `cmd` 运行批处理。
 - **无法连接数据库**: 核对 `.env` 中的 `DATABASE_URL` 是否与 PostgreSQL 实际配置一致，确认 `pgvector` 已启用。
+- **`ModuleNotFoundError: No module named 'encodings'`**: 常见于系统 `PYTHONHOME`/`PYTHONPATH` 被污染或 Python 安装损坏。新版一键脚本会自动清理这两个变量并优先使用 `py -3`；若仍失败，请重装 Python（官方安装包）后重试。
+
+### 9. Win10 一键运行（生产模式）
+
+如果你希望给 Windows 用户一个“解压后双击就能跑”的版本，使用仓库根目录新增脚本：
+
+- `run_win10_oneclick.bat`：自动检查 Python/Node、初始化后端虚拟环境、安装依赖、构建前端，并启动前后端（生产模式）；若缺少 `backend\.env`，优先从根目录 `.env` 复制。
+- `run_win10_onclick.bat`：兼容入口（会转调 `run_win10_oneclick.bat`，用于避免文件名拼写差异）。
+- `package_win10.bat`：生成分发包目录和 zip，输出到 `dist/datepgv-win10-oneclick` 与 `dist/datepgv-win10-oneclick.zip`；打包时优先封装根目录 `.env`（同时保留 `.env.example` 作为模板）。
+
+推荐流程：
+
+1. 在开发机根目录运行：
+
+```bat
+package_win10.bat
+```
+
+2. 把 `dist/datepgv-win10-oneclick.zip` 发给 Windows 10 用户。
+3. 用户解压后，双击：
+
+```bat
+run_win10_oneclick.bat
+```
+
+首次运行会安装依赖并构建前端，耗时较长；后续启动会明显更快。
+
+#### 如果你在 macOS 上打包给 Windows 用户
+
+`.bat` 无法在 macOS 直接执行。可在仓库根目录运行：
+
+```bash
+chmod +x package_win10_on_mac.sh
+./package_win10_on_mac.sh
+```
+
+然后把生成的 `dist/datepgv-win10-oneclick.zip` 发给 Win10 用户，用户在 Windows 解压后双击 `run_win10_oneclick.bat`（或 `run_win10_onclick.bat`）即可（包内已优先带 `.env`）。
 

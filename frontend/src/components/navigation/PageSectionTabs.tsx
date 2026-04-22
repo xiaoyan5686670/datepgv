@@ -1,12 +1,13 @@
 "use client";
 
+import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type TabItem<T extends string> = {
   key: T;
   label: string;
   shortLabel?: string;
-  icon?: React.ComponentType<{ size?: number }>;
+  icon?: LucideIcon;
 };
 
 interface PageSectionTabsProps<T extends string> {

@@ -6,7 +6,8 @@ asyncpg==0.30.0
 aiomysql==0.2.0
 PyMySQL>=1.1.0,<2
 pgvector==0.3.6
-pydantic==2.10.3
+# litellm 1.83.9 pins pydantic==2.12.5; keep in sync to avoid resolver conflicts
+pydantic==2.12.5
 pydantic-settings==2.6.1
 python-dotenv==1.0.1
 python-multipart==0.0.20

@@ -1,5 +1,6 @@
 "use client";
 
+import type { LucideIcon } from "lucide-react";
 import { Database, Settings, Table, Users } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
@@ -7,7 +8,7 @@ import { cn } from "@/lib/utils";
 
 type NavKey = "home" | "users" | "admin" | "settings";
 
-const NAV_ITEMS: Array<{ key: NavKey; href: string; label: string; icon: React.ComponentType<{ size?: number }> }> = [
+const NAV_ITEMS: Array<{ key: NavKey; href: string; label: string; icon: LucideIcon }> = [
   { key: "home", href: "/", label: "首页", icon: Database },
   { key: "users", href: "/users", label: "用户", icon: Users },
   { key: "admin", href: "/admin", label: "管理", icon: Table },
