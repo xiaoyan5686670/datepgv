@@ -53,7 +53,7 @@ call win10-release\Deploy-03-Database.bat
 
 ## URLs after start
 
-- App: <http://localhost:3000>
+- App: <http://localhost:3000> (LAN: `http://<this-host-ip>:3000` — see troubleshooting if it does not load)
 - OpenAPI: <http://localhost:8000/docs>
 - Health: <http://127.0.0.1:8000/health>
 
@@ -81,3 +81,4 @@ On Windows you can also run **`Publish-Win10-Artifact.bat`** at the repo root if
 - **Restore errors**: Postgres running? `DATABASE_URL` correct? `vector` extension created?
 - **Backend never healthy**: read the `datepgv-backend` window; verify DB restore and env.
 - **Broken frontend**: run `Deploy-02-Frontend.bat` so `frontend\.next` exists.
+- **Cannot open `http://<ip>:3000` from another machine**: (1) Ensure the `datepgv-frontend` window is running. (2) `npm run start` / `npm run dev` bind **`0.0.0.0:3000`**; on the **frontend host**, `netstat -an | findstr ":3000"` should show `0.0.0.0:3000` `LISTENING`. (3) **Windows Firewall**: add an inbound allow rule for **Node.js** or **TCP port 3000** (only on trusted networks). (4) Confirm the IP is the NIC of the machine running Next.js and the client can route to it.

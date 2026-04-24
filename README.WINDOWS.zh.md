@@ -54,7 +54,7 @@ call win10-release\Deploy-03-Database.bat
 
 ## 启动后访问
 
-- 前端：<http://localhost:3000>
+- 前端：<http://localhost:3000>（局域网可用 `http://本机IP:3000`，见下方「无法通过 IP 访问」）
 - API 文档：<http://localhost:8000/docs>
 - 健康检查：<http://127.0.0.1:8000/health>
 
@@ -82,3 +82,4 @@ Windows 上也可双击根目录 **`Publish-Win10-Artifact.bat`**（若已添加
 - **还原失败**：确认 PostgreSQL 已启动、`DATABASE_URL` 正确、已安装 `vector` 扩展。
 - **后端无响应**：查看 `datepgv-backend` 窗口日志；确认库已还原且 `.env` 中 `DATABASE_URL` 与库一致。
 - **前端 404/白屏**：先执行 `Deploy-02-Frontend.bat` 生成 `frontend\.next`。
+- **无法通过局域网 IP 访问 `http://x.x.x.x:3000`**：（1）确认 **`datepgv-frontend` 窗口已启动**且无报错。（2）`npm run start` / `npm run dev` 已配置为监听 **`0.0.0.0:3000`**；在**运行前端的机器**上执行 `netstat -an | findstr ":3000"`，应看到 `0.0.0.0:3000` 为 `LISTENING`。（3）**Windows 防火墙**：若本机 IP 从其他电脑打不开，在「高级安全 Windows Defender 防火墙」中为 **入站规则** 放行 **Node.js** 或 **TCP 3000**（仅可信内网时配置）。（4）确认浏览器里的 IP 是**跑前端的这台机器**的网卡地址，且与客户端在同一网段/路由可达。
