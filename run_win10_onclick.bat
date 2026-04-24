@@ -1,5 +1,10 @@
 @echo off
-setlocal
+setlocal EnableExtensions
 cd /d "%~dp0"
-call "%~dp0run_win10_oneclick.bat"
+echo.
+echo [DEPRECATED] run_win10_onclick.bat — use win10-release\Deploy-All.bat then Start-Services.bat
+echo See README.WINDOWS.zh.md
+echo.
+pause
 endlocal
+exit /b 1

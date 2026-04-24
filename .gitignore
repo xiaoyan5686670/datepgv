@@ -144,6 +144,7 @@ celerybeat.pid
 .env
 .envrc
 .venv
+backend/.tmp_req_check/
 env/
 venv/
 ENV/

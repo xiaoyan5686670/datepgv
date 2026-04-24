@@ -1,0 +1,2 @@
+# Windows CMD requires CRLF in batch files; macOS/Linux editors often save LF only.
+*.bat text eol=crlf

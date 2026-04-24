@@ -1,8 +1,39 @@
+from __future__ import annotations
+
 import os
+import sys
 from pathlib import Path
 from typing import Literal
+from urllib.parse import quote, urlparse, urlunparse
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def normalize_postgres_localhost_host_on_windows(url: str) -> str:
+    """On Windows, ``localhost`` often resolves to ``::1`` while PostgreSQL may listen on IPv4 only.
+
+    pgAdmin may use ``127.0.0.1`` explicitly and work; asyncpg/SQLAlchemy using ``localhost`` can get WinError 1225.
+    """
+    url = (url or "").strip()
+    if not url or sys.platform != "win32":
+        return url
+    lower = url.lower()
+    if not (lower.startswith("postgresql://") or lower.startswith("postgresql+asyncpg://")):
+        return url
+    u = urlparse(url)
+    if (u.hostname or "").lower() != "localhost":
+        return url
+    auth = ""
+    if u.username is not None:
+        uq = quote(u.username, safe="")
+        if u.password is not None:
+            auth = f"{uq}:{quote(u.password, safe='')}@"
+        else:
+            auth = f"{uq}@"
+    port = f":{u.port}" if u.port else ""
+    netloc = f"{auth}127.0.0.1{port}"
+    return urlunparse((u.scheme, netloc, u.path, "", u.query, ""))
 
 
 class Settings(BaseSettings):
@@ -96,6 +127,21 @@ class Settings(BaseSettings):
     SCOPE_POLICY_CSV_FALLBACK_ENABLED: bool = False
     # Bootstrap baseline scope policies from existing users profile fields.
     SCOPE_POLICY_AUTO_BACKFILL_ON_STARTUP: bool = True
+
+    @model_validator(mode="after")
+    def _normalize_pg_localhost_on_windows(self) -> Settings:
+        object.__setattr__(
+            self,
+            "DATABASE_URL",
+            normalize_postgres_localhost_host_on_windows(self.DATABASE_URL),
+        )
+        if self.ANALYTICS_POSTGRES_URL:
+            object.__setattr__(
+                self,
+                "ANALYTICS_POSTGRES_URL",
+                normalize_postgres_localhost_host_on_windows(str(self.ANALYTICS_POSTGRES_URL).strip()),
+            )
+        return self
 
     def effective_analytics_postgres_url(self) -> str | None:
         """Sync postgres DSN for asyncpg execute; explicit override or derived from DATABASE_URL."""

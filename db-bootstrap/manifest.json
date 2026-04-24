@@ -1,0 +1,29 @@
+{
+  "generated_at_utc": "2026-04-24T03:42:21.828854+00:00",
+  "source_database": {
+    "host": "localhost",
+    "port": 5433,
+    "database": "datepgv",
+    "user": "datepgv"
+  },
+  "schema_file": "schema.sql",
+  "data_file": "bootstrap_data.sql",
+  "included_tables": [
+    "users",
+    "roles",
+    "user_roles",
+    "data_scope_policies",
+    "province_aliases",
+    "analytics_db_connections",
+    "llm_configs",
+    "table_metadata",
+    "table_metadata_edges",
+    "analytics_db_settings"
+  ],
+  "excluded_hints": [
+    "chat_sessions",
+    "chat_messages",
+    "login_audit",
+    "rag_chunks"
+  ]
+}

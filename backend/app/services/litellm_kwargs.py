@@ -337,5 +337,9 @@ def build_embedding_kwargs(cfg: LiteLLMConfigParams) -> dict:
             _assert_bailian_v3_v4_dimension(
                 kw["model"], embedding_target_dimensions(cfg)
             )
+        # DashScope OpenAI-compatible /embeddings only accepts encoding_format in
+        # {"float", "base64"}. Force a safe value to avoid 400 on dirty configs.
+        enc = str((extra.get("encoding_format") or "")).strip().lower()
+        kw["encoding_format"] = enc if enc in {"float", "base64"} else "float"
         kw["drop_params"] = True
     return kw

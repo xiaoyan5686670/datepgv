@@ -1,202 +1,83 @@
-## 在 Windows 10/11 上运行 datepgv
+# datepgv on Windows 10
 
-本指南适用于希望在 Windows 10/11 本机上运行本项目（Next.js 前端 + FastAPI 后端）的场景，默认通过浏览器访问 `http://localhost:3000`。
+Chinese version: [README.WINDOWS.zh.md](README.WINDOWS.zh.md).
 
-### 1. 必备软件
+Full copies of the same scripts also live in [docs/WIN10_RELEASE_CODE.md](docs/WIN10_RELEASE_CODE.md) for audit/recovery.
 
-- **Python**: 3.11 或更新版本（安装时勾选 “Add Python to PATH”）
-- **Node.js**: LTS 版本（推荐 18 或 20）
-- **Git**: 用于克隆/更新仓库（可选）
-- **PostgreSQL**: 14+，并启用 `pgvector` 扩展
-- （可选）**Docker Desktop for Windows**: 若希望使用 `docker compose` 简化环境
+## Stack
 
-### 2. 克隆或拷贝代码
+Next.js frontend, FastAPI backend, PostgreSQL. **Schema and seed data** ship as `pg_dump` artifacts under `db-bootstrap/` (`schema.sql`, `bootstrap_data.sql`), not hand-maintained `init-db` SQL chains.
 
-将本仓库放到本机某个目录，例如：
+## Target machine prerequisites
 
-```text
-C:\dev\datepgv
-```
-
-以下命令均假设当前目录为仓库根目录。
-
-```powershell
-cd C:\dev\datepgv
-```
-
-### 3. 配置 PostgreSQL + pgvector
-
-1. 安装 PostgreSQL（可用官方安装包）。
-2. 创建数据库（名称可自定义，例如 `datepgv`）。
-3. 在目标数据库中启用 `pgvector` 扩展（示例）：
+1. **Python 3.11+** on PATH.
+2. **Node.js 18+** (LTS) and npm.
+3. **PostgreSQL 14+** with an app database and role. Defaults match [.env.example](.env.example) (database `datepgv`, user `datepgv`, password `datepgv123`, port `5432`).
+4. In that database:
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;
 ```
 
-4. 根据你的环境，准备好数据库连接参数（host、port、user、password、dbname）。
+5. **Configure `DATABASE_URL`**: copy `.env.example` to `.env` (or maintain `backend/.env`) and adjust host/port/password.
 
-### 4. 配置后端（FastAPI）
+## Install and run (recommended)
 
-#### 4.1 使用批处理脚本（推荐）
+Use the batch files under **`win10-release/`** (paths assume the same layout as this repo after unzip):
 
-在仓库根目录下，双击或从命令行执行：
+| Script | Purpose |
+|--------|---------|
+| `Deploy-01-Backend.bat` | Create `backend\.venv`, `pip install -r backend\requirements.txt` |
+| `Deploy-02-Frontend.bat` | `npm install` and `npm run build` in `frontend\` |
+| `Deploy-03-Database.bat` | Same as above; set **`BOOTSTRAP_SUPERUSER_EXTENSION=1`** before running if `vector` must be created by superuser (password prompt; see `BOOTSTRAP_SUPERUSER_PASSWORD` / `BOOTSTRAP_SUPERUSER_NAME`) |
+| `Deploy-All.bat` | Runs 01 → 02 → 03 in order |
+| `Start-Services.bat` | Validates config, starts backend and frontend in new windows, opens the browser |
+
+The following entry points are **deprecated stubs** (they print a message and exit with an error code): `run_win10_oneclick.bat`, `package_win10.bat`, `run_win10_onclick.bat`, and `package_win10_on_mac.sh`. Use `win10-release/`, `Publish-Win10-Artifact.bat`, or `scripts/publish_win10_artifact.py` instead.
+
+**`start_backend.bat`**: you normally do **not** run it by hand. `win10-release/Start-Services.bat` starts it in a new window for you.
+
+### Environment variables for DB restore
+
+- **`SKIP_BOOTSTRAP_DB=1`**: skip restore when running `Deploy-03-Database.bat`.
+- **`FORCE_BOOTSTRAP_DB=1`**: pass `--force` to restore (drops and recreates `public`, then loads snapshot — **destructive**).
+- **`BOOTSTRAP_SUPERUSER_EXTENSION=1`**: if `vector` is missing and the app role cannot `CREATE EXTENSION`, connect as **postgres** (or `BOOTSTRAP_SUPERUSER_NAME`) to the same host/database and prompt for the superuser password (or set `BOOTSTRAP_SUPERUSER_PASSWORD` for non-interactive use only — do not commit). The superuser URL **reuses the query string** from `DATABASE_URL` (e.g. `sslmode=require`) so SSL settings match. If the connection still drops, set **`BOOTSTRAP_SUPERUSER_DATABASE_URL`** to a full `postgresql://postgres:pass@host:port/db?...` URL (do not commit).
+
+Example (full rebuild + superuser vector):
 
 ```bat
-start_backend.bat
+set FORCE_BOOTSTRAP_DB=1
+set BOOTSTRAP_SUPERUSER_EXTENSION=1
+call win10-release\Deploy-03-Database.bat
 ```
 
-该脚本会：
+## URLs after start
 
-- 在 `backend\.venv` 中创建并激活 Python 虚拟环境（若不存在）。
-- 执行 `pip install -r backend\requirements.txt` 安装依赖。
-- 若不存在 `backend\.env` 且存在根目录 `.env.example`，会复制为 `backend\.env`（请根据实际环境修改）。
-- 切换到 `backend` 目录并启动：
+- App: <http://localhost:3000>
+- OpenAPI: <http://localhost:8000/docs>
+- Health: <http://127.0.0.1:8000/health>
+
+Stop by closing the `datepgv-backend` and `datepgv-frontend` console windows.
+
+## Build the zip artifact (dev machine)
+
+On **Windows, macOS, or Ubuntu 22.x** (Python + `pg_dump` + reachable Postgres per `DATABASE_URL`):
 
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+python3 scripts/publish_win10_artifact.py
 ```
 
-启动完成后，可访问：
+Use `--skip-export` to reuse existing `db-bootstrap/` without re-running `export_bootstrap_db.py`. Default output: `dist/datepgv-win10.zip`.
 
-- 后端 API 文档: `http://localhost:8000/docs`
+On Windows you can also run **`Publish-Win10-Artifact.bat`** at the repo root if present; it invokes the same Python entrypoint.
 
-#### 4.2 手动步骤（等价于脚本所做的事）
+## Troubleshooting
 
-```powershell
-cd C:\dev\datepgv\backend
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install -r requirements.txt
-copy ..\.env.example .env  # 然后编辑 .env，配置 DATABASE_URL 等
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-请在 `.env` 中配置正确的数据库连接，例如：
-
-```env
-DATABASE_URL=postgresql+asyncpg://datepgv:datepgv123@localhost:5432/datepgv
-```
-
-以及你选择的 LLM/Embedding 服务的 API Key（可参考 `README.md` 中 “快速开始” 小节）。
-
-### 5. 配置前端（Next.js）
-
-#### 5.1 使用批处理脚本（推荐）
-
-在仓库根目录下执行：
-
-```bat
-start_frontend.bat
-```
-
-该脚本会：
-
-- 进入 `frontend` 目录。
-- 在缺少 `node_modules` 时执行 `npm install`。
-- 启动开发服务器：
-
-```bash
-npm run dev
-```
-
-启动完成后，可访问：
-
-- 前端 Chatbot: `http://localhost:3000`
-
-#### 5.2 手动步骤
-
-```powershell
-cd C:\dev\datepgv\frontend
-npm install
-npm run dev
-```
-
-如需生产模式：
-
-```powershell
-npm run build
-npm run start
-```
-
-前端默认通过 Next 的 `/api/backend` 转发到本机 `http://127.0.0.1:8000`，一般**不必**再配 `NEXT_PUBLIC_API_URL`。若后端跑在非本机或非常规端口，可改 `frontend/next.config.js` 里的代理目标，或为 Next 进程设置 `BACKEND_URL`。
-
-### 6. 一键启动所有服务（可选）
-
-仓库根目录提供了一个总控脚本：
-
-```bat
-start_all.bat
-```
-
-它会在两个新的命令行窗口中分别启动：
-
-- 后端（调用 `start_backend.bat`）
-- 前端（调用 `start_frontend.bat`）
-
-脚本执行后，你可以直接在浏览器打开：
-
-- `http://localhost:3000`
-
-### 7. 在 Windows 上使用 Docker（可选）
-
-若你已安装 Docker Desktop for Windows，可以直接使用仓库自带的 `docker-compose.yml`：
-
-```powershell
-cd C:\dev\datepgv
-docker compose up -d
-```
-
-> 说明：当前 `docker-compose.yml` 默认假设 **PostgreSQL 在宿主机上运行**，并通过环境变量 `DATABASE_URL` 或 `POSTGRES_*` 连接。你可以：
->
-> - 在 Windows 本机安装并启动 PostgreSQL，然后设置 `.env` 中的连接信息；
-> - 或者自行扩展 `docker-compose.yml`，增加一个 `postgres` 服务，并初始化 `pgvector`。
-
-启动后，访问地址与 `README.md` 中说明相同：
-
-- 前端 Chatbot: `http://localhost:3000`
-- 后端 API 文档: `http://localhost:8000/docs`
-
-### 8. 常见问题
-
-- **端口占用**: 若改了 FastAPI 端口，请同步修改 `frontend/next.config.js` 中的代理地址或设置环境变量 `BACKEND_URL`。
-- **虚拟环境激活失败**: 检查是否使用了 PowerShell（可能需要执行策略设置 `Set-ExecutionPolicy RemoteSigned`），或改用 `cmd` 运行批处理。
-- **无法连接数据库**: 核对 `.env` 中的 `DATABASE_URL` 是否与 PostgreSQL 实际配置一致，确认 `pgvector` 已启用。
-- **`ModuleNotFoundError: No module named 'encodings'`**: 常见于系统 `PYTHONHOME`/`PYTHONPATH` 被污染或 Python 安装损坏。新版一键脚本会自动清理这两个变量并优先使用 `py -3`；若仍失败，请重装 Python（官方安装包）后重试。
-
-### 9. Win10 一键运行（生产模式）
-
-如果你希望给 Windows 用户一个“解压后双击就能跑”的版本，使用仓库根目录新增脚本：
-
-- `run_win10_oneclick.bat`：自动检查 Python/Node、初始化后端虚拟环境、安装依赖、构建前端，并启动前后端（生产模式）；若缺少 `backend\.env`，优先从根目录 `.env` 复制。
-- `run_win10_onclick.bat`：兼容入口（会转调 `run_win10_oneclick.bat`，用于避免文件名拼写差异）。
-- `package_win10.bat`：生成分发包目录和 zip，输出到 `dist/datepgv-win10-oneclick` 与 `dist/datepgv-win10-oneclick.zip`；打包时优先封装根目录 `.env`（同时保留 `.env.example` 作为模板）。
-
-推荐流程：
-
-1. 在开发机根目录运行：
-
-```bat
-package_win10.bat
-```
-
-2. 把 `dist/datepgv-win10-oneclick.zip` 发给 Windows 10 用户。
-3. 用户解压后，双击：
-
-```bat
-run_win10_oneclick.bat
-```
-
-首次运行会安装依赖并构建前端，耗时较长；后续启动会明显更快。
-
-#### 如果你在 macOS 上打包给 Windows 用户
-
-`.bat` 无法在 macOS 直接执行。可在仓库根目录运行：
-
-```bash
-chmod +x package_win10_on_mac.sh
-./package_win10_on_mac.sh
-```
-
-然后把生成的 `dist/datepgv-win10-oneclick.zip` 发给 Win10 用户，用户在 Windows 解压后双击 `run_win10_oneclick.bat`（或 `run_win10_onclick.bat`）即可（包内已优先带 `.env`）。
-
+- **Superuser connect: `connection was closed in the middle of operation`**: Often **SSL/query params mismatch** — the superuser DSN now copies `DATABASE_URL`'s query string (e.g. `sslmode=require`). Ensure `DATABASE_URL` includes the same SSL options your server expects, update `restore_bootstrap_db.py`, and retry; or set **`BOOTSTRAP_SUPERUSER_DATABASE_URL`**. Also verify the postgres password, `pg_hba.conf`, and that the **vector** extension package is installed on the server.
+- **Must be owner of extension vector**: `schema.sql` contains `COMMENT ON EXTENSION vector`, which only the extension owner or a superuser can run. The restore script now **skips** `COMMENT ON EXTENSION` statements. Update `scripts/restore_bootstrap_db.py` and re-run `Deploy-03`.
+- **`CREATE EXTENSION vector` permission denied**: If `DATABASE_URL` uses a non-superuser role, set `BOOTSTRAP_SUPERUSER_EXTENSION=1` before `Deploy-03-Database.bat` (and `FORCE_BOOTSTRAP_DB=1` if you need a full rebuild). Enter the **postgres** superuser password when prompted, or set `BOOTSTRAP_SUPERUSER_PASSWORD` for non-interactive runs only (do not commit). Override role with `BOOTSTRAP_SUPERUSER_NAME` if needed. Alternatively run once as superuser: `CREATE EXTENSION IF NOT EXISTS vector;`.
+- **Syntax error near `\` when applying `schema.sql`**: Newer `pg_dump` may emit psql-only `\restrict` / `\unrestrict` lines; `restore_bootstrap_db.py` strips them before sending SQL to the server. Update `scripts/restore_bootstrap_db.py` from the repo and re-run `Deploy-03` (with `FORCE_BOOTSTRAP_DB=1` if you need a full rebuild).
+- **`ModuleNotFoundError: asyncpg`**: Deploy scripts now **activate `backend\.venv`**, clear `PYTHONHOME` / `PYTHONPATH`, and **`pip install -r backend\requirements.txt`** before restore. If it still fails, delete `backend\.venv` and re-run `Deploy-01-Backend.bat`.
+- **Restore errors**: Postgres running? `DATABASE_URL` correct? `vector` extension created?
+- **Backend never healthy**: read the `datepgv-backend` window; verify DB restore and env.
+- **Broken frontend**: run `Deploy-02-Frontend.bat` so `frontend\.next` exists.

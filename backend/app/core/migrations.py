@@ -281,79 +281,111 @@ async def _ensure_data_scope_policy_table(conn) -> None:  # type: ignore[type-ar
 async def _backfill_scope_policies_from_users(conn) -> None:  # type: ignore[type-arg]
     if not settings.SCOPE_POLICY_AUTO_BACKFILL_ON_STARTUP:
         return
+    cols_res = await conn.execute(
+        text(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'users'
+              AND column_name IN ('province', 'org_region', 'district')
+            """
+        )
+    )
+    user_cols = {str(r[0]) for r in cols_res.fetchall()}
+
+    province_rowcount = 0
+    region_rowcount = 0
+    district_rowcount = 0
+
     # Province baseline
-    province_res = await conn.execute(
-        text(
-            """
-            INSERT INTO data_scope_policies
-              (subject_type, subject_key, dimension, allowed_values, deny_values, merge_mode, priority, enabled, note, updated_by)
-            SELECT
-              'user_id',
-              CAST(u.id AS VARCHAR),
-              'province',
-              to_jsonb(ARRAY[u.province]),
-              '[]'::jsonb,
-              'replace',
-              100,
-              TRUE,
-              'startup baseline from users profile',
-              'startup-migration'
-            FROM users u
-            WHERE COALESCE(TRIM(u.province), '') <> ''
-            ON CONFLICT (subject_type, subject_key, dimension) DO NOTHING
-            """
+    if "province" in user_cols:
+        province_res = await conn.execute(
+            text(
+                """
+                INSERT INTO data_scope_policies
+                  (subject_type, subject_key, dimension, allowed_values, deny_values, merge_mode, priority, enabled, note, updated_by)
+                SELECT
+                  'user_id',
+                  CAST(u.id AS VARCHAR),
+                  'province',
+                  to_jsonb(ARRAY[u.province]),
+                  '[]'::jsonb,
+                  'replace',
+                  100,
+                  TRUE,
+                  'startup baseline from users profile',
+                  'startup-migration'
+                FROM users u
+                WHERE COALESCE(TRIM(u.province), '') <> ''
+                ON CONFLICT (subject_type, subject_key, dimension) DO NOTHING
+                """
+            )
         )
-    )
+        province_rowcount = province_res.rowcount or 0
+    else:
+        logger.info("DB migration: users.province missing, skip province baseline backfill.")
+
     # Region baseline
-    region_res = await conn.execute(
-        text(
-            """
-            INSERT INTO data_scope_policies
-              (subject_type, subject_key, dimension, allowed_values, deny_values, merge_mode, priority, enabled, note, updated_by)
-            SELECT
-              'user_id',
-              CAST(u.id AS VARCHAR),
-              'region',
-              to_jsonb(ARRAY[u.org_region]),
-              '[]'::jsonb,
-              'replace',
-              110,
-              TRUE,
-              'startup baseline from users profile',
-              'startup-migration'
-            FROM users u
-            WHERE COALESCE(TRIM(u.org_region), '') <> ''
-            ON CONFLICT (subject_type, subject_key, dimension) DO NOTHING
-            """
+    if "org_region" in user_cols:
+        region_res = await conn.execute(
+            text(
+                """
+                INSERT INTO data_scope_policies
+                  (subject_type, subject_key, dimension, allowed_values, deny_values, merge_mode, priority, enabled, note, updated_by)
+                SELECT
+                  'user_id',
+                  CAST(u.id AS VARCHAR),
+                  'region',
+                  to_jsonb(ARRAY[u.org_region]),
+                  '[]'::jsonb,
+                  'replace',
+                  110,
+                  TRUE,
+                  'startup baseline from users profile',
+                  'startup-migration'
+                FROM users u
+                WHERE COALESCE(TRIM(u.org_region), '') <> ''
+                ON CONFLICT (subject_type, subject_key, dimension) DO NOTHING
+                """
+            )
         )
-    )
+        region_rowcount = region_res.rowcount or 0
+    else:
+        logger.info("DB migration: users.org_region missing, skip region baseline backfill.")
+
     # District baseline
-    district_res = await conn.execute(
-        text(
-            """
-            INSERT INTO data_scope_policies
-              (subject_type, subject_key, dimension, allowed_values, deny_values, merge_mode, priority, enabled, note, updated_by)
-            SELECT
-              'user_id',
-              CAST(u.id AS VARCHAR),
-              'district',
-              to_jsonb(ARRAY[u.district]),
-              '[]'::jsonb,
-              'replace',
-              120,
-              TRUE,
-              'startup baseline from users profile',
-              'startup-migration'
-            FROM users u
-            WHERE COALESCE(TRIM(u.district), '') <> ''
-            ON CONFLICT (subject_type, subject_key, dimension) DO NOTHING
-            """
+    if "district" in user_cols:
+        district_res = await conn.execute(
+            text(
+                """
+                INSERT INTO data_scope_policies
+                  (subject_type, subject_key, dimension, allowed_values, deny_values, merge_mode, priority, enabled, note, updated_by)
+                SELECT
+                  'user_id',
+                  CAST(u.id AS VARCHAR),
+                  'district',
+                  to_jsonb(ARRAY[u.district]),
+                  '[]'::jsonb,
+                  'replace',
+                  120,
+                  TRUE,
+                  'startup baseline from users profile',
+                  'startup-migration'
+                FROM users u
+                WHERE COALESCE(TRIM(u.district), '') <> ''
+                ON CONFLICT (subject_type, subject_key, dimension) DO NOTHING
+                """
+            )
         )
-    )
+        district_rowcount = district_res.rowcount or 0
+    else:
+        logger.info("DB migration: users.district missing, skip district baseline backfill.")
+
     seeded = (
-        (province_res.rowcount or 0)
-        + (region_res.rowcount or 0)
-        + (district_res.rowcount or 0)
+        province_rowcount
+        + region_rowcount
+        + district_rowcount
     )
     if seeded > 0:
         logger.info("DB migration: seeded %d baseline scope policies from users.", seeded)

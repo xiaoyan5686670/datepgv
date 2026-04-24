@@ -1,37 +1,53 @@
 @echo off
-REM Start FastAPI backend on Windows
+setlocal EnableExtensions
 
-setlocal
+set "ROOT=%~dp0"
+cd /d "%ROOT%"
+set "PYTHONHOME="
+set "PYTHONPATH="
 
-REM Change to repo root (directory of this script)
-cd /d "%~dp0"
-
-REM Create virtual environment if it does not exist
-if not exist "backend\.venv" (
-    echo [backend] Creating Python virtual environment...
-    python -m venv "backend\.venv"
+set "PYTHON_CMD="
+where py >nul 2>nul
+if not errorlevel 1 set "PYTHON_CMD=py -3"
+if not defined PYTHON_CMD (
+    where python >nul 2>nul
+    if not errorlevel 1 set "PYTHON_CMD=python"
+)
+if not defined PYTHON_CMD (
+    echo [backend] ERROR: Python not found. Install Python 3.11+ and add to PATH.
+    pause
+    exit /b 1
 )
 
-REM Activate virtual environment
-call "backend\.venv\Scripts\activate.bat"
-
-REM Install dependencies
-echo [backend] Installing Python dependencies...
-pip install -r "backend\requirements.txt"
-
-REM Copy env file if needed (expects .env.example in repo root)
-if not exist "backend\.env" (
-    if exist ".env.example" (
-        echo [backend] Creating backend\.env from .env.example. Please edit values as needed.
-        copy /Y ".env.example" "backend\.env" >nul
-    ) else (
-        echo [backend] WARNING: backend\.env not found and .env.example missing. Please create backend\.env manually.
+if not exist "%ROOT%backend\.venv" (
+    echo [backend] Creating virtual environment...
+    %PYTHON_CMD% -m venv "%ROOT%backend\.venv"
+    if errorlevel 1 (
+        echo [backend] ERROR: Failed to create venv.
+        pause
+        exit /b 1
     )
 )
 
-echo [backend] Starting FastAPI server on http://localhost:8000 ...
-cd /d "%~dp0backend"
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+call "%ROOT%backend\.venv\Scripts\activate.bat"
+if errorlevel 1 (
+    echo [backend] ERROR: Failed to activate venv.
+    pause
+    exit /b 1
+)
 
-endlocal
+echo [backend] Installing / verifying dependencies...
+python -m pip install --upgrade pip -q
+python -m pip install -r "%ROOT%backend\requirements.txt" -q
+if errorlevel 1 (
+    echo [backend] ERROR: pip install failed.
+    pause
+    exit /b 1
+)
 
+cd /d "%ROOT%backend"
+echo [backend] Starting FastAPI on http://0.0.0.0:8000 ...
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+echo [backend] Server exited.
+pause
